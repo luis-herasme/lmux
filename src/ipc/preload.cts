@@ -1,7 +1,7 @@
 // Runs with access to both worlds and exposes exactly these capabilities
 // to the sandboxed page as window.bridge; nothing else crosses the
 // boundary. The Bridge type keeps this and the renderer in sync.
-import type { Bridge, ScreenReadMessage, ShellDataMessage } from "./bridge.js";
+import type { Bridge, ScreenReadMessage, ShellDataMessage } from "./bridge.ts";
 import { contextBridge, ipcRenderer } from "electron";
 
 const bridge: Bridge = {

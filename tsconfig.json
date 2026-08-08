@@ -13,6 +13,12 @@
     "module": "nodenext",
     "target": "es2022",
 
+    // Source imports name local files by their real extension (""./foo.ts"");
+    // tsc rewrites those relative specifiers to "".js"" in emitted output so
+    // Node still runs plain ESM files on disk. Keeps the source honest without
+    // a bundler.
+    "rewriteRelativeImportExtensions": true,
+
     // The renderer needs browser types (DOM); main needs Node types.
     // One config serves both — the unneeded types are just ignored.
     "lib": ["es2022", "dom"],

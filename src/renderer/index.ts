@@ -1,14 +1,14 @@
-import { commandSchema } from "../api.js";
-import { bridge } from "./bridge.js";
-import { applyCssVariables } from "./settings.js";
+import { commandSchema } from "../api.ts";
+import { bridge } from "./bridge.ts";
+import { applyCssVariables } from "./settings.ts";
 import {
   executeCommand,
   handleShellData,
   readScreen,
   removeTab,
   restoreSession,
-} from "./tabs.js";
-import { openRenameDialog } from "./rename-dialog.js";
+} from "./tabs.ts";
+import { openRenameDialog } from "./rename-dialog.ts";
 import "./settings-dialog.js";
 import "./sidebar-resize.js";
 

@@ -1,14 +1,14 @@
 // Everything a markdown tab does: its pane, its two modes, re-reading the
 // file, and the links inside the document. The tab record itself, and the
 // store holding it, stay in tabs.ts.
-import { bridge } from "./bridge.js";
-import { renderMarkdown } from "./markdown.js";
-import { executeCommand } from "./tabs.js";
-import type { MarkdownTab, TabElements } from "./tabs.js";
-import { addPanel, snapshot } from "./workspaces.js";
-import type { Workspace } from "./workspaces.js";
-import type { MarkdownMode } from "../api.js";
-import type { ReadFileResult } from "../ipc/bridge.js";
+import { bridge } from "./bridge.ts";
+import { renderMarkdown } from "./markdown.ts";
+import { executeCommand } from "./tabs.ts";
+import type { MarkdownTab, TabElements } from "./tabs.ts";
+import { addPanel, snapshot } from "./workspaces.ts";
+import type { Workspace } from "./workspaces.ts";
+import type { MarkdownMode } from "../api.ts";
+import type { ReadFileResult } from "../ipc/bridge.ts";
 import type { DockviewGroupPanel } from "dockview";
 
 type MarkdownTextOptions = {

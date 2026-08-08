@@ -7,7 +7,7 @@ import { app } from "electron";
 
 app
   .whenReady()
-  .then(() => import("./suite.js"))
+  .then(() => import("./suite.ts"))
   .catch((error) => {
     // a boot that throws must not leave the app sitting there quietly
     console.error(error);

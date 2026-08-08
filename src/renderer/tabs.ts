@@ -1,12 +1,12 @@
-import { getSettings, currentTheme, updateSettings } from "./settings.js";
-import { bridge } from "./bridge.js";
-import { registerMarkdownLinks } from "./markdown-links.js";
+import { getSettings, currentTheme, updateSettings } from "./settings.ts";
+import { bridge } from "./bridge.ts";
+import { registerMarkdownLinks } from "./markdown-links.ts";
 import {
   openMarkdownTab,
   redrawMarkdown,
   reloadMarkdownTab,
   setMarkdownMode,
-} from "./markdown-tab.js";
+} from "./markdown-tab.ts";
 import {
   activateWorkspace,
   activeWorkspace,
@@ -19,16 +19,16 @@ import {
   setWorkspaceName,
   snapshot,
   workspaces,
-} from "./workspaces.js";
-import type { Workspace } from "./workspaces.js";
+} from "./workspaces.ts";
+import type { Workspace } from "./workspaces.ts";
 import type {
   Command,
   MarkdownMode,
   ScreenRequest,
   ScreenResult,
-} from "../api.js";
-import type { Session } from "../session.js";
-import type { ShellDataMessage } from "../ipc/bridge.js";
+} from "../api.ts";
+import type { Session } from "../session.ts";
+import type { ShellDataMessage } from "../ipc/bridge.ts";
 import type { ITheme, Terminal as XtermTerminal } from "@xterm/xterm";
 import type { FitAddon as XtermFitAddon } from "@xterm/addon-fit";
 import type { DockviewGroupPanel, IDockviewPanel } from "dockview";

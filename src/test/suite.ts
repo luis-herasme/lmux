@@ -17,9 +17,9 @@ import {
   pollUntil,
   sendCommand,
   waitForEvent,
-} from "./harness.js";
-import { lmuxState } from "../main/bus.js";
-import type { LmuxState, WorkspaceInfo } from "../api.js";
+} from "./harness.ts";
+import { lmuxState } from "../main/bus.ts";
+import type { LmuxState, WorkspaceInfo } from "../api.ts";
 
 // tsc emits no .md, so the fixture is read from source, the way main reads
 // index.html.

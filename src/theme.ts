@@ -1,6 +1,6 @@
 // The theme palettes and the default settings. Both sides import this;
 // CSS gets the values as custom properties via renderer/settings.ts.
-import type { Settings } from "./api.js";
+import type { Settings } from "./api.ts";
 
 // One complete palette: every theme defines every key, so switching can
 // never leave a color behind.

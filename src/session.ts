@@ -9,8 +9,8 @@
 // version, or half-written by a crash, must read as "no session" rather than
 // as a shape the renderer then trips over.
 import { z } from "../node_modules/zod/index.js";
-import { markdownModeSchema } from "./api.js";
-import type { LmuxState } from "./api.js";
+import { markdownModeSchema } from "./api.ts";
+import type { LmuxState } from "./api.ts";
 
 const sessionTabSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("terminal") }),

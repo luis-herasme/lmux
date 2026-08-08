@@ -3,8 +3,8 @@ import { execFile } from "child_process";
 import * as os from "os";
 import * as path from "path";
 import * as pty from "node-pty";
-import type { ShellDataMessage, ShellSizeMessage } from "../ipc/bridge.js";
-import { SOCKET_PATH } from "./mcp.js";
+import type { ShellDataMessage, ShellSizeMessage } from "../ipc/bridge.ts";
+import { SOCKET_PATH } from "./mcp.ts";
 
 const shells = new Map<number, pty.IPty>();
 

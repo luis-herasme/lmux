@@ -1,4 +1,4 @@
-import { currentTheme, getSettings } from "./settings.js";
+import { currentTheme, getSettings } from "./settings.ts";
 import DOMPurify from "../../node_modules/dompurify/dist/purify.es.mjs";
 import type MarkdownIt from "markdown-it";
 // @ts-expect-error no declaration file next to the browser bundle

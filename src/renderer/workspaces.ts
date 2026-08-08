@@ -1,14 +1,14 @@
 // One workspace = one Dockview instance = one pane layout with its own
 // tabs. Only the active one is displayed; the others keep their terminals
 // and their shells alive off screen.
-import { executeCommand, focusActiveTab } from "./tabs.js";
-import type { Tab } from "./tabs.js";
+import { executeCommand, focusActiveTab } from "./tabs.ts";
+import type { Tab } from "./tabs.ts";
 import type {
   LayoutNode,
   LmuxState,
   TabInfo,
   WorkspaceInfo,
-} from "../api.js";
+} from "../api.ts";
 import type {
   AddPanelPositionOptions,
   DockviewComponent,
@@ -16,8 +16,8 @@ import type {
   IDockviewPanel,
   SerializedDockview,
 } from "dockview";
-import { bridge } from "./bridge.js";
-import { requireElement } from "./dom.js";
+import { bridge } from "./bridge.ts";
+import { requireElement } from "./dom.ts";
 
 type SerializedGridNode = SerializedDockview["grid"]["root"];
 type SerializedGroup = Exclude<SerializedGridNode["data"], unknown[]>;

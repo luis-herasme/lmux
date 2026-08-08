@@ -1,8 +1,8 @@
 import { z } from "../../node_modules/zod/index.js";
-import { THEMES, DEFAULT_SETTINGS } from "../theme.js";
-import { requireElement } from "./dom.js";
-import type { Theme } from "../theme.js";
-import type { Settings } from "../api.js";
+import { THEMES, DEFAULT_SETTINGS } from "../theme.ts";
+import { requireElement } from "./dom.ts";
+import type { Theme } from "../theme.ts";
+import type { Settings } from "../api.ts";
 
 const STORAGE_KEY = "settings";
 

@@ -2,7 +2,7 @@
 // running.
 import { dialog } from "electron";
 import type { BrowserWindow } from "electron";
-import { runningProcessNames } from "./shells.js";
+import { runningProcessNames } from "./shells.ts";
 
 type ConfirmKillingOptions = {
   window: BrowserWindow;

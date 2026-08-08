@@ -5,8 +5,8 @@ import type {
   LmuxState,
   ScreenRequest,
   ScreenResult,
-} from "../api.js";
-import type { ScreenAnswerMessage } from "../ipc/bridge.js";
+} from "../api.ts";
+import type { ScreenAnswerMessage } from "../ipc/bridge.ts";
 
 // Whichever window is in front, or else whichever there is: an agent drives
 // lmux while the human is in another app, and then nothing on this desktop
