@@ -7,8 +7,8 @@ import * as net from "net";
 import * as path from "path";
 import { chmodSync, unlinkSync } from "fs";
 import { z } from "zod";
-import { commandSchema, screenRequestSchema } from "../api.js";
-import { lmuxState, readScreen, runCommand } from "./bus.js";
+import { commandSchema, screenRequestSchema } from "../api.ts";
+import { lmuxState, readScreen, runCommand } from "./bus.ts";
 
 // Beside session.json and window.json, in a directory macOS already keeps
 // at 0700; the chmod below is what makes that true on its own terms.

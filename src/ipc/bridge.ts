@@ -6,8 +6,8 @@ import type {
   LmuxEvent,
   ScreenRequest,
   ScreenResult,
-} from "../api.js";
-import type { Session } from "../session.js";
+} from "../api.ts";
+import type { Session } from "../session.ts";
 
 export type ShellSizeMessage = {
   id: number;

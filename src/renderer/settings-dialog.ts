@@ -1,7 +1,7 @@
-import { THEMES } from "../theme.js";
-import { getSettings } from "./settings.js";
-import { executeCommand, focusActiveTab } from "./tabs.js";
-import { requireElement } from "./dom.js";
+import { THEMES } from "../theme.ts";
+import { getSettings } from "./settings.ts";
+import { executeCommand, focusActiveTab } from "./tabs.ts";
+import { requireElement } from "./dom.ts";
 
 const dialogElement = requireElement("settings-dialog");
 if (!(dialogElement instanceof HTMLDialogElement)) {

@@ -2,8 +2,8 @@ import { ipcMain } from "electron";
 import { readFile, stat } from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import { getShellCwd } from "./shells.js";
-import type { ReadFileRequest, ReadFileResult } from "../ipc/bridge.js";
+import { getShellCwd } from "./shells.ts";
+import type { ReadFileRequest, ReadFileResult } from "../ipc/bridge.ts";
 
 const MAX_FILE_BYTES = 5_000_000; // rendering a huge file would freeze the page
 

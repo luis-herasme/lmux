@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { unlinkSync } from "fs";
 import * as path from "path";
 import { z } from "zod";
-import type { Command, LmuxEvent } from "../api.js";
+import type { Command, LmuxEvent } from "../api.ts";
 
 // A throwaway profile: a run must not read or write the settings and window
 // geometry of the app you actually use, and a fresh one starts at a known
@@ -79,7 +79,7 @@ export function waitForEvent(
 // The app rebuilds its last session at boot, so a run that left one behind
 // would hand the cases an app they did not describe. Imported dynamically
 // for the same reason main is: the path is computed from the profile above.
-const { SESSION_FILE_PATH } = await import("../main/session-state.js");
+const { SESSION_FILE_PATH } = await import("../main/session-state.ts");
 try {
   unlinkSync(SESSION_FILE_PATH);
 } catch {
@@ -88,12 +88,12 @@ try {
 
 // Dynamic, so the profile above is set before main's modules read paths off
 // it at import time (window-state.ts computes its file path that way).
-await import("../main/index.js");
+await import("../main/index.ts");
 await app.whenReady();
 
 // Dynamic for the same reason main is: the path is computed off the profile
 // set above, and a static import would be evaluated before that ran.
-const { SOCKET_PATH } = await import("../main/mcp.js");
+const { SOCKET_PATH } = await import("../main/mcp.ts");
 export const API_SOCKET_PATH = SOCKET_PATH;
 
 const openWindows = BrowserWindow.getAllWindows();

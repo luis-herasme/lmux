@@ -4,8 +4,8 @@
 import { app } from "electron";
 import { readFileSync, writeFileSync } from "fs";
 import * as path from "path";
-import { sessionSchema } from "../session.js";
-import type { Session } from "../session.js";
+import { sessionSchema } from "../session.ts";
+import type { Session } from "../session.ts";
 
 export const SESSION_FILE_PATH = path.join(
   app.getPath("userData"),

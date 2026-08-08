@@ -1,8 +1,8 @@
 // Menu items are Command sources: the renderer decides what a "tab" even is.
 import { BrowserWindow, Menu, ipcMain } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
-import { dispatch, lmuxState } from "./bus.js";
-import { confirmKilling } from "./dialogs.js";
+import { dispatch, lmuxState } from "./bus.ts";
+import { confirmKilling } from "./dialogs.ts";
 
 // Closing a workspace kills every shell in it. `id` defaults to the active
 // workspace, matching the Command.

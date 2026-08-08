@@ -1,14 +1,14 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import type { BrowserWindowConstructorOptions } from "electron";
 import * as path from "path";
-import { THEMES, DEFAULT_SETTINGS } from "../theme.js";
-import { killAllShells } from "./shells.js";
-import { savedWindowBounds, saveWindowBounds } from "./window-state.js";
-import { savedSession, saveSession } from "./session-state.js";
-import { sessionFromState } from "../session.js";
-import { confirmKilling } from "./dialogs.js";
-import { lmuxState } from "./bus.js";
-import { installAppMenu } from "./menus.js";
+import { THEMES, DEFAULT_SETTINGS } from "../theme.ts";
+import { killAllShells } from "./shells.ts";
+import { savedWindowBounds, saveWindowBounds } from "./window-state.ts";
+import { savedSession, saveSession } from "./session-state.ts";
+import { sessionFromState } from "../session.ts";
+import { confirmKilling } from "./dialogs.ts";
+import { lmuxState } from "./bus.ts";
+import { installAppMenu } from "./menus.ts";
 import "./files.js"; // registers file:read
 import "./mcp.js"; // listens on the API socket
 

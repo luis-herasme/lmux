@@ -1,6 +1,6 @@
-import { executeCommand, getTabTitle, focusActiveTab } from "./tabs.js";
-import { workspaces } from "./workspaces.js";
-import { requireElement } from "./dom.js";
+import { executeCommand, getTabTitle, focusActiveTab } from "./tabs.ts";
+import { workspaces } from "./workspaces.ts";
+import { requireElement } from "./dom.ts";
 
 const dialogElement = requireElement("rename-dialog");
 if (!(dialogElement instanceof HTMLDialogElement)) {
