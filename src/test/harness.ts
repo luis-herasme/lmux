@@ -15,8 +15,6 @@ import type { Command, LmuxEvent } from "../api.ts";
 // size with default settings.
 app.setPath("userData", path.join(app.getPath("temp"), "lmux-test-profile"));
 
-// Watching the bus
-
 const WAIT_TIMEOUT_MS = 5000;
 
 type Waiter = {
@@ -73,8 +71,6 @@ export function waitForEvent(
     waiters.push(waiter);
   });
 }
-
-// Booting the app
 
 // The app rebuilds its last session at boot, so a run that left one behind
 // would hand the cases an app they did not describe. Imported dynamically
@@ -172,8 +168,6 @@ await pollUntil({
 export function sendCommand(command: Command): void {
   lmuxWindow.webContents.send("command", command);
 }
-
-// Reporting
 
 // node:test's root suite never finishes inside Electron: it ends when the
 // event loop drains, which an app's never does. So it prints no summary and

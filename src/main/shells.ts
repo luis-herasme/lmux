@@ -106,7 +106,6 @@ export function runningProcessNames(tabIds: number[]): string[] {
   return names;
 }
 
-// closing the window leaves no orphan processes
 export function killAllShells(): void {
   for (const shell of shells.values()) {
     shell.kill();
