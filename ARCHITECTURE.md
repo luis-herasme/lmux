@@ -578,10 +578,13 @@ change it and update this list.
   sidebar, which held only the settings gear, becomes their list: one row
   per workspace carrying its whole name, the active one accented, the gear
   pushed to the bottom. The empty strip between the two opens a workspace
-  as well, on a single click: it is the sidebar's own box, nothing there is
-  draggable or selectable, so a click that lands on it can only have meant
-  the + button, which it makes as tall as the column instead of one row.
-  Names, not numbers, because the name is the
+  as well, on a double click: it is the sidebar's own box, and a click that
+  lands on it belongs to no row, so it makes the + button as tall as the
+  column instead of one row. Double, like the empty space between panes,
+  which opens a tab the same way: a single click on a stretch of background
+  is how you put focus somewhere without asking for anything, and a column
+  that opens a workspace whenever you click past the last row is a column
+  you have to aim around. Names, not numbers, because the name is the
   workspace's identity: a numbered strip made a rename invisible in the one
   place you pick a workspace from. A workspace takes its name from its
   active tab, the same relationship a tab has with its shell's OSC title

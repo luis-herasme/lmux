@@ -57,9 +57,14 @@ const VISIBLE_DOCUMENT = `(() => {
   return null;
 })()`;
 
-// A click whose target is the sidebar itself is what landing on the empty
-// strip produces, and the only thing the listener reads.
+// An event whose target is the sidebar itself is what landing on the empty
+// strip produces, and the target is the only thing the listener reads. A
+// mouse sends both of these, in this order, for one double click, and the
+// two cases below are that sequence split into the two questions it asks.
 const CLICK_SIDEBAR = `document.getElementById("sidebar").click()`;
+const DOUBLE_CLICK_SIDEBAR = `document
+  .getElementById("sidebar")
+  .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`;
 
 const rowCountsSchema = z.array(z.number().int());
 const scrollTopSchema = z.number();
@@ -412,7 +417,32 @@ const suite = describe("the command bus", () => {
   });
 
   busTest({
-    name: "the empty strip under the workspace list opens a workspace",
+    name: "a single click on the empty strip under the workspace list opens nothing",
+    body: async () => {
+      const workspaceCount = lmuxState.workspaces.length;
+      await lmuxWindow.webContents.executeJavaScript(CLICK_SIDEBAR);
+
+      // Nothing happening is not something to wait for, so the case asks the
+      // bus a question instead: Events leave the page in the order they were
+      // emitted, so a workspace this click had opened is already in the state
+      // the answer carries. An empty settings update changes nothing and says
+      // so in an Event, which is the whole reason it is the question asked.
+      const answering = waitForEvent(
+        (event) => event.type === "settings-changed",
+      );
+      sendCommand({ type: "update-settings", settings: {} });
+      const answered = await answering;
+
+      assert.equal(
+        answered.state.workspaces.length,
+        workspaceCount,
+        "a single click on the strip opened a workspace",
+      );
+    },
+  });
+
+  busTest({
+    name: "a double click on the empty strip under the workspace list opens a workspace",
     body: async () => {
       const workspaceCount = lmuxState.workspaces.length;
       const tabCount = countTabs(lmuxState);
@@ -423,13 +453,13 @@ const suite = describe("the command bus", () => {
       const opening = waitForEvent(
         (event) => countTabs(event.state) === tabCount + 1,
       );
-      await lmuxWindow.webContents.executeJavaScript(CLICK_SIDEBAR);
+      await lmuxWindow.webContents.executeJavaScript(DOUBLE_CLICK_SIDEBAR);
       const opened = await opening;
 
       assert.equal(
         opened.state.workspaces.length,
         workspaceCount + 1,
-        "the click on the strip opened a tab, not a workspace",
+        "the double click on the strip opened a tab, not a workspace",
       );
     },
   });
