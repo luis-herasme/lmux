@@ -419,9 +419,12 @@ requireElement("new-workspace-button").addEventListener("click", () => {
 
 // The empty strip under the list belongs to the sidebar itself, so a click
 // whose target is the sidebar and not one of its buttons landed there, and
-// reads as the same request the + button makes.
+// reads as the same request the + button makes. A double click, like the one
+// the empty space between panes answers to: a single click on a stretch of
+// background is how you put focus somewhere, and opening a workspace out of
+// that is more than a click that meant nothing should do.
 const sidebarElement = requireElement("sidebar");
-sidebarElement.addEventListener("click", (event) => {
+sidebarElement.addEventListener("dblclick", (event) => {
   if (event.target !== sidebarElement) {
     return;
   }

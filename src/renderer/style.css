@@ -123,9 +123,6 @@ body.resizing #layout {
   padding: 8px 0;
   background: var(--tab-bar-background);
   border-right: 1px solid var(--separator);
-  /* the empty strip under the list opens a workspace too, and nothing else
-     in here is inert, so the whole column says so */
-  cursor: pointer;
 }
 
 /* rows, not icons: everything shares the list's left edge. Sizes belong to
