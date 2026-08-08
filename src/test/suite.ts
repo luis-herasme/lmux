@@ -28,6 +28,14 @@ const FIXTURE_PATH = path.join(
   "../../src/test/fixtures/document.md",
 );
 
+// A real source file rather than a fixture: the case is about a grammar
+// recognising TypeScript, and the app's own code is the TypeScript nearest
+// to hand.
+const SOURCE_FILE_PATH = path.join(
+  import.meta.dirname,
+  "../../src/renderer/code.ts",
+);
+
 // executeJavaScript is the only way to ask the page something the bus does
 // not carry, and it takes a string: nothing typed can express a DOM read
 // across processes. Every probe skips the elements of a hidden workspace,
@@ -57,10 +65,23 @@ const VISIBLE_DOCUMENT = `(() => {
   return null;
 })()`;
 
-// An event whose target is the sidebar itself is what landing on the empty
+// A click whose target is the sidebar itself is what landing on the empty
 // strip produces, and the target is the only thing the listener reads. A
 // mouse sends both of these, in this order, for one double click, and the
 // two cases below are that sequence split into the two questions it asks.
+const VISIBLE_CODE_TOKEN_CLASSES = `(() => {
+  const classes = new Set();
+  for (const element of document.querySelectorAll(".code-editor")) {
+    if (element.offsetParent === null) {
+      continue;
+    }
+    for (const span of element.querySelectorAll(".view-line span span")) {
+      classes.add(span.className.split(" ")[0]);
+    }
+  }
+  return Array.from(classes);
+})()`;
+
 const CLICK_SIDEBAR = `document.getElementById("sidebar").click()`;
 const DOUBLE_CLICK_SIDEBAR = `document
   .getElementById("sidebar")
@@ -273,7 +294,10 @@ const screenSchema = z.object({
   kind: z.string(),
   lines: z.array(z.string()).optional(),
   alternate: z.boolean().optional(),
+  language: z.string().optional(),
 });
+
+const tokenClassSchema = z.array(z.string());
 
 const suite = describe("the command bus", () => {
   busTest({
@@ -517,6 +541,64 @@ const suite = describe("the command bus", () => {
         restored.scrollTop,
         target,
         `the reload moved the reader within a document ${restored.maximumScrollTop} tall`,
+      );
+    },
+  });
+
+  busTest({
+    name: "a code file opens in an editor, coloured by its grammar",
+    body: async () => {
+      const tabCount = countTabs(lmuxState);
+      sendCommand({
+        type: "open-file",
+        path: SOURCE_FILE_PATH,
+      });
+      const opened = await waitForEvent(
+        (event) => countTabs(event.state) === tabCount + 1,
+      );
+      if (opened.type !== "tab-opened") {
+        throw new Error(`a tab arrived as a ${opened.type}`);
+      }
+
+      assert.equal(
+        findTabTitle({
+          state: opened.state,
+          id: opened.id,
+        }),
+        "code.ts",
+        "the tab is not named for the file it shows",
+      );
+
+      // A language's grammar is imported the first time it is needed, so the
+      // first paint carries no colours at all. Asserting on that paint would
+      // pass against an editor that never highlights anything: what says the
+      // grammar arrived is the tokens being told apart, which is more than
+      // the one class an unhighlighted document uses.
+      await pollUntil({
+        check: async () => {
+          const classes = tokenClassSchema.parse(
+            await lmuxWindow.webContents.executeJavaScript(
+              VISIBLE_CODE_TOKEN_CLASSES,
+            ),
+          );
+          return classes.length > 2;
+        },
+        description: "the TypeScript grammar to colour the tokens",
+      });
+
+      const screen = screenSchema.parse(
+        await callTool({
+          name: "screen",
+          toolArguments: {
+            tabId: opened.id,
+          },
+        }),
+      );
+      assert.equal(screen.kind, "code");
+      assert.equal(
+        screen.language,
+        "typescript",
+        "the editor did not recognise a .ts file",
       );
     },
   });

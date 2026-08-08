@@ -19,6 +19,13 @@ const sessionTabSchema = z.discriminatedUnion("kind", [
     path: z.string(),
     mode: markdownModeSchema,
   }),
+  // A code tab is its path and nothing else. Not the scroll position or the
+  // cursor: both belong to a file that may have changed since, and a
+  // restored caret pointing at a line that moved is worse than none.
+  z.object({
+    kind: z.literal("code"),
+    path: z.string(),
+  }),
 ]);
 
 const sessionWorkspaceSchema = z.object({
@@ -58,6 +65,13 @@ export function sessionFromState(state: LmuxState): Session {
           kind: "markdown",
           path: tab.path,
           mode: tab.mode,
+        });
+        continue;
+      }
+      if (tab.kind === "code") {
+        tabs.push({
+          kind: "code",
+          path: tab.path,
         });
         continue;
       }

@@ -1,6 +1,8 @@
 import { getSettings, currentTheme, updateSettings } from "./settings.ts";
 import { bridge } from "./bridge.ts";
-import { registerMarkdownLinks } from "./markdown-links.ts";
+import { registerFileLinks } from "./file-links.ts";
+import { disposeCodeTab, openCodeTab } from "./code-tab.ts";
+import { refreshCodeTheme } from "./code.ts";
 import {
   openMarkdownTab,
   redrawMarkdown,
@@ -29,6 +31,7 @@ import type {
 } from "../api.ts";
 import type { Session } from "../session.ts";
 import type { ShellDataMessage } from "../ipc/bridge.ts";
+import type { editor as monacoEditor } from "monaco-editor";
 import type { ITheme, Terminal as XtermTerminal } from "@xterm/xterm";
 import type { FitAddon as XtermFitAddon } from "@xterm/addon-fit";
 import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
@@ -71,7 +74,20 @@ export type MarkdownTab = TabCommon & {
   markdown: string; // the file's text, shown raw or rendered
 };
 
-export type Tab = TerminalTab | MarkdownTab;
+type MonacoCodeEditor = monacoEditor.IStandaloneCodeEditor;
+
+// A file shown as code. `editor` is absent when the file could not be read:
+// the tab exists to say so, and has no Monaco instance behind it.
+export type CodeTab = TabCommon & {
+  kind: "code";
+  element: HTMLElement;
+  contentElement: HTMLElement; // Monaco's container, and what takes focus
+  filePath: string;
+  baseTabId: number | undefined;
+  editor: MonacoCodeEditor | undefined;
+};
+
+export type Tab = TerminalTab | MarkdownTab | CodeTab;
 
 // A resolved tab is the caller's explicit id or the active workspace's
 // active tab, when optional; every command that touches a tab resolves
@@ -306,11 +322,19 @@ function createTab({ workspace, group }: CreateTabOptions): void {
     });
   });
 
-  registerMarkdownLinks({
+  registerFileLinks({
     terminal,
-    openPath: (path) => {
+    openPath: ({ path, kind }) => {
+      if (kind === "markdown") {
+        executeCommand({
+          type: "open-markdown",
+          path,
+          baseTabId: id,
+        });
+        return;
+      }
       executeCommand({
-        type: "open-markdown",
+        type: "open-file",
         path,
         baseTabId: id,
       });
@@ -352,6 +376,50 @@ async function addMarkdownTab({
   tab.contentElement.focus();
 }
 
+type AddCodeTabOptions = {
+  workspace: Workspace;
+  filePath: string;
+  baseTabId: number | undefined;
+  group: DockviewGroupPanel | undefined;
+};
+
+// The store's half of opening a file, matching addMarkdownTab. The pane and
+// the editor are code-tab.ts's business.
+async function addCodeTab({
+  workspace,
+  filePath,
+  baseTabId,
+  group,
+}: AddCodeTabOptions): Promise<void> {
+  const id = nextId++;
+  const tab = await openCodeTab({
+    id,
+    workspace,
+    tabElements: buildTabElement(id),
+    filePath,
+    baseTabId,
+    group,
+  });
+  workspace.tabs.set(id, tab);
+  bridge.emitEvent({
+    type: "tab-opened",
+    id,
+    state: snapshot(),
+  });
+  tab.panel.api.setActive();
+  focusCodeTab(tab);
+}
+
+// Monaco takes focus through its own API: focusing the container would put
+// the caret nowhere and leave the editor unable to receive keys.
+function focusCodeTab(tab: CodeTab): void {
+  if (tab.editor === undefined) {
+    tab.contentElement.focus();
+    return;
+  }
+  tab.editor.focus();
+}
+
 export function executeCommand(command: Command): void {
   switch (command.type) {
     case "new-tab": {
@@ -379,7 +447,9 @@ export function executeCommand(command: Command): void {
       if (resolved === undefined) {
         return;
       }
-      if (resolved.tab.kind === "markdown") {
+      // only a terminal has a shell to outlive it; every other kind of tab
+      // is gone as soon as it is removed
+      if (resolved.tab.kind !== "terminal") {
         removeTab(resolved.id);
         return;
       }
@@ -508,12 +578,22 @@ export function executeCommand(command: Command): void {
       const redraw =
         settings.theme !== previous.theme ||
         settings.markdownFontFamily !== previous.markdownFontFamily;
+      // Monaco's themes are global to the page, so the palette is redefined
+      // once here rather than per editor; only the font is per instance.
+      refreshCodeTheme();
       for (const workspace of workspaces.values()) {
         for (const tab of workspace.tabs.values()) {
           if (tab.kind === "markdown") {
             if (redraw) {
               redrawMarkdown(tab);
             }
+            continue;
+          }
+          if (tab.kind === "code") {
+            tab.editor?.updateOptions({
+              fontFamily: settings.fontFamily,
+              fontSize: settings.fontSize,
+            });
             continue;
           }
           tab.terminal.options.fontFamily = settings.fontFamily;
@@ -546,6 +626,28 @@ export function executeCommand(command: Command): void {
         }
       }
       addMarkdownTab({
+        workspace: activeWorkspace,
+        filePath: command.path,
+        baseTabId: command.baseTabId,
+        group,
+      });
+      return;
+    }
+    case "open-file": {
+      if (!activeWorkspace) {
+        return;
+      }
+      let group: DockviewGroupPanel | undefined;
+      if (command.groupId !== undefined) {
+        group = findGroup({
+          workspace: activeWorkspace,
+          groupId: command.groupId,
+        });
+        if (!group) {
+          return;
+        }
+      }
+      addCodeTab({
         workspace: activeWorkspace,
         filePath: command.path,
         baseTabId: command.baseTabId,
@@ -682,6 +784,21 @@ export function readScreen(request: ScreenRequest): ScreenResult {
       mode: found.tab.mode,
     };
   }
+  if (found.tab.kind === "code") {
+    // the model's language, not a guess from the path: it is what Monaco
+    // actually settled on, and "plaintext" is the honest answer for a file
+    // it has no grammar for
+    let language = "plaintext";
+    const model = found.tab.editor?.getModel();
+    if (model) {
+      language = model.getLanguageId();
+    }
+    return {
+      kind: "code",
+      path: found.tab.filePath,
+      language,
+    };
+  }
   const buffer = found.tab.terminal.buffer.active;
   let rowCount = found.tab.terminal.rows;
   if (request.rows !== undefined) {
@@ -766,6 +883,15 @@ export async function restoreSession(session: Session): Promise<void> {
         });
         continue;
       }
+      if (tab.kind === "code") {
+        await addCodeTab({
+          workspace,
+          filePath: tab.path,
+          baseTabId: undefined,
+          group: undefined,
+        });
+        continue;
+      }
       createTab({
         workspace,
         group: undefined,
@@ -807,6 +933,9 @@ export function removeTab(id: number): void {
     tab.observer.disconnect();
     tab.terminal.dispose();
   }
+  if (tab.kind === "code") {
+    disposeCodeTab(tab);
+  }
   if (id === workspace.activeId) {
     workspace.activeId = -1;
   }
@@ -831,5 +960,8 @@ export function focusActiveTab(): void {
   }
   if (tab?.kind === "markdown") {
     tab.contentElement.focus();
+  }
+  if (tab?.kind === "code") {
+    focusCodeTab(tab);
   }
 }

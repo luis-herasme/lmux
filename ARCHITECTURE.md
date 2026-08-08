@@ -179,7 +179,7 @@ src/
     menus.ts           app menu + tab context menu; menu items are Command sources
     bus.ts             dispatch() into the renderer; Event intake (the read model); the screen query
     mcp.ts             the API socket: MCP over a unix socket, tools generated from commandSchema
-    files.ts           file:read for the markdown view; resolves against a shell's cwd
+    files.ts           file:read for the document and code views; resolves against a shell's cwd
     session-state.ts   the last session on disk: written while closing, read before the page exists
   renderer/
     index.html         the page: title bar, sidebar, the layout root, the modals
@@ -194,7 +194,9 @@ src/
     settings-dialog.ts the settings modal; controls are Command sources
     sidebar-resize.ts  the sidebar's drag handle; a drag ends as one Command
     markdown.ts        GitHub-look rendering (markdown-it + DOMPurify)
-    markdown-links.ts  the terminal link provider: Cmd+click a *.md path
+    code-tab.ts        a file's pane: the editor in it, and the read that fills it
+    code.ts            Monaco: loaded on demand, themed from THEMES, language by filename
+    file-links.ts      the terminal link provider: Cmd+click a *.md or source path
     dom.ts             requireElement: strict lookups of index.html's fixed elements
   test/
     index.ts           the entry Electron starts; hands over once the app is ready
@@ -219,8 +221,43 @@ change it and update this list.
   own: stripping isn't checking, and the renderer runs in Chromium, which
   can't run TypeScript at all. So the one tool is the official compiler:
   `tsc` type-checks all of `src/` and emits plain JS into `dist/`. Cost we
-  accept: a compile step inside `npm start`. The no-bundler rule stands:
-  `dist/` files map 1:1 to `src/` files, nothing is fused or minified.
+  accept: a compile step inside `npm start`. The no-bundler rule stands for
+  our own code: `dist/` files map 1:1 to `src/` files, nothing is fused or
+  minified. (Amended 2026-08-08: the rule no longer extends to every
+  dependency — see the bundler entry below.)
+- **One bundled dependency, and a rule about adding a second.** (Narrows
+  "no bundler", which held from the first commit until Monaco.) Every
+  library the page had loaded until now ships a browser build that a
+  relative `node_modules` path can reach, so the browser resolves it and
+  no build step stands in between. Monaco does not: its ES modules import
+  each other by bare specifier across thousands of files, and a page loaded
+  from disk cannot resolve a bare specifier at all. The alternatives were an
+  import map naming every transitive package by hand — around twenty
+  entries, each requiring us to resolve a package's conditional `exports` to
+  a real file, and each one able to break on an `npm update` — or a bundler
+  for that one dependency. We took the bundler.
+  `scripts/bundle-vendor.mjs` runs esbuild over Monaco alone and writes
+  `dist/vendor/`; `npm run build` runs it after `tsc`. Our own code is still
+  plain `tsc` output loaded as ES modules, and the point of keeping the
+  bundle to one named dependency is that adding a second stays a decision
+  rather than a habit. Cost we accept: a 4MB artifact we do not read, and a
+  build step that is now two tools instead of one.
+- **Monaco is loaded when the first code tab opens, not at boot.** It is
+  about 4MB with every language grammar it ships, and the grammars are most
+  of what makes a code tab worth having. A dynamic `import()` in
+  `renderer/code.ts` keeps that cost off the boot path entirely: a session
+  that never opens a file never pays it. Cost we accept: the first code tab
+  of a session is slower than the ones after it.
+- **A Worker is loaded from a file, never from a blob.** Two things we
+  established by trying them rather than by reasoning about them, both worth
+  writing down because the obvious expectation is wrong in one direction and
+  right in the other. A Web Worker *does* start from a `file://` page in
+  Electron, so lmux does not need to be served over a custom protocol to use
+  one. But a worker created from a `blob:` URL — which is what Monaco
+  reaches for when left to itself — is refused by the page's
+  `default-src 'self'`. `renderer/code.ts` therefore hands Monaco a real
+  file URL through `MonacoEnvironment.getWorker`, so the fallback never
+  happens and the CSP stays exactly as strict as it was.
 - **The IPC contract is a type.** `src/ipc/bridge.ts` declares `Bridge`;
   preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.

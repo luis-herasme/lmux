@@ -193,6 +193,55 @@ file is the preload script, because Electron's sandbox demands it: naming it
 `preload.cts` makes tsc emit that single file as `.cjs` (CommonJS) while its
 source still reads as `import`.
 
+## Bare specifier / bundler
+
+An `import` names its target either by **path** (`"./tabs.js"`,
+`"../../node_modules/zod/index.js"`) or by **bare specifier** — just the
+package name, `"zod"`. A path the browser can follow on its own; a bare
+specifier means nothing to it, because resolving one requires knowing where
+packages live and reading each one's `package.json` to see which file the
+name points at. Node does that work; browsers do not.
+
+A **bundler** does it ahead of time: it follows every import from an entry
+file, resolves each specifier to a real file, and writes the result out as
+one file with no imports left to resolve. lmux avoids needing one by loading
+libraries that ship browser builds, by relative `node_modules` path — with a
+single exception, Monaco, which imports itself by bare specifier across
+thousands of files. `scripts/bundle-vendor.mjs` bundles that one dependency
+with **esbuild**; everything else, including all of our own code, is still
+`tsc` output the browser resolves itself.
+
+## Web Worker
+
+A second JavaScript thread, with no access to the page's DOM, that talks to
+it by passing messages. It exists so that slow work does not freeze the
+interface, which for an editor means things like computing a diff or running
+a language service. Two rules bit us and are worth knowing: a worker inherits
+the page's Content-Security-Policy, and a worker built from a `blob:` URL
+counts as a separate source that `default-src 'self'` refuses — so lmux
+hands Monaco a real file URL rather than letting it construct a blob.
+
+## Monaco
+
+[Monaco](https://microsoft.github.io/monaco-editor/) is the code editor from
+VS Code, published as a standalone library. It is the *editor surface* only:
+it paints text, highlights it, and provides the interface for things like
+go-to-definition — but it brings no workbench (lmux's tabs, layout and
+command bus stay lmux's) and no language intelligence of its own. Knowing
+what a symbol means, and where it was defined, is a separate job belonging to
+a language server.
+
+## Grammar / tokenizer
+
+What turns a line of source into coloured pieces. A **grammar** is a set of
+rules describing which runs of characters are keywords, strings, comments and
+so on; running it over text produces **tokens**, each tagged with a type, and
+the theme maps those types to colours. Monaco imports a language's grammar
+the first time a file needs it, which is why a freshly opened file is briefly
+uncoloured: the first paint happens before the grammar arrives, and the text
+is repainted when it does. Anything checking that highlighting works has to
+wait for that second paint, or it will conclude the editor is broken.
+
 ## CSS custom property
 
 A variable in CSS: declared as `--name: value`, read as `var(--name)`.

@@ -395,6 +395,32 @@ dialog select:focus {
   background: var(--background);
 }
 
+/* Monaco paints its own surface from the theme defined in code.ts; the pane
+   only has to give it a box with a height to measure. */
+.code-pane {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+
+.code-editor {
+  flex: 1;
+  min-height: 0;
+  outline: none;
+}
+
+/* shown instead of an editor when the file could not be read */
+.code-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 24px;
+  color: var(--tab-active-foreground);
+  font-family: var(--ui-font-family);
+  font-size: 13px;
+}
+
 .markdown-toolbar {
   flex: none;
   display: flex;

@@ -1,19 +1,76 @@
 import type { ILink, Terminal as XtermTerminal } from "@xterm/xterm";
 
-// path-ish runs ending in .md; excludes brackets so "(see a.md)" matches
-const PATH_PATTERN = /[^\s"'`()[\]{}<>]+\.md\b/g;
+// A document opens rendered; everything else opens in the editor. The two
+// lists live together because the pattern below is built from both, and
+// because "which files are worth linking" is one question, not two.
+const MARKDOWN_EXTENSIONS = ["md", "markdown"];
+
+// Monaco has a grammar for far more than this, but a link is an offer to
+// open something, and offering to open every file a path could name would
+// underline half the output of `ls`. These are the ones worth a click.
+const CODE_EXTENSIONS = [
+  "ts",
+  "tsx",
+  "mts",
+  "cts",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "json",
+  "jsonc",
+  "css",
+  "html",
+  "py",
+  "rs",
+  "go",
+  "rb",
+  "java",
+  "kt",
+  "swift",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "sh",
+  "zsh",
+  "bash",
+  "sql",
+  "toml",
+  "yaml",
+  "yml",
+  "xml",
+];
+
+const LINKED_EXTENSIONS = [...MARKDOWN_EXTENSIONS, ...CODE_EXTENSIONS];
+
+// path-ish runs ending in one of the extensions above; excludes brackets so
+// "(see a.md)" matches
+const PATH_PATTERN = new RegExp(
+  `[^\\s"'\`()[\\]{}<>]+\\.(?:${LINKED_EXTENSIONS.join("|")})\\b`,
+  "g",
+);
 
 const MAX_LINE_LENGTH = 4096;
 
-type RegisterMarkdownLinksOptions = {
+// Which kind of tab a path should open. Decided here, where the extensions
+// are, rather than by the caller reading the path a second time.
+export type LinkedFileKind = "markdown" | "code";
+
+type OpenLinkedPath = (options: {
+  path: string;
+  kind: LinkedFileKind;
+}) => void;
+
+type RegisterFileLinksOptions = {
   terminal: XtermTerminal;
-  openPath: (path: string) => void;
+  openPath: OpenLinkedPath;
 };
 
-export function registerMarkdownLinks({
+export function registerFileLinks({
   terminal,
   openPath,
-}: RegisterMarkdownLinksOptions): void {
+}: RegisterFileLinksOptions): void {
   terminal.registerLinkProvider({
     provideLinks: (bufferLineNumber, callback) => {
       // a wrapped path spans multiple buffer rows; join them
@@ -63,7 +120,17 @@ export function registerMarkdownLinks({
             if (!event.metaKey) {
               return;
             }
-            openPath(linkText);
+            const extension = linkText
+              .slice(linkText.lastIndexOf(".") + 1)
+              .toLowerCase();
+            let kind: LinkedFileKind = "code";
+            if (MARKDOWN_EXTENSIONS.includes(extension)) {
+              kind = "markdown";
+            }
+            openPath({
+              path: linkText,
+              kind,
+            });
           },
         });
       }

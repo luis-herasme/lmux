@@ -77,6 +77,16 @@ export const commandSchema = z.discriminatedUnion("type", [
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
   }),
+  // The same, for a file read as code rather than as a document. Which of
+  // the two a path gets is the caller's choice: `open-file` on a .md shows
+  // its source in the editor, which is a different thing from the raw mode
+  // of a markdown tab.
+  z.object({
+    type: z.literal("open-file"),
+    path: z.string(),
+    baseTabId: z.number().optional(),
+    groupId: z.string().optional(),
+  }),
   z.object({ type: z.literal("toggle-maximize"), id: z.number().optional() }),
   // Both ignore a tab that isn't a markdown one.
   z.object({
@@ -123,6 +133,9 @@ export type ScreenResult =
   // drive a shell can already read files; saying which file it shows is the
   // part lmux knows and the caller doesn't.
   | { kind: "markdown"; path: string; mode: MarkdownMode }
+  // Same reasoning: the file on disk is the content, and the caller can read
+  // it. What lmux knows is which file, and how it is being read.
+  | { kind: "code"; path: string; language: string }
   | { kind: "no-such-tab" };
 
 // Every event carries the full state it produced.
@@ -146,7 +159,8 @@ export type LmuxEvent =
 export type TabInfo =
   | { id: number; title: string; kind: "terminal" }
   // the file it shows, so an observer (and a restart) knows which document
-  | { id: number; title: string; kind: "markdown"; mode: MarkdownMode; path: string };
+  | { id: number; title: string; kind: "markdown"; mode: MarkdownMode; path: string }
+  | { id: number; title: string; kind: "code"; path: string };
 
 // One tab strip and the pane below it. Group ids are opaque handles
 // assigned by the layout engine, unique within their workspace only.

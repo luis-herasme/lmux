@@ -23,6 +23,11 @@
       href="../../node_modules/@highlightjs/cdn-assets/styles/vs2015.min.css"
       id="highlight-css"
     />
+    <!-- Monaco's stylesheet, emitted beside its bundle by the vendor build
+         (scripts/bundle-vendor.mjs). Linked here rather than loaded with the
+         editor: a stylesheet arriving after the first paint would show the
+         editor unstyled for a frame. -->
+    <link rel="stylesheet" href="../../dist/vendor/monaco.css" />
   </head>
   <body>
     <!-- <dialog> + showModal(): real modality (backdrop, focus trap,

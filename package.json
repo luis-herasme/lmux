@@ -5,12 +5,13 @@
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
-    "start": "tsc && electron .",
+    "build": "tsc && node scripts/bundle-vendor.mjs",
+    "start": "npm run build && electron .",
     "check": "tsc --noEmit",
-    "test": "tsc && electron dist/test/index.js",
+    "test": "npm run build && electron dist/test/index.js",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "package": "tsc && electron-builder --mac --dir",
-    "dist": "tsc && electron-builder --mac"
+    "package": "npm run build && electron-builder --mac --dir",
+    "dist": "npm run build && electron-builder --mac"
   },
   "dependencies": {
     "@highlightjs/cdn-assets": "^11.11.1",
@@ -20,6 +21,7 @@
     "dompurify": "^3.4.13",
     "markdown-it": "^15.0.0",
     "mermaid": "^11.16.1",
+    "monaco-editor": "^0.56.0",
     "node-pty": "^1.1.0",
     "zod": "^4.4.3"
   },
@@ -28,6 +30,7 @@
     "@types/node": "^26.1.2",
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
     "highlight.js": "^11.11.1",
     "type-fest": "^5.8.0",
     "typescript": "^7.0.2"
