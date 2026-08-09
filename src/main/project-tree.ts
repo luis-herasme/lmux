@@ -47,7 +47,7 @@ async function workspaceRootForFile(
   }
   const resolvedFile = await resolveFilePath({
     filePath: request.filePath,
-    baseTabId: request.fileBaseTabId,
+    baseTabId: request.baseTabId,
   });
   if ("error" in resolvedFile) {
     return resolvedFile;

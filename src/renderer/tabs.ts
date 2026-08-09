@@ -10,7 +10,6 @@ import {
   focusProjectTab,
   openProjectFile,
   openProjectTab,
-  pinProjectFile,
   saveAllProjectFiles,
   saveProjectFile,
 } from "./project-tab.ts";
@@ -416,7 +415,6 @@ type AddProjectTabOptions = {
   baseTabId: number | undefined;
   workspaceRootPath: string | undefined;
   initialFilePath: string | undefined;
-  initialFileBaseTabId: number | undefined;
   initialFilePreview: boolean;
   group: DockviewGroupPanel | undefined;
 };
@@ -433,7 +431,6 @@ async function createProjectTab({
   baseTabId,
   workspaceRootPath,
   initialFilePath,
-  initialFileBaseTabId,
   group,
 }: CreateProjectTabOptions): Promise<FoundProjectTab> {
   const id = nextId++;
@@ -444,7 +441,6 @@ async function createProjectTab({
     baseTabId,
     workspaceRootPath,
     initialFilePath,
-    initialFileBaseTabId,
     group,
   });
   workspace.tabs.set(id, tab);
@@ -465,7 +461,6 @@ async function addProjectTab({
   baseTabId,
   workspaceRootPath,
   initialFilePath,
-  initialFileBaseTabId,
   initialFilePreview,
   group,
 }: AddProjectTabOptions): Promise<ProjectTab> {
@@ -478,7 +473,6 @@ async function addProjectTab({
         baseTabId,
         workspaceRootPath,
         initialFilePath,
-        initialFileBaseTabId,
         group,
       });
       pendingProjectTabs.set(workspace, pendingProject);
@@ -496,9 +490,8 @@ async function addProjectTab({
       id: project.id,
       tab: project.tab,
       filePath: initialFilePath,
-      baseTabId: initialFileBaseTabId,
+      baseTabId,
       preview: initialFilePreview,
-      announce: true,
     });
   }
   project.tab.panel.api.setActive();
@@ -736,7 +729,6 @@ export function executeCommand(command: Command): void {
           filePath: command.path,
           baseTabId: command.baseTabId,
           preview,
-          announce: true,
         });
         return;
       }
@@ -752,10 +744,9 @@ export function executeCommand(command: Command): void {
       }
       addProjectTab({
         workspace: activeWorkspace,
-        baseTabId: undefined,
+        baseTabId: command.baseTabId,
         workspaceRootPath: undefined,
         initialFilePath: command.path,
-        initialFileBaseTabId: command.baseTabId,
         initialFilePreview: preview,
         group,
       });
@@ -790,7 +781,6 @@ export function executeCommand(command: Command): void {
         baseTabId,
         workspaceRootPath: undefined,
         initialFilePath: undefined,
-        initialFileBaseTabId: undefined,
         initialFilePreview: false,
         group,
       });
@@ -808,7 +798,6 @@ export function executeCommand(command: Command): void {
           baseTabId: undefined,
           workspaceRootPath: command.path,
           initialFilePath: undefined,
-          initialFileBaseTabId: undefined,
           initialFilePreview: false,
           group: undefined,
         });
@@ -831,19 +820,6 @@ export function executeCommand(command: Command): void {
         id: resolved.id,
         tab: resolved.tab,
         filePath: command.path,
-      });
-      return;
-    }
-    case "pin-file": {
-      const resolved = resolveProjectTab(command.projectTabId);
-      if (resolved === undefined) {
-        return;
-      }
-      pinProjectFile({
-        id: resolved.id,
-        tab: resolved.tab,
-        filePath: command.path,
-        announce: true,
       });
       return;
     }
@@ -1123,7 +1099,6 @@ export async function restoreSession(session: Session): Promise<void> {
           baseTabId: undefined,
           workspaceRootPath: tab.workspaceRootPath,
           initialFilePath: undefined,
-          initialFileBaseTabId: undefined,
           initialFilePreview: false,
           group: undefined,
         });
@@ -1138,7 +1113,6 @@ export async function restoreSession(session: Session): Promise<void> {
             filePath,
             baseTabId: undefined,
             preview: false,
-            announce: true,
           });
         }
         if (tab.activeFilePath !== null) {

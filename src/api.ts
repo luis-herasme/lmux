@@ -92,11 +92,6 @@ export const commandSchema = z.discriminatedUnion("type", [
     path: z.string(),
   }),
   z.object({
-    type: z.literal("pin-file"),
-    projectTabId: z.number().optional(),
-    path: z.string(),
-  }),
-  z.object({
     type: z.literal("close-file"),
     projectTabId: z.number().optional(),
     path: z.string(),
@@ -197,7 +192,6 @@ export type LmuxEvent =
   | { type: "markdown-reloaded"; id: number; state: LmuxState }
   | { type: "file-opened"; id: number; path: string; state: LmuxState }
   | { type: "file-activated"; id: number; path: string; state: LmuxState }
-  | { type: "file-pinned"; id: number; path: string; state: LmuxState }
   | { type: "file-closed"; id: number; path: string; state: LmuxState }
   | { type: "dirty-changed"; id: number; path: string; state: LmuxState }
   | { type: "file-saved"; id: number; path: string; state: LmuxState }

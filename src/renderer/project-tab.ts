@@ -26,7 +26,6 @@ import type { IDockviewPanel, DockviewGroupPanel } from "dockview";
 
 export type ProjectFileBuffer = {
   filePath: string;
-  baseTabId: number | undefined;
   model: monacoEditor.ITextModel | undefined;
   mtimeMs: number | undefined;
   dirty: boolean;
@@ -42,7 +41,6 @@ export type ProjectTab = {
   panel: IDockviewPanel;
   titleElement: HTMLElement;
   titlePinned: boolean;
-  element: HTMLElement;
   treeElement: HTMLElement;
   editorElement: HTMLElement;
   fileTabsElement: HTMLElement;
@@ -200,9 +198,9 @@ function buildFileTab({
   });
   tabElement.addEventListener("dblclick", () => {
     executeCommand({
-      type: "pin-file",
-      projectTabId,
+      type: "open-file",
       path: filePath,
+      preview: false,
     });
   });
   tabElement.addEventListener("keydown", (event) => {
@@ -265,13 +263,11 @@ function showEmptyEditor(tab: ProjectTab): void {
 type ActivateBufferOptions = {
   tab: ProjectTab;
   buffer: ProjectFileBuffer;
-  focus: boolean;
 };
 
 function activateBuffer({
   tab,
   buffer,
-  focus,
 }: ActivateBufferOptions): void {
   if (tab.activeFilePath !== undefined) {
     const activeBuffer = tab.files.get(tab.activeFilePath);
@@ -313,9 +309,7 @@ function activateBuffer({
     }
     tab.errorElement.textContent = errorMessage;
     tab.errorElement.classList.add("visible");
-    if (focus) {
-      tab.errorElement.focus();
-    }
+    tab.errorElement.focus();
     return;
   }
 
@@ -325,23 +319,17 @@ function activateBuffer({
   if (buffer.viewState !== null) {
     tab.editor.restoreViewState(buffer.viewState);
   }
-  if (focus) {
-    tab.editor.focus();
-  }
+  tab.editor.focus();
 }
 
 type PinProjectFileOptions = {
-  id: number;
   tab: ProjectTab;
   filePath: string;
-  announce: boolean;
 };
 
-export function pinProjectFile({
-  id,
+function pinProjectFile({
   tab,
   filePath,
-  announce,
 }: PinProjectFileOptions): void {
   const buffer = tab.files.get(filePath);
   if (buffer === undefined || buffer.pinned) {
@@ -352,14 +340,6 @@ export function pinProjectFile({
     tab.previewFilePath = undefined;
   }
   updateFileTab(buffer);
-  if (announce) {
-    bridge.emitEvent({
-      type: "file-pinned",
-      id,
-      path: filePath,
-      state: snapshot(),
-    });
-  }
 }
 
 type DisposeBufferOptions = {
@@ -413,7 +393,6 @@ export function closeProjectFile({
         activateBuffer({
           tab,
           buffer: nextBuffer,
-          focus: true,
         });
       }
     }
@@ -446,7 +425,6 @@ export function activateProjectFile({
   activateBuffer({
     tab,
     buffer,
-    focus: true,
   });
   bridge.emitEvent({
     type: "file-activated",
@@ -462,7 +440,6 @@ type OpenProjectFileOptions = {
   filePath: string;
   baseTabId: number | undefined;
   preview: boolean;
-  announce: boolean;
 };
 
 export async function openProjectFile({
@@ -471,7 +448,6 @@ export async function openProjectFile({
   filePath,
   baseTabId,
   preview,
-  announce,
 }: OpenProjectFileOptions): Promise<void> {
   tab.latestFileRequest += 1;
   const fileRequest = tab.latestFileRequest;
@@ -493,25 +469,20 @@ export async function openProjectFile({
   if (existing !== undefined) {
     if (!preview) {
       pinProjectFile({
-        id,
         tab,
         filePath: resolvedPath,
-        announce,
       });
     }
     activateBuffer({
       tab,
       buffer: existing,
-      focus: true,
     });
-    if (announce) {
-      bridge.emitEvent({
-        type: "file-activated",
-        id,
-        path: resolvedPath,
-        state: snapshot(),
-      });
-    }
+    bridge.emitEvent({
+      type: "file-activated",
+      id,
+      path: resolvedPath,
+      state: snapshot(),
+    });
     return;
   }
 
@@ -531,7 +502,6 @@ export async function openProjectFile({
   });
   const buffer: ProjectFileBuffer = {
     filePath: resolvedPath,
-    baseTabId,
     model: undefined,
     mtimeMs: undefined,
     dirty: false,
@@ -562,16 +532,13 @@ export async function openProjectFile({
   activateBuffer({
     tab,
     buffer,
-    focus: true,
   });
-  if (announce) {
-    bridge.emitEvent({
-      type: "file-opened",
-      id,
-      path: resolvedPath,
-      state: snapshot(),
-    });
-  }
+  bridge.emitEvent({
+    type: "file-opened",
+    id,
+    path: resolvedPath,
+    state: snapshot(),
+  });
 }
 
 type SaveProjectFileOptions = {
@@ -602,7 +569,6 @@ export async function saveProjectFile({
   }
   const result = await bridge.writeFile({
     path: buffer.filePath,
-    baseTabId: buffer.baseTabId,
     expectedMtimeMs: buffer.mtimeMs,
     content: buffer.model.getValue(),
   });
@@ -670,7 +636,6 @@ type OpenProjectTabOptions = {
   baseTabId: number | undefined;
   workspaceRootPath: string | undefined;
   initialFilePath: string | undefined;
-  initialFileBaseTabId: number | undefined;
   group: DockviewGroupPanel | undefined;
 };
 
@@ -681,7 +646,6 @@ export async function openProjectTab({
   baseTabId,
   workspaceRootPath,
   initialFilePath,
-  initialFileBaseTabId,
   group,
 }: OpenProjectTabOptions): Promise<ProjectTab> {
   const pane = buildProjectPane();
@@ -700,7 +664,6 @@ export async function openProjectTab({
       baseTabId,
       workspaceRootPath,
       filePath: initialFilePath,
-      fileBaseTabId: initialFileBaseTabId,
     }),
     loadProjectTreeLibrary(),
     loadMonaco(),
@@ -724,7 +687,6 @@ export async function openProjectTab({
     panel,
     titleElement: tabElements.titleElement,
     titlePinned: true,
-    element: pane.paneElement,
     treeElement: pane.treeElement,
     editorElement: pane.editorElement,
     fileTabsElement: pane.fileTabsElement,
@@ -773,10 +735,8 @@ export async function openProjectTab({
     }
     buffer.dirty = true;
     pinProjectFile({
-      id,
       tab,
       filePath: buffer.filePath,
-      announce: false,
     });
     updateFileTab(buffer);
     updateTreeDirtyState(tab);

@@ -912,7 +912,7 @@ const suite = describe("the command bus", () => {
 
         const pinning = waitForEvent(
           (event) =>
-            event.type === "file-pinned" &&
+            event.type === "file-activated" &&
             event.path === canonicalOtherFilePath,
         );
         await clickVisibleTreeFile({
@@ -957,6 +957,36 @@ const suite = describe("the command bus", () => {
         }
         assert.equal(previewedProject.files.length, 2);
         assert.equal(previewedProject.files.at(1)?.pinned, false);
+
+        const tabPinning = waitForEvent(
+          (event) =>
+            event.type === "file-activated" &&
+            event.path === canonicalFilePath,
+        );
+        const tabDoubleClicked = z.boolean().parse(
+          await lmuxWindow.webContents.executeJavaScript(`(() => {
+            const element = document.querySelector(".file-tab.active");
+            if (!(element instanceof HTMLElement)) {
+              return false;
+            }
+            element.dispatchEvent(new MouseEvent("dblclick", {
+              bubbles: true,
+              detail: 2,
+            }));
+            return true;
+          })()`),
+        );
+        assert.equal(tabDoubleClicked, true);
+        const tabPinned = await tabPinning;
+        const tabPinnedProject = findTabInfo({
+          state: tabPinned.state,
+          id: opened.id,
+        });
+        assert.equal(tabPinnedProject?.kind, "project");
+        if (tabPinnedProject?.kind !== "project") {
+          throw new Error("file-tab pinning lost the project tab");
+        }
+        assert.equal(tabPinnedProject.files.at(1)?.pinned, true);
 
         const canonicalNestedPath = realpathSync(nestedPath);
         sendCommand({

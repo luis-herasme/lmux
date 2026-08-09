@@ -724,6 +724,7 @@ change it and update this list.
   | `Menlo` as the default terminal font | `theme.ts` | a font that exists there |
   | `role: "appMenu"` | `main/menus.ts` | macOS puts the app menu first; other platforms do not have one |
   | A unix socket for the API, and `nc -U` as the documented client | `main/mcp.ts`, `README.md` | Windows has no unix sockets in the same sense; a named pipe, and a different client |
+  | `/` used to derive file labels and workspace-relative headers | `renderer/project-tab.ts` | path-aware values supplied by main instead of slicing renderer paths |
   | ⌘/⇧⌘/⌃ typed into tooltips and menu labels | `api.ts`, `tabs.ts`, `workspaces.ts`, `index.html` | labels computed per platform (the accelerators themselves already use `CmdOrCtrl`) |
 
   Note the last row's asymmetry: the *behavior* is already portable because

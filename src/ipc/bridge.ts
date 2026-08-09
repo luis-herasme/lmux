@@ -36,7 +36,6 @@ export type ReadFileResult =
 // is refused, because it would bury a change someone else made.
 export type WriteFileRequest = {
   path: string;
-  baseTabId?: number;
   expectedMtimeMs: number;
   content: string;
 };
@@ -52,7 +51,6 @@ export type ReadProjectTreeRequest = {
   baseTabId?: number;
   workspaceRootPath?: string;
   filePath?: string;
-  fileBaseTabId?: number;
 };
 
 export type ProjectTreeEntry =
