@@ -27,7 +27,23 @@ export type ReadFileRequest = {
 };
 
 export type ReadFileResult =
-  | { resolvedPath: string; content: string }
+  // mtimeMs is the file's modification time at read, so a save can refuse to
+  // overwrite a file that changed on disk in between.
+  | { resolvedPath: string; content: string; mtimeMs: number }
+  | { error: string };
+
+// expectedMtimeMs is what read reported; a write whose file no longer has it
+// is refused, because it would bury a change someone else made.
+export type WriteFileRequest = {
+  path: string;
+  baseTabId?: number;
+  expectedMtimeMs: number;
+  content: string;
+};
+
+export type WriteFileResult =
+  // the file's mtime after the write, which a subsequent save guards against
+  | { mtimeMs: number }
   | { error: string };
 
 // Electron has no invoke in this direction, so main asks with an id and the
@@ -57,10 +73,15 @@ export type Bridge = {
   onRenameRequest: (callback: (id: number) => void) => void;
   showWorkspaceMenu: (id: number) => void;
   onWorkspaceRenameRequest: (callback: (id: number) => void) => void;
-  // not a Command: main asks about the shells it would end, then dispatches
+  // a person's workspace ×: routed to main so the shells it would kill are
+  // asked about, then dispatched
   closeWorkspace: (id: number) => void;
+  // a person's tab ×: routed to main, so a dirty code tab is asked about
+  // before it goes
+  closeTab: (id: number) => void;
   // the two request/response pairs on the cable (ipcRenderer.invoke)
   readFile: (request: ReadFileRequest) => Promise<ReadFileResult>;
+  writeFile: (request: WriteFileRequest) => Promise<WriteFileResult>;
   // the session the last run left behind, if there is one to rebuild
   readSession: () => Promise<Session | null>;
 };

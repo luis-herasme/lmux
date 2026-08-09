@@ -6,8 +6,9 @@ import { killAllShells } from "./shells.ts";
 import { savedWindowBounds, saveWindowBounds } from "./window-state.ts";
 import { savedSession, saveSession } from "./session-state.ts";
 import { sessionFromState } from "../session.ts";
-import { confirmKilling } from "./dialogs.ts";
+import { confirmKilling, confirmDiscardDirty } from "./dialogs.ts";
 import { lmuxState } from "./bus.ts";
+import type { TabInfo } from "../api.ts";
 import { installAppMenu } from "./menus.ts";
 import "./files.js"; // registers file:read
 import "./mcp.js"; // listens on the API socket
@@ -48,17 +49,28 @@ function createWindow(): void {
 
   browserWindow.on("close", (event) => {
     const tabIds: number[] = [];
+    const allTabs: TabInfo[] = [];
     for (const workspace of lmuxState.workspaces) {
       for (const tab of workspace.tabs) {
         tabIds.push(tab.id);
+        allTabs.push(tab);
       }
     }
-    const proceed = confirmKilling({
+    const killingConfirmed = confirmKilling({
       window: browserWindow,
       tabIds,
       action: "Close Window",
     });
-    if (!proceed) {
+    if (!killingConfirmed) {
+      event.preventDefault();
+      return;
+    }
+    const discardConfirmed = confirmDiscardDirty({
+      window: browserWindow,
+      tabs: allTabs,
+      action: "Close Window",
+    });
+    if (!discardConfirmed) {
       event.preventDefault();
       return;
     }

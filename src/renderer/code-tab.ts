@@ -4,7 +4,7 @@
 import { bridge } from "./bridge.ts";
 import { createCodeEditor, loadMonaco } from "./code.ts";
 import type { CodeTab, TabElements } from "./tabs.ts";
-import { addPanel } from "./workspaces.ts";
+import { addPanel, snapshot } from "./workspaces.ts";
 import type { Workspace } from "./workspaces.ts";
 import type { ReadFileResult } from "../ipc/bridge.ts";
 import type { DockviewGroupPanel } from "dockview";
@@ -12,6 +12,7 @@ import type { DockviewGroupPanel } from "dockview";
 type CodePane = {
   paneElement: HTMLElement;
   contentElement: HTMLElement;
+  statusElement: HTMLElement;
 };
 
 function buildCodePane(): CodePane {
@@ -20,13 +21,19 @@ function buildCodePane(): CodePane {
   const contentElement = document.createElement("div");
   contentElement.className = "code-editor";
 
+  // A thin strip above the editor, where a refused save says why. Hidden
+  // until a save is refused, which is the only time it says anything.
+  const statusElement = document.createElement("div");
+  statusElement.className = "code-status";
+
   const paneElement = document.createElement("div");
   paneElement.className = "code-pane";
-  paneElement.append(contentElement);
+  paneElement.append(statusElement, contentElement);
 
   return {
     paneElement,
     contentElement,
+    statusElement,
   };
 }
 
@@ -104,6 +111,7 @@ export async function openCodeTab({
   // measures a hidden or zero-sized panel as it finds it and corrects
   // itself through automaticLayout when the panel is shown.
   let editor: CodeTab["editor"];
+  let mtimeMs: number | undefined;
   if ("error" in result) {
     showReadError({
       contentElement: pane.contentElement,
@@ -117,19 +125,94 @@ export async function openCodeTab({
       content: result.content,
       filePath: resolvedPath,
     });
+    mtimeMs = result.mtimeMs;
   }
 
-  return {
+  const tab: CodeTab = {
     kind: "code",
     panel,
     titleElement: tabElements.titleElement,
     titlePinned: true,
     element: pane.paneElement,
     contentElement: pane.contentElement,
+    statusElement: pane.statusElement,
     filePath: resolvedPath,
     baseTabId,
     editor,
+    dirty: false,
+    mtimeMs,
   };
+  setCodeTabTitle(tab);
+
+  // A change to the model is the tab saying it now holds work the disk
+  // does not. The listener fires on every keystroke, but the flag flips
+  // once, so the event goes out once per batch of edits, not per key.
+  if (editor !== undefined) {
+    editor.onDidChangeModelContent(() => {
+      if (tab.dirty) {
+        return;
+      }
+      tab.dirty = true;
+      setCodeTabTitle(tab);
+      bridge.emitEvent({
+        type: "dirty-changed",
+        id,
+        state: snapshot(),
+      });
+    });
+  }
+
+  return tab;
+}
+
+// The ● is the tab saying the disk does not hold what it shows. The name is
+// the file's; the marker is the dirty state's.
+function setCodeTabTitle(tab: CodeTab): void {
+  const name = tab.filePath.slice(tab.filePath.lastIndexOf("/") + 1);
+  let title = name;
+  if (tab.dirty) {
+    title = `● ${name}`;
+  }
+  tab.titleElement.textContent = title;
+  tab.panel.setTitle(title);
+}
+
+// The editor holds the text; writing it is the one operation a save names a
+// Command for. A refused write (the file moved under us) leaves the tab
+// dirty and the reason on screen, so nothing is silently lost.
+type SaveCodeFileOptions = {
+  id: number;
+  tab: CodeTab;
+};
+
+export async function saveCodeFile({
+  id,
+  tab,
+}: SaveCodeFileOptions): Promise<void> {
+  // only an editorless tab (a read error) has nothing to save
+  if (tab.editor === undefined || tab.mtimeMs === undefined) {
+    return;
+  }
+  const result = await bridge.writeFile({
+    path: tab.filePath,
+    baseTabId: tab.baseTabId,
+    expectedMtimeMs: tab.mtimeMs,
+    content: tab.editor.getValue(),
+  });
+  if ("error" in result) {
+    tab.statusElement.textContent = result.error;
+    tab.statusElement.classList.add("visible");
+    return;
+  }
+  tab.statusElement.classList.remove("visible");
+  tab.mtimeMs = result.mtimeMs;
+  tab.dirty = false;
+  setCodeTabTitle(tab);
+  bridge.emitEvent({
+    type: "file-saved",
+    id,
+    state: snapshot(),
+  });
 }
 
 // Monaco holds a model, a DOM subtree and listeners of its own; dropping the

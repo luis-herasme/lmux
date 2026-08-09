@@ -2,7 +2,8 @@
 import { BrowserWindow, Menu, ipcMain } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
 import { dispatch, lmuxState } from "./bus.ts";
-import { confirmKilling } from "./dialogs.ts";
+import { confirmDiscardDirty, confirmKilling } from "./dialogs.ts";
+import type { TabInfo } from "../api.ts";
 
 type CloseWorkspaceOptions = {
   // the question below needs a window to be asked in, and a click in the page
@@ -72,6 +73,61 @@ function cycleWorkspace(step: number): void {
   activateWorkspaceAt((active + step + workspaces.length) % workspaces.length);
 }
 
+// id defaults to the active tab, matching the Command it forwards. Returns
+// undefined when there is no such tab to inspect.
+function tabInfo(id: number | undefined): TabInfo | undefined {
+  if (id === undefined) {
+    for (const workspace of lmuxState.workspaces) {
+      if (workspace.id !== lmuxState.activeWorkspaceId) {
+        continue;
+      }
+      for (const tab of workspace.tabs) {
+        if (tab.id === workspace.activeId) {
+          return tab;
+        }
+      }
+    }
+    return undefined;
+  }
+  for (const workspace of lmuxState.workspaces) {
+    for (const tab of workspace.tabs) {
+      if (tab.id === id) {
+        return tab;
+      }
+    }
+  }
+  return undefined;
+}
+
+type CloseTabOptions = {
+  window: BrowserWindow | null;
+  id?: number; // defaults to the active tab, matching the Command
+};
+
+// Closing a tab that shows unsaved work asks first; the answer decides
+// whether the close Command goes out. A terminal tab never asks. An agent's
+// own close-tab Command is not routed here: it has no window to ask in,
+// exactly like close-workspace. A dirty close with no window to ask in is
+// refused rather than silently losing the work; a clean close dispatches
+// whatever the window state, as it always has.
+function closeTab({ window, id }: CloseTabOptions): void {
+  const tab = tabInfo(id);
+  if (tab !== undefined && tab.kind === "code" && tab.dirty) {
+    if (!window) {
+      return;
+    }
+    const discardConfirmed = confirmDiscardDirty({
+      window,
+      tabs: [tab],
+      action: "Close Tab",
+    });
+    if (!discardConfirmed) {
+      return;
+    }
+  }
+  dispatch({ type: "close-tab", id });
+}
+
 // Positions, not names: the menu is built once, and a name can change
 // while it is on screen.
 const workspacePositionItems: MenuItemConstructorOptions[] = [];
@@ -98,7 +154,14 @@ export function installAppMenu(): void {
           {
             label: "Close Tab",
             accelerator: "CmdOrCtrl+W",
-            click: () => dispatch({ type: "close-tab" }),
+            click: () =>
+              closeTab({ window: BrowserWindow.getFocusedWindow() }),
+          },
+          { type: "separator" },
+          {
+            label: "Save",
+            accelerator: "CmdOrCtrl+S",
+            click: () => dispatch({ type: "save-file" }),
           },
         ],
       },
@@ -147,8 +210,8 @@ ipcMain.on("tab:menu", (event, id: number) => {
     {
       label: "Close Tab",
       click: () =>
-        dispatch({
-          type: "close-tab",
+        closeTab({
+          window: BrowserWindow.getFocusedWindow(),
           id,
         }),
     },
@@ -164,6 +227,15 @@ ipcMain.on("tab:menu", (event, id: number) => {
 // the accelerator, so it comes here to be asked the same question.
 ipcMain.on("workspace:close", (event, id: number) =>
   closeWorkspace({
+    window: BrowserWindow.fromWebContents(event.sender),
+    id,
+  }),
+);
+
+// A tab's × is a person closing that tab, so it comes here to be asked
+// about unsaved work too.
+ipcMain.on("tab:close", (event, id: number) =>
+  closeTab({
     window: BrowserWindow.fromWebContents(event.sender),
     id,
   }),

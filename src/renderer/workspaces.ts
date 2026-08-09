@@ -508,6 +508,7 @@ function buildLayout({
           title,
           kind: "code",
           path: tab.filePath,
+          dirty: tab.dirty,
         });
         continue;
       }
