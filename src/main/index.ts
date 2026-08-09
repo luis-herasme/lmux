@@ -56,21 +56,21 @@ function createWindow(): void {
         allTabs.push(tab);
       }
     }
-    const proceedsPastKilling = confirmKilling({
+    const killingConfirmed = confirmKilling({
       window: browserWindow,
       tabIds,
       action: "Close Window",
     });
-    if (!proceedsPastKilling) {
+    if (!killingConfirmed) {
       event.preventDefault();
       return;
     }
-    const proceedsPastDiscard = confirmDiscardDirty({
+    const discardConfirmed = confirmDiscardDirty({
       window: browserWindow,
       tabs: allTabs,
       action: "Close Window",
     });
-    if (!proceedsPastDiscard) {
+    if (!discardConfirmed) {
       event.preventDefault();
       return;
     }

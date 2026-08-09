@@ -111,6 +111,7 @@ export async function openCodeTab({
   // measures a hidden or zero-sized panel as it finds it and corrects
   // itself through automaticLayout when the panel is shown.
   let editor: CodeTab["editor"];
+  let mtimeMs: number | undefined;
   if ("error" in result) {
     showReadError({
       contentElement: pane.contentElement,
@@ -124,6 +125,7 @@ export async function openCodeTab({
       content: result.content,
       filePath: resolvedPath,
     });
+    mtimeMs = result.mtimeMs;
   }
 
   const tab: CodeTab = {
@@ -138,7 +140,7 @@ export async function openCodeTab({
     baseTabId,
     editor,
     dirty: false,
-    mtimeMs: "error" in result ? undefined : result.mtimeMs,
+    mtimeMs,
   };
   setCodeTabTitle(tab);
 
@@ -167,7 +169,10 @@ export async function openCodeTab({
 // the file's; the marker is the dirty state's.
 function setCodeTabTitle(tab: CodeTab): void {
   const name = tab.filePath.slice(tab.filePath.lastIndexOf("/") + 1);
-  const title = tab.dirty ? `● ${name}` : name;
+  let title = name;
+  if (tab.dirty) {
+    title = `● ${name}`;
+  }
   tab.titleElement.textContent = title;
   tab.panel.setTitle(title);
 }
