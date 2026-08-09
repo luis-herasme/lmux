@@ -324,7 +324,7 @@ const screenSchema = z.object({
 
 const tokenClassSchema = z.array(z.string());
 const editorTypingSchema = z.object({
-  found: z.boolean(),
+  editorFound: z.boolean(),
   edited: z.boolean(),
 });
 
@@ -693,7 +693,7 @@ const suite = describe("the command bus", () => {
             }
             if (target === null) {
               return {
-                found: false,
+                editorFound: false,
                 edited: false,
               };
             }
@@ -702,13 +702,13 @@ const suite = describe("the command bus", () => {
               text: ${JSON.stringify(EDITED)},
             });
             return {
-              found: true,
+              editorFound: true,
               edited: target.getValue() !== expected,
             };
           })()`),
         );
         assert.equal(
-          probed.found,
+          probed.editorFound,
           true,
           "the suite could not find the editor it opened",
         );
