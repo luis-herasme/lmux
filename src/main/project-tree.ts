@@ -10,12 +10,14 @@ import type {
   ReadProjectTreeResult,
 } from "../ipc/bridge.ts";
 
-type ResolvedProjectRoot =
-  | { path: string }
+type ResolveProjectRootResult =
+  | { rootPath: string }
   | { error: string };
 
-// Git failure means the shell directory is not inside a repository.
-function findGitRoot(directoryPath: string): Promise<string | undefined> {
+// Git failure leaves the shell directory as the project root.
+function gitRootForDirectory(
+  directoryPath: string,
+): Promise<string | undefined> {
   return new Promise((resolve) => {
     execFile(
       "git",
@@ -38,9 +40,9 @@ function findGitRoot(directoryPath: string): Promise<string | undefined> {
 
 async function resolveProjectRoot(
   request: ReadProjectTreeRequest,
-): Promise<ResolvedProjectRoot> {
-  let requestedPath = request.rootPath;
-  if (requestedPath === undefined) {
+): Promise<ResolveProjectRootResult> {
+  let rootPath = request.rootPath;
+  if (rootPath === undefined) {
     if (request.baseTabId === undefined) {
       return { error: "Can't find a project without a terminal tab" };
     }
@@ -48,22 +50,22 @@ async function resolveProjectRoot(
     if (shellDirectory === undefined) {
       return { error: "Can't find the terminal's shell directory" };
     }
-    requestedPath = shellDirectory;
-    const gitRoot = await findGitRoot(shellDirectory);
+    rootPath = shellDirectory;
+    const gitRoot = await gitRootForDirectory(shellDirectory);
     if (gitRoot !== undefined) {
-      requestedPath = gitRoot;
+      rootPath = gitRoot;
     }
   }
-  if (!requestedPath) {
+  if (rootPath.length === 0) {
     return { error: "Can't open an empty project path" };
   }
   try {
-    const resolvedPath = await realpath(requestedPath);
-    const projectStats = await stat(resolvedPath);
-    if (!projectStats.isDirectory()) {
-      return { error: `${resolvedPath} is not a directory` };
+    const canonicalRootPath = await realpath(rootPath);
+    const rootStatistics = await stat(canonicalRootPath);
+    if (!rootStatistics.isDirectory()) {
+      return { error: `${canonicalRootPath} is not a directory` };
     }
-    return { path: resolvedPath };
+    return { rootPath: canonicalRootPath };
   } catch (error) {
     return { error: String(error) };
   }
@@ -80,9 +82,9 @@ async function walkProjectDirectory({
   directoryPath,
   entries,
 }: WalkProjectDirectoryOptions): Promise<void> {
-  let children: Dirent[];
+  let directoryEntries: Dirent[];
   try {
-    children = await readdir(directoryPath, { withFileTypes: true });
+    directoryEntries = await readdir(directoryPath, { withFileTypes: true });
   } catch (error) {
     if (directoryPath === rootPath) {
       throw error;
@@ -90,32 +92,32 @@ async function walkProjectDirectory({
     // One protected child should not hide the rest of a readable project.
     return;
   }
-  for (const child of children) {
-    if (child.name === ".git" || child.isSymbolicLink()) {
+  for (const directoryEntry of directoryEntries) {
+    if (directoryEntry.name === ".git" || directoryEntry.isSymbolicLink()) {
       continue;
     }
-    const absolutePath = path.join(directoryPath, child.name);
-    let relativePath = path.relative(rootPath, absolutePath);
+    const entryPath = path.join(directoryPath, directoryEntry.name);
+    let relativePath = path.relative(rootPath, entryPath);
     relativePath = relativePath.split(path.sep).join("/");
-    if (child.isDirectory()) {
+    if (directoryEntry.isDirectory()) {
       entries.push({
         kind: "directory",
         path: relativePath,
       });
       await walkProjectDirectory({
         rootPath,
-        directoryPath: absolutePath,
+        directoryPath: entryPath,
         entries,
       });
       continue;
     }
-    if (!child.isFile()) {
+    if (!directoryEntry.isFile()) {
       continue;
     }
     entries.push({
       kind: "file",
       path: relativePath,
-      absolutePath,
+      absolutePath: entryPath,
     });
   }
 }
@@ -133,16 +135,16 @@ ipcMain.handle(
     const entries: ProjectTreeEntry[] = [];
     try {
       await walkProjectDirectory({
-        rootPath: resolvedRoot.path,
-        directoryPath: resolvedRoot.path,
+        rootPath: resolvedRoot.rootPath,
+        directoryPath: resolvedRoot.rootPath,
         entries,
       });
-      let name = path.basename(resolvedRoot.path);
-      if (!name) {
-        name = resolvedRoot.path;
+      let name = path.basename(resolvedRoot.rootPath);
+      if (name.length === 0) {
+        name = resolvedRoot.rootPath;
       }
       return {
-        rootPath: resolvedRoot.path,
+        rootPath: resolvedRoot.rootPath,
         name,
         entries,
       };

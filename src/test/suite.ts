@@ -851,8 +851,16 @@ const suite = describe("the command bus", () => {
         const clicked = await clickVisibleTreeFile({
           relativePath: "project.ts",
         });
-        assert.equal(clicked.clicked, true, "the project file was not in the tree");
-        assert.equal(clicked.gitVisible, false, ".git appeared in the project tree");
+        assert.equal(
+          clicked.clicked,
+          true,
+          "the project file was not in the tree",
+        );
+        assert.equal(
+          clicked.gitVisible,
+          false,
+          ".git appeared in the project tree",
+        );
 
         const openedFile = await fileOpened;
         if (openedFile.type !== "tab-opened") {

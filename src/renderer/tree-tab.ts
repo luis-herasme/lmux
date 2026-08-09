@@ -9,7 +9,7 @@ import type { FileTree as PierreFileTree } from "@pierre/trees";
 import type { DockviewGroupPanel } from "dockview";
 
 type TreeLibrary = {
-  FileTree: typeof import("@pierre/trees").FileTree;
+  FileTree: typeof PierreFileTree;
 };
 
 let treeLibraryPromise: Promise<TreeLibrary> | undefined;
@@ -62,45 +62,104 @@ function showTreeError({
 }
 
 type PreparedProjectTree = {
-  paths: string[];
-  absoluteFilePaths: Map<string, string>;
+  treePaths: string[];
+  filePathsByTreePath: Map<string, string>;
 };
 
 function prepareProjectTree(entries: ProjectTreeEntry[]): PreparedProjectTree {
-  const paths: string[] = [];
-  const absoluteFilePaths = new Map<string, string>();
+  const treePaths: string[] = [];
+  const filePathsByTreePath = new Map<string, string>();
   for (const entry of entries) {
     let treePath = entry.path;
     if (entry.kind === "directory") {
       // Pierre's path input marks an explicit directory with a trailing slash.
       treePath += "/";
     } else {
-      absoluteFilePaths.set(entry.path, entry.absolutePath);
+      filePathsByTreePath.set(entry.path, entry.absolutePath);
     }
-    paths.push(treePath);
+    treePaths.push(treePath);
   }
   return {
-    paths,
-    absoluteFilePaths,
+    treePaths,
+    filePathsByTreePath,
   };
 }
 
 type OpenProjectFileOptions = {
-  relativePath: string;
-  absoluteFilePaths: Map<string, string>;
+  treePath: string;
+  filePathsByTreePath: Map<string, string>;
 };
 
 function openProjectFile({
-  relativePath,
-  absoluteFilePaths,
+  treePath,
+  filePathsByTreePath,
 }: OpenProjectFileOptions): void {
-  const absolutePath = absoluteFilePaths.get(relativePath);
-  if (absolutePath === undefined) {
+  const filePath = filePathsByTreePath.get(treePath);
+  if (filePath === undefined) {
     return;
   }
   executeCommand({
     type: "open-file",
-    path: absolutePath,
+    path: filePath,
+  });
+}
+
+function fileTreePathFromClick(event: Event): string | undefined {
+  for (const eventTarget of event.composedPath()) {
+    if (!(eventTarget instanceof HTMLElement)) {
+      continue;
+    }
+    if (eventTarget.dataset.itemType !== "file") {
+      continue;
+    }
+    return eventTarget.dataset.itemPath;
+  }
+  return undefined;
+}
+
+type AttachTreeActivationHandlersOptions = {
+  fileTree: PierreFileTree;
+  filePathsByTreePath: Map<string, string>;
+};
+
+// Repeat clicks do not change selection, so activation listens in the shadow root.
+function attachTreeActivationHandlers({
+  fileTree,
+  filePathsByTreePath,
+}: AttachTreeActivationHandlersOptions): void {
+  const fileTreeContainer = fileTree.getFileTreeContainer();
+  if (fileTreeContainer === undefined) {
+    return;
+  }
+  const shadowRoot = fileTreeContainer.shadowRoot;
+  if (shadowRoot === null) {
+    return;
+  }
+  shadowRoot.addEventListener("click", (event) => {
+    const treePath = fileTreePathFromClick(event);
+    if (treePath === undefined) {
+      return;
+    }
+    openProjectFile({
+      treePath,
+      filePathsByTreePath,
+    });
+  });
+  shadowRoot.addEventListener("keydown", (event) => {
+    if (!(event instanceof KeyboardEvent)) {
+      return;
+    }
+    if (event.key !== "Enter") {
+      return;
+    }
+    const treePath = fileTree.getFocusedPath();
+    if (treePath === null) {
+      return;
+    }
+    openProjectFile({
+      treePath,
+      filePathsByTreePath,
+    });
   });
 }
 
@@ -130,22 +189,22 @@ export async function openTreeTab({
   ]);
   const pane = buildTreePane();
 
-  let title = "Project";
-  let resolvedRootPath = rootPath;
-  if (resolvedRootPath === undefined) {
-    resolvedRootPath = "";
+  let tabTitle = "Project";
+  let tabRootPath = "";
+  if (rootPath !== undefined) {
+    tabRootPath = rootPath;
   }
   if (!("error" in result)) {
-    title = result.name;
-    resolvedRootPath = result.rootPath;
+    tabTitle = result.name;
+    tabRootPath = result.rootPath;
   }
-  tabElements.titleElement.textContent = title;
+  tabElements.titleElement.textContent = tabTitle;
 
   const panel = addPanel({
     workspace,
     id,
     component: "tree",
-    title,
+    title: tabTitle,
     paneElement: pane.paneElement,
     tabElement: tabElements.tabElement,
     group,
@@ -161,51 +220,14 @@ export async function openTreeTab({
     const prepared = prepareProjectTree(result.entries);
     const mountedTree = new treeLibrary.FileTree({
       initialExpansion: 1, // expand the first directory level
-      paths: prepared.paths,
+      paths: prepared.treePaths,
     });
     fileTree = mountedTree;
     mountedTree.render({ containerWrapper: pane.contentElement });
-
-    // onSelectionChange omits repeat clicks, so activation listens in the shadow root.
-    const fileTreeContainer = mountedTree.getFileTreeContainer();
-    if (
-      fileTreeContainer !== undefined &&
-      fileTreeContainer.shadowRoot !== null
-    ) {
-      const shadowRoot = fileTreeContainer.shadowRoot;
-      shadowRoot.addEventListener("click", (event) => {
-        for (const eventTarget of event.composedPath()) {
-          if (!(eventTarget instanceof HTMLElement)) {
-            continue;
-          }
-          if (eventTarget.dataset.itemType !== "file") {
-            continue;
-          }
-          const relativePath = eventTarget.dataset.itemPath;
-          if (relativePath === undefined) {
-            return;
-          }
-          openProjectFile({
-            relativePath,
-            absoluteFilePaths: prepared.absoluteFilePaths,
-          });
-          return;
-        }
-      });
-      shadowRoot.addEventListener("keydown", (event) => {
-        if (!(event instanceof KeyboardEvent) || event.key !== "Enter") {
-          return;
-        }
-        const relativePath = mountedTree.getFocusedPath();
-        if (relativePath === null) {
-          return;
-        }
-        openProjectFile({
-          relativePath,
-          absoluteFilePaths: prepared.absoluteFilePaths,
-        });
-      });
-    }
+    attachTreeActivationHandlers({
+      fileTree: mountedTree,
+      filePathsByTreePath: prepared.filePathsByTreePath,
+    });
   }
 
   return {
@@ -215,7 +237,7 @@ export async function openTreeTab({
     titlePinned: true,
     element: pane.paneElement,
     contentElement: pane.contentElement,
-    rootPath: resolvedRootPath,
+    rootPath: tabRootPath,
     fileTree,
   };
 }
