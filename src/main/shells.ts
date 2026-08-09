@@ -98,10 +98,18 @@ export function runningProcessNames(tabIds: number[]): string[] {
   const names: string[] = [];
   for (const id of tabIds) {
     const shell = shells.get(id);
-    if (!shell || shell.process === SHELL_NAME) {
+    if (!shell) {
       continue;
     }
-    names.push(shell.process);
+    // node-pty answers with whatever the program was invoked as, which for
+    // the shell we spawn is the path we handed it: measured "/bin/zsh"
+    // against a SHELL_NAME of "zsh", so every idle tab read as busy. The
+    // name is also what the message wants to show.
+    const name = path.basename(shell.process);
+    if (name === SHELL_NAME) {
+      continue;
+    }
+    names.push(name);
   }
   return names;
 }

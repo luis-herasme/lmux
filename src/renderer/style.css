@@ -151,24 +151,57 @@ body.resizing #layout {
   flex-direction: column;
 }
 
-/* one full-width row per workspace, showing its whole name */
-#sidebar .workspace-button {
+/* one full-width row per workspace: its name, and its × at the edge. Not a
+   button, so it names the colors the `#sidebar button` rule above gives the
+   others. */
+#sidebar .workspace-row {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tab-foreground);
   padding: 5px 12px;
   font-size: 12px;
+  cursor: pointer;
+}
+
+#sidebar .workspace-row:hover {
+  color: var(--tab-active-foreground);
+}
+
+/* the name yields to the ×, ellipsizing rather than pushing it off the row */
+.workspace-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* the row's own padding is the ×'s hit area; it brings none of its own */
+#sidebar .workspace-close {
+  flex: none;
+  padding: 0;
+  /* a button takes neither from the page: the row's size, the row's shade */
+  font-size: inherit;
+  color: inherit;
+  line-height: 1;
+}
+
+/* the window always has a workspace to show, so the last row's × would be
+   a button that does nothing */
+#workspace-list .workspace-row:only-child .workspace-close {
+  display: none;
+}
+
 /* the active row shares the terminal's background, so it reads as the
    surface the panes belong to */
-#sidebar .workspace-button.active {
+#sidebar .workspace-row.active {
   color: var(--tab-active-foreground);
   background: var(--background);
 }
 
-#sidebar .workspace-button.active::before {
+#sidebar .workspace-row.active::before {
   content: "";
   position: absolute;
   left: 0;

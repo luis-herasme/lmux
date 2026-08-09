@@ -26,7 +26,8 @@ export type Workspace = {
   id: number;
   name: string;
   element: HTMLElement; // its Dockview root, hidden unless active
-  buttonElement: HTMLElement; // its entry in the sidebar
+  rowElement: HTMLElement; // its row in the sidebar
+  nameElement: HTMLElement; // the name in that row, beside its ×
   dockview: DockviewComponent;
   tabs: Map<number, Tab>;
   activeId: number;
@@ -114,27 +115,63 @@ export function createWorkspace(): Workspace {
   element.style.display = "none";
   layoutElement.append(element);
 
-  const buttonElement = document.createElement("button");
-  buttonElement.className = "workspace-button";
-  buttonElement.role = "tab";
-  buttonElement.ariaSelected = "false";
-  buttonElement.addEventListener("click", () => {
+  // A row and not a button, because the × in it is one and buttons do not
+  // nest; role, tabindex and the keydown below give back what the element
+  // type stopped saying and doing. Same shape a tab has in the strip.
+  const rowElement = document.createElement("div");
+  rowElement.className = "workspace-row";
+  rowElement.role = "tab";
+  rowElement.tabIndex = 0;
+  rowElement.ariaSelected = "false";
+
+  const nameElement = document.createElement("span");
+  nameElement.className = "workspace-name";
+
+  const closeElement = document.createElement("button");
+  closeElement.className = "workspace-close";
+  closeElement.textContent = "×";
+  closeElement.title = "Close Workspace (⇧⌘W)";
+  closeElement.ariaLabel = "Close workspace";
+  closeElement.addEventListener("click", (event) => {
+    event.stopPropagation();
+    // Through main rather than straight onto the bus: closing a workspace
+    // ends every shell in it, and only main can ask about the busy ones.
+    bridge.closeWorkspace(id);
+  });
+
+  rowElement.append(nameElement, closeElement);
+  rowElement.addEventListener("click", () => {
     executeCommand({
       type: "activate-workspace",
       id,
     });
   });
-  buttonElement.addEventListener("contextmenu", (event) => {
+  rowElement.addEventListener("keydown", (event) => {
+    // the × is a button of its own and answers both of these itself
+    if (event.target !== rowElement) {
+      return;
+    }
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault(); // Space scrolls, and the page must never scroll
+    executeCommand({
+      type: "activate-workspace",
+      id,
+    });
+  });
+  rowElement.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     bridge.showWorkspaceMenu(id);
   });
-  workspaceListElement.append(buttonElement);
+  workspaceListElement.append(rowElement);
 
   const workspace: Workspace = {
     id,
     name: "", // refreshWorkspaceName fills it in, below
     element,
-    buttonElement,
+    rowElement,
+    nameElement,
     dockview: new dockviewLibrary.DockviewComponent(element, DOCKVIEW_OPTIONS),
     tabs: new Map(),
     activeId: -1,
@@ -225,13 +262,13 @@ export function createWorkspace(): Workspace {
 export function activateWorkspace(workspace: Workspace): void {
   if (activeWorkspace) {
     activeWorkspace.element.style.display = "none";
-    activeWorkspace.buttonElement.classList.remove("active");
-    activeWorkspace.buttonElement.ariaSelected = "false";
+    activeWorkspace.rowElement.classList.remove("active");
+    activeWorkspace.rowElement.ariaSelected = "false";
   }
   activeWorkspace = workspace;
   workspace.element.style.display = "";
-  workspace.buttonElement.classList.add("active");
-  workspace.buttonElement.ariaSelected = "true";
+  workspace.rowElement.classList.add("active");
+  workspace.rowElement.ariaSelected = "true";
   titleBarElement.textContent = workspace.name;
   // Dockview measured its container while it was hidden, so it holds a zero
   // size; hand it the real one back.
@@ -263,7 +300,7 @@ export function removeWorkspace(workspace: Workspace): void {
   workspaces.delete(workspace.id);
   workspace.dockview.dispose();
   workspace.element.remove();
-  workspace.buttonElement.remove();
+  workspace.rowElement.remove();
   if (activeWorkspace !== workspace) {
     return;
   }
@@ -284,9 +321,9 @@ export function setWorkspaceName({
   name,
 }: SetWorkspaceNameOptions): void {
   workspace.name = name;
-  workspace.buttonElement.textContent = name;
+  workspace.nameElement.textContent = name;
   // the row ellipsizes a long name; the tooltip always has it whole
-  workspace.buttonElement.title = name;
+  workspace.rowElement.title = name;
   if (workspace === activeWorkspace) {
     titleBarElement.textContent = name;
   }

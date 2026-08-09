@@ -4,11 +4,16 @@ import type { MenuItemConstructorOptions } from "electron";
 import { dispatch, lmuxState } from "./bus.ts";
 import { confirmKilling } from "./dialogs.ts";
 
-// Closing a workspace kills every shell in it. `id` defaults to the active
-// workspace, matching the Command.
-function closeWorkspace(id?: number): void {
-  // dispatch targets the focused window; without one there is nothing to close
-  const window = BrowserWindow.getFocusedWindow();
+type CloseWorkspaceOptions = {
+  // the question below needs a window to be asked in, and a click in the page
+  // knows which one better than OS focus does: a page can send while another
+  // app is frontmost, and then nothing is focused
+  window: BrowserWindow | null;
+  id?: number; // defaults to the active workspace, matching the Command
+};
+
+// Closing a workspace kills every shell in it.
+function closeWorkspace({ window, id }: CloseWorkspaceOptions): void {
   if (!window) {
     return;
   }
@@ -108,7 +113,8 @@ export function installAppMenu(): void {
           {
             label: "Close Workspace",
             accelerator: "Shift+CmdOrCtrl+W",
-            click: () => closeWorkspace(),
+            click: () =>
+              closeWorkspace({ window: BrowserWindow.getFocusedWindow() }),
           },
           { type: "separator" },
           {
@@ -154,6 +160,15 @@ ipcMain.on("tab:menu", (event, id: number) => {
   ]).popup();
 });
 
+// The sidebar's × is a person closing a workspace, like the menu item and
+// the accelerator, so it comes here to be asked the same question.
+ipcMain.on("workspace:close", (event, id: number) =>
+  closeWorkspace({
+    window: BrowserWindow.fromWebContents(event.sender),
+    id,
+  }),
+);
+
 ipcMain.on("workspace:menu", (event, id: number) => {
   Menu.buildFromTemplate([
     {
@@ -162,7 +177,11 @@ ipcMain.on("workspace:menu", (event, id: number) => {
     },
     {
       label: "Close Workspace",
-      click: () => closeWorkspace(id),
+      click: () =>
+        closeWorkspace({
+          window: BrowserWindow.fromWebContents(event.sender),
+          id,
+        }),
     },
     { type: "separator" },
     {

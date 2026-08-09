@@ -57,6 +57,8 @@ export type Bridge = {
   onRenameRequest: (callback: (id: number) => void) => void;
   showWorkspaceMenu: (id: number) => void;
   onWorkspaceRenameRequest: (callback: (id: number) => void) => void;
+  // not a Command: main asks about the shells it would end, then dispatches
+  closeWorkspace: (id: number) => void;
   // the two request/response pairs on the cable (ipcRenderer.invoke)
   readFile: (request: ReadFileRequest) => Promise<ReadFileResult>;
   // the session the last run left behind, if there is one to rebuild

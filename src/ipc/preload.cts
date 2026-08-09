@@ -29,6 +29,7 @@ const bridge: Bridge = {
   showWorkspaceMenu: (id) => ipcRenderer.send("workspace:menu", id),
   onWorkspaceRenameRequest: (callback) =>
     ipcRenderer.on("workspace:rename-request", (_event, id) => callback(id)),
+  closeWorkspace: (id) => ipcRenderer.send("workspace:close", id),
   readFile: (request) => ipcRenderer.invoke("file:read", request),
   readSession: () => ipcRenderer.invoke("session:read"),
 };

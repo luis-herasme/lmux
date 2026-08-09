@@ -83,6 +83,12 @@ const VISIBLE_CODE_TOKEN_CLASSES = `(() => {
 })()`;
 
 const CLICK_SIDEBAR = `document.getElementById("sidebar").click()`;
+// The rows are appended in creation order, so the last one belongs to the
+// workspace the case just opened.
+const CLICK_LAST_WORKSPACE_CLOSE = `(() => {
+  const rows = document.querySelectorAll("#workspace-list .workspace-row");
+  rows[rows.length - 1].querySelector(".workspace-close").click();
+})()`;
 const DOUBLE_CLICK_SIDEBAR = `document
   .getElementById("sidebar")
   .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`;
@@ -436,6 +442,26 @@ const suite = describe("the command bus", () => {
         findWorkspace({ state: unpinned.state, id: workspace.id })?.name,
         "linker",
         "unpinning left the workspace with its pinned name",
+      );
+    },
+  });
+
+  busTest({
+    name: "the × on a sidebar row closes that workspace",
+    body: async () => {
+      const workspace = await openWorkspace();
+      // The waiter goes up before the click: the × travels to main and back
+      // as a Command, so its Event can arrive before the script answers.
+      const closing = waitForEvent((event) => event.type === "workspace-closed");
+      await lmuxWindow.webContents.executeJavaScript(
+        CLICK_LAST_WORKSPACE_CLOSE,
+      );
+      const closed = await closing;
+
+      assert.equal(
+        findWorkspace({ state: closed.state, id: workspace.id }),
+        undefined,
+        "the × left its workspace in the state",
       );
     },
   });

@@ -63,6 +63,7 @@ showTabMenu(id)              renderer → main   "right-click on tab `id`: show 
 onRenameRequest((id))        main → renderer   "the user picked Rename in tab `id`'s menu"
 showWorkspaceMenu(id)        renderer → main   "right-click on workspace `id`: show its native menu"
 onWorkspaceRenameRequest((id)) main → renderer "the user picked Rename in workspace `id`'s menu"
+closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: ask about its shells, then close it"
 readFile({path, baseTabId})  renderer → main   "read this file for the markdown view" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
 onScreenRead({readId, ...})  main → renderer   "what is tab `id` showing?" (request/response, the only one this way)
@@ -313,8 +314,20 @@ change it and update this list.
   covered: a `close-workspace` Command issued from the console or a future
   agent proceeds without a dialog, since a caller that isn't a person has
   nothing to answer it with. The affordances a person uses (the menu item,
-  the accelerator, the workspace's context menu) all route through main
-  already, so they all ask.
+  the accelerator, the workspace's context menu, the × on its sidebar row)
+  all route through main already, so they all ask. The × is the one that
+  is not already there: it is a click in the page, so it needs a message of
+  its own (`closeWorkspace`) to reach the dialog, and it is the reason the
+  window is now taken from whoever sent the message rather than from OS
+  focus — a page can send while another app is frontmost, and then
+  `getFocusedWindow()` is null and the close was silently dropped.
+  Amended 2026-08-08: the busy test itself was wrong from the start and
+  every idle tab read as busy. node-pty answers with the program's invoked
+  name, which for the shell we spawn is the path we handed it, and that was
+  compared against a basename: `"/bin/zsh" !== "zsh"`. Both sides are
+  basenames now. Nobody noticed because the prompt it produces is
+  answerable and the answer is the one you wanted; the × found it because
+  a dialog no gesture had asked for blocks the test harness.
 - **The renderer requests the first shell: the old startup race is gone.**
   Main used to spawn the shell after `loadFile` resolved, so output couldn't
   arrive before the page listened. With tabs, creation starts *in* the page
@@ -613,22 +626,30 @@ change it and update this list.
   2026-08.) A workspace is a whole lmux of its own inside the window: its
   own pane layout, its own tabs, its own shells (see the glossary). The
   sidebar, which held only the settings gear, becomes their list: one row
-  per workspace carrying its whole name, the active one accented, the gear
-  pushed to the bottom. The empty strip between the two opens a workspace
-  as well, on a double click: it is the sidebar's own box, and a click that
-  lands on it belongs to no row, so it makes the + button as tall as the
-  column instead of one row. Double, like the empty space between panes,
-  which opens a tab the same way: a single click on a stretch of background
-  is how you put focus somewhere without asking for anything, and a column
-  that opens a workspace whenever you click past the last row is a column
-  you have to aim around. Names, not numbers, because the name is the
-  workspace's identity: a numbered strip made a rename invisible in the one
-  place you pick a workspace from. A workspace takes its name from its
-  active tab, the same relationship a tab has with its shell's OSC title
-  one level down, and `rename-workspace` pins it against that just as an
-  explicit tab rename pins against the shell (`""` unpins; a workspace with
-  no tabs falls back to `Workspace N`). A derived rename emits no
-  `workspace-renamed` Event of its own: it is a consequence of the
+  per workspace carrying its whole name and a × at its edge, the active one
+  accented, the gear pushed to the bottom. The × arrived later (2026-08-08),
+  because closing a workspace was only reachable by right-clicking it, which
+  is a gesture you have to already know about; it is the same shape a tab
+  wears in the strip, and the row became a `div` with `role="tab"` to hold
+  it, since buttons do not nest (the keys a button answered for free are
+  handed back by a keydown). The last row's × is hidden rather than inert:
+  the window always has a workspace to show, so `close-workspace` refuses
+  there, and a `:only-child` rule keeps the button and the Command saying
+  the same thing with no code to keep in step. The empty strip between the
+  two opens a workspace as well, on a double click: it is the sidebar's own
+  box, and a click that lands on it belongs to no row, so it makes the +
+  button as tall as the column instead of one row. Double, like the empty
+  space between panes, which opens a tab the same way: a single click on a
+  stretch of background is how you put focus somewhere without asking for
+  anything, and a column that opens a workspace whenever you click past the
+  last row is a column you have to aim around. Names, not numbers, because
+  the name is the workspace's identity: a numbered strip made a rename
+  invisible in the one place you pick a workspace from. A workspace takes
+  its name from its active tab, the same relationship a tab has with its
+  shell's OSC title one level down, and `rename-workspace` pins it against
+  that just as an explicit tab rename pins against the shell (`""` unpins; a
+  workspace with no tabs falls back to `Workspace N`). A derived rename
+  emits no `workspace-renamed` Event of its own: it is a consequence of the
   `tab-activated`, `tab-retitled` or `tab-closed` that caused it, and rides
   out in that Event's snapshot, so observers never see the same change
   announced twice. The
