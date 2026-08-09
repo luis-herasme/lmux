@@ -181,6 +181,7 @@ src/
     bus.ts             dispatch() into the renderer; Event intake (the read model); the screen query
     mcp.ts             the API socket: MCP over a unix socket, tools generated from commandSchema
     files.ts           file:read and file:write for the code view; both resolve against a shell's cwd
+    project-tree.ts    project-root resolution and the guarded directory walk
     session-state.ts   the last session on disk: written while closing, read before the page exists
   renderer/
     index.html         the page: title bar, sidebar, the layout root, the modals
@@ -197,6 +198,7 @@ src/
     markdown.ts        GitHub-look rendering (markdown-it + DOMPurify)
     code-tab.ts        a file's pane: the editor in it, and the read that fills it
     code.ts            Monaco: loaded on demand, themed from THEMES, language by filename
+    tree-tab.ts        a project's pane: Pierre Trees and file selection into open-file
     file-links.ts      the terminal link provider: Cmd+click a *.md or source path
     dom.ts             requireElement: strict lookups of index.html's fixed elements
   test/
@@ -226,23 +228,12 @@ change it and update this list.
   our own code: `dist/` files map 1:1 to `src/` files, nothing is fused or
   minified. (Amended 2026-08-08: the rule no longer extends to every
   dependency — see the bundler entry below.)
-- **One bundled dependency, and a rule about adding a second.** (Narrows
-  "no bundler", which held from the first commit until Monaco.) Every
-  library the page had loaded until now ships a browser build that a
-  relative `node_modules` path can reach, so the browser resolves it and
-  no build step stands in between. Monaco does not: its ES modules import
-  each other by bare specifier across thousands of files, and a page loaded
-  from disk cannot resolve a bare specifier at all. The alternatives were an
-  import map naming every transitive package by hand — around twenty
-  entries, each requiring us to resolve a package's conditional `exports` to
-  a real file, and each one able to break on an `npm update` — or a bundler
-  for that one dependency. We took the bundler.
-  `scripts/bundle-vendor.mjs` runs esbuild over Monaco alone and writes
-  `dist/vendor/`; `npm run build` runs it after `tsc`. Our own code is still
-  plain `tsc` output loaded as ES modules, and the point of keeping the
-  bundle to one named dependency is that adding a second stays a decision
-  rather than a habit. Cost we accept: a 4MB artifact we do not read, and a
-  build step that is now two tools instead of one.
+- **Only browser-incompatible dependencies are bundled.** (Narrows "no
+  bundler", which held until Monaco.) Most libraries expose files the page can
+  load directly. Monaco and Pierre Trees instead use bare specifiers, so
+  `scripts/bundle-vendor.mjs` writes their browser bundles to `dist/vendor/`.
+  The app's own modules remain one-to-one `tsc` output, and another dependency
+  joins the bundle only when a feature demonstrates the same need.
 - **Monaco is loaded when the first code tab opens, not at boot.** It is
   about 4MB with every language grammar it ships, and the grammars are most
   of what makes a code tab worth having. A dynamic `import()` in
@@ -282,6 +273,17 @@ change it and update this list.
   clean and the guard on quit is what protects the unsaved work); and the
   dirty ● leaks into the workspace name when the dirty tab is active, which
   is the same inheritance tab titles always had.
+- **The project tree is a Dockview panel backed by Pierre Trees.** (Decided
+  2026-08 for #35.) `open-tree` finds the named terminal's Git root, falling
+  back to its current directory. Main resolves that boundary, omits `.git` and
+  symlinks, and skips unreadable children. Pierre receives relative paths;
+  files also carry the absolute path dispatched through `open-file`. The
+  resolved root is enough to restore the tab. `@pierre/trees` is pinned at
+  `1.0.0-beta.6` because it and its Preact dependency are prereleases, and its
+  virtualization and `setGitStatus` support #36. The bundle loads on the first
+  tree. Click activation listens inside Pierre's shadow root because selection
+  changes omit repeat clicks. File mutations, Git decorations and filesystem
+  watching remain out of scope.
 - **The IPC contract is a type.** `src/ipc/bridge.ts` declares `Bridge`;
   preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.
@@ -964,15 +966,14 @@ change it and update this list.
   one new request/response pair on the cable, `readSession`. If there is
   nothing to rebuild, boot opens one empty workspace exactly as before.
   What a session holds is deliberately less than the state: a workspace's
-  tabs in order, a document's path and mode, which tab and workspace you were
-  looking at, and a workspace's name only when a rename pinned it. It
-  carries no ids, because the renderer assigns those as it creates tabs, so a
-  restored tab is a new tab wearing the old contents. A terminal tab carries
-  nothing at all: shells cannot be restored, only respawned, and scrollback
-  is gone either way. Two fields joined the state to make this possible and
-  are worth having on their own: a markdown `TabInfo` now says which `path`
-  it shows, and a `WorkspaceInfo` says whether its `name` is pinned or
-  follows its active tab, which an observer previously could not tell.
+  tabs in order, a document's path and mode, a project tree's resolved root,
+  which tab and workspace you were looking at, and a workspace's name only
+  when a rename pinned it. It carries no ids, because the renderer assigns
+  those as it creates tabs, so a restored tab is a new tab wearing the old
+  contents. A terminal tab carries nothing at all: shells cannot be restored,
+  only respawned, and scrollback is gone either way. The corresponding
+  `TabInfo` paths are also useful to observers; `WorkspaceInfo` still says
+  whether its name is pinned or follows its active tab.
   Restore is not a Command. It is the boot path deciding what to open, it
   needs the tab records as it makes them rather than a snapshot afterwards,
   and the bus stays a description of what a user or an agent does.
@@ -990,11 +991,11 @@ change it and update this list.
   shells `npm start` produces, with no mock anywhere. A case is then
   "send these Commands, assert on the state that comes back", using the
   snapshot main already keeps as its read model, which is the same thing the
-  future server will answer from. Only two facts are read out of the page
-  instead: a terminal's fitted row count and a document's scroll position,
-  which the state deliberately does not carry. Those go through
-  `executeJavaScript`, the one place the project accepts an unverified code
-  string, because nothing typed can express a DOM read across processes.
+  future server will answer from. Three facts are read out of the page instead:
+  a terminal's fitted rows, a document's scroll position and a click inside
+  Pierre's shadow root. Those go through `executeJavaScript`, the one place the
+  project accepts an unverified code string, because nothing typed can express
+  a DOM read across processes.
   Four properties of the host had to be discovered rather than assumed, and
   all four are load-bearing: Electron holds the `ready` event until its ESM
   entry has finished evaluating, so a top-level `await app.whenReady()`

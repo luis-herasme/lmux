@@ -3,12 +3,22 @@
 // Event carries a full snapshot, so a case needs no DOM knowledge except
 // where the state deliberately holds none (a terminal's fitted size, a
 // document's scroll position), which is what the probes below are for.
+import { execFileSync } from "child_process";
 import { describe } from "node:test";
 import assert from "node:assert/strict";
 import * as net from "net";
 import * as path from "path";
 import * as os from "os";
-import { writeFileSync, readFileSync, unlinkSync, utimesSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "fs";
 import { z } from "zod";
 import {
   API_SOCKET_PATH,
@@ -21,6 +31,7 @@ import {
   waitForEvent,
 } from "./harness.ts";
 import { lmuxState } from "../main/bus.ts";
+import { sessionFromState } from "../session.ts";
 import type { LmuxState, WorkspaceInfo } from "../api.ts";
 
 // tsc emits no .md, so the fixture is read from source, the way main reads
@@ -320,6 +331,7 @@ const screenSchema = z.object({
   lines: z.array(z.string()).optional(),
   alternate: z.boolean().optional(),
   language: z.string().optional(),
+  path: z.string().optional(),
 });
 
 const tokenClassSchema = z.array(z.string());
@@ -327,6 +339,42 @@ const editorTypingSchema = z.object({
   editorFound: z.boolean(),
   edited: z.boolean(),
 });
+const treeClickSchema = z.object({
+  clicked: z.boolean(),
+  gitVisible: z.boolean(),
+});
+
+async function clickVisibleTreeFile(relativePath: string) {
+  const probed = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    for (const treeElement of document.querySelectorAll(".tree-pane")) {
+      if (treeElement.offsetParent === null) {
+        continue;
+      }
+      const host = treeElement.querySelector("file-tree-container");
+      if (host === null || host.shadowRoot === null) {
+        return { clicked: false, gitVisible: false };
+      }
+      let target = null;
+      let gitVisible = false;
+      for (const item of host.shadowRoot.querySelectorAll("[data-item-path]")) {
+        const itemPath = item.getAttribute("data-item-path");
+        if (itemPath === ".git") {
+          gitVisible = true;
+        }
+        if (itemPath === ${JSON.stringify(relativePath)}) {
+          target = item;
+        }
+      }
+      if (!(target instanceof HTMLElement)) {
+        return { clicked: false, gitVisible };
+      }
+      target.click();
+      return { clicked: true, gitVisible };
+    }
+    return { clicked: false, gitVisible: false };
+  })()`);
+  return treeClickSchema.parse(probed);
+}
 
 const suite = describe("the command bus", () => {
   busTest({
@@ -649,6 +697,153 @@ const suite = describe("the command bus", () => {
         "typescript",
         "the editor did not recognise a .ts file",
       );
+    },
+  });
+
+  busTest({
+    name: "a project tree follows the terminal's git root and opens a selected file",
+    body: async () => {
+      const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-tree-"));
+      const nestedPath = path.join(rootPath, "nested");
+      const filePath = path.join(rootPath, "project.ts");
+      mkdirSync(nestedPath);
+      writeFileSync(filePath, "export const project = true;\n");
+      execFileSync("git", ["init", "--quiet", rootPath]);
+      const canonicalRootPath = realpathSync(rootPath);
+      const canonicalFilePath = path.join(canonicalRootPath, "project.ts");
+      const projectWorkspace = await openWorkspace();
+
+      try {
+        const terminalTab = projectWorkspace.tabs.at(0);
+        if (terminalTab === undefined || terminalTab.kind !== "terminal") {
+          throw new Error("the project workspace has no terminal");
+        }
+        const terminalId = terminalTab.id;
+        const quotedNestedPath =
+          "'" + nestedPath.replaceAll("'", "'\"'\"'") + "'";
+        const PROJECT_READY = "LMUX_TREE_PROJECT_READY";
+        sendCommand({
+          type: "write",
+          id: terminalId,
+          // A split marker keeps PTY input echo from looking like completion.
+          text: `cd ${quotedNestedPath} && printf 'LMUX_TREE_PROJECT_%s\\n' READY\n`,
+        });
+        await pollUntil({
+          check: async () => {
+            const terminalScreen = screenSchema.parse(
+              await callTool({
+                name: "screen",
+                toolArguments: { tabId: terminalId },
+              }),
+            );
+            if (
+              terminalScreen.kind !== "terminal" ||
+              terminalScreen.lines === undefined
+            ) {
+              return false;
+            }
+            for (const line of terminalScreen.lines) {
+              if (line.includes(PROJECT_READY)) {
+                return true;
+              }
+            }
+            return false;
+          },
+          description: "the test shell to enter the nested project directory",
+        });
+
+        const tabCount = countTabs(lmuxState);
+        sendCommand({
+          type: "open-tree",
+          baseTabId: terminalId,
+        });
+        const opened = await waitForEvent(
+          (event) => countTabs(event.state) === tabCount + 1,
+        );
+        if (opened.type !== "tab-opened") {
+          throw new Error(`a tab arrived as a ${opened.type}`);
+        }
+
+        const openedTree = opened.state.workspaces.at(-1)?.tabs.at(-1);
+        assert.deepEqual(openedTree, {
+          id: opened.id,
+          title: path.basename(canonicalRootPath),
+          kind: "tree",
+          path: canonicalRootPath,
+        });
+
+        const treeScreen = screenSchema.parse(
+          await callTool({
+            name: "screen",
+            toolArguments: { tabId: opened.id },
+          }),
+        );
+        assert.equal(treeScreen.kind, "tree");
+        assert.equal(treeScreen.path, canonicalRootPath);
+
+        const savedTree = sessionFromState(opened.state)
+          .workspaces.at(-1)
+          ?.tabs.at(-1);
+        assert.deepEqual(savedTree, {
+          kind: "tree",
+          path: canonicalRootPath,
+        });
+
+        const fileOpened = waitForEvent(
+          (event) => countTabs(event.state) === tabCount + 2,
+        );
+        const clicked = await clickVisibleTreeFile("project.ts");
+        assert.equal(clicked.clicked, true);
+        assert.equal(clicked.gitVisible, false, ".git appeared in the tree");
+
+        const openedFile = await fileOpened;
+        if (openedFile.type !== "tab-opened") {
+          throw new Error(`a tab arrived as a ${openedFile.type}`);
+        }
+        const fileScreen = screenSchema.parse(
+          await callTool({
+            name: "screen",
+            toolArguments: { tabId: openedFile.id },
+          }),
+        );
+        assert.equal(fileScreen.kind, "code");
+        assert.equal(fileScreen.path, canonicalFilePath);
+
+        const treeActivated = waitForEvent(
+          (event) => event.type === "tab-activated" && event.id === opened.id,
+        );
+        sendCommand({
+          type: "activate-tab",
+          id: opened.id,
+        });
+        await treeActivated;
+
+        const fileReopened = waitForEvent(
+          (event) => countTabs(event.state) === tabCount + 3,
+        );
+        const clickedAgain = await clickVisibleTreeFile("project.ts");
+        assert.equal(clickedAgain.clicked, true);
+        const reopenedFile = await fileReopened;
+        assert.equal(reopenedFile.type, "tab-opened");
+      } finally {
+        const workspaceClosed = waitForEvent(
+          (event) =>
+            event.type === "workspace-closed" &&
+            event.id === projectWorkspace.id,
+        );
+        sendCommand({
+          type: "close-workspace",
+          id: projectWorkspace.id,
+        });
+        try {
+          await workspaceClosed;
+        } finally {
+          rmSync(rootPath, {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
     },
   });
 

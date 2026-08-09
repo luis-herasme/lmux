@@ -10,7 +10,8 @@ import { confirmKilling, confirmDiscardDirty } from "./dialogs.ts";
 import { lmuxState } from "./bus.ts";
 import type { TabInfo } from "../api.ts";
 import { installAppMenu } from "./menus.ts";
-import "./files.js"; // registers file:read
+import "./files.js"; // registers file:read and file:write
+import "./project-tree.js"; // registers project-tree:read
 import "./mcp.js"; // listens on the API socket
 
 // Everything else (file:, and any scheme an OS handler would claim) is

@@ -1,15 +1,8 @@
 // The bundler, and the only thing in the project that needs one.
 //
-// Everything else the page loads — xterm, Dockview, zod, the markdown
-// libraries — ships a browser build that a relative `node_modules` path can
-// reach, so the browser resolves it and no build step stands in between
-// (ARCHITECTURE.md). Monaco does not: its ES modules import each other by
-// bare specifier across a few thousand files, and a page loaded from disk
-// cannot resolve a bare specifier at all.
-//
-// So Monaco, alone, is bundled. The app's own code is still plain `tsc`
-// output loaded as ES modules, and adding a dependency here should stay a
-// decision, not a habit.
+// Most dependencies expose files the browser can load directly. Monaco and
+// Pierre Trees use bare specifiers, so only those two are bundled. The app's
+// own modules remain one-to-one `tsc` output (ARCHITECTURE.md).
 import * as esbuild from "esbuild";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -41,7 +34,17 @@ const worker = {
   format: "iife",
 };
 
-for (const target of [editor, worker]) {
+// The vanilla class only. The package's root also exports React, SSR and
+// composition helpers that this panel never imports.
+const trees = {
+  entryPoints: [
+    fromRoot("node_modules/@pierre/trees/dist/render/FileTree.js"),
+  ],
+  outfile: fromRoot("dist/vendor/trees.js"),
+  format: "esm",
+};
+
+for (const target of [editor, worker, trees]) {
   await esbuild.build({
     entryPoints: target.entryPoints,
     outfile: target.outfile,

@@ -35,6 +35,8 @@ const bridge: Bridge = {
   closeTab: (id) => ipcRenderer.send("tab:close", id),
   readFile: (request) => ipcRenderer.invoke("file:read", request),
   writeFile: (request) => ipcRenderer.invoke("file:write", request),
+  readProjectTree: (request) =>
+    ipcRenderer.invoke("project-tree:read", request),
   readSession: () => ipcRenderer.invoke("session:read"),
 };
 

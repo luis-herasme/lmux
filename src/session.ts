@@ -26,6 +26,12 @@ const sessionTabSchema = z.discriminatedUnion("kind", [
     kind: z.literal("code"),
     path: z.string(),
   }),
+  // The root is already resolved: restoring should show the same project,
+  // not whichever directory a newly spawned shell happens to start in.
+  z.object({
+    kind: z.literal("tree"),
+    path: z.string(),
+  }),
 ]);
 
 const sessionWorkspaceSchema = z.object({
@@ -71,6 +77,13 @@ export function sessionFromState(state: LmuxState): Session {
       if (tab.kind === "code") {
         tabs.push({
           kind: "code",
+          path: tab.path,
+        });
+        continue;
+      }
+      if (tab.kind === "tree") {
+        tabs.push({
+          kind: "tree",
           path: tab.path,
         });
         continue;

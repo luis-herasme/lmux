@@ -205,11 +205,11 @@ name points at. Node does that work; browsers do not.
 A **bundler** does it ahead of time: it follows every import from an entry
 file, resolves each specifier to a real file, and writes the result out as
 one file with no imports left to resolve. lmux avoids needing one by loading
-libraries that ship browser builds, by relative `node_modules` path — with a
-single exception, Monaco, which imports itself by bare specifier across
-thousands of files. `scripts/bundle-vendor.mjs` bundles that one dependency
-with **esbuild**; everything else, including all of our own code, is still
-`tsc` output the browser resolves itself.
+libraries that ship browser builds from a relative `node_modules` path, with
+two exceptions: Monaco and Pierre Trees both import dependencies by bare
+specifier. `scripts/bundle-vendor.mjs` bundles those two with **esbuild**;
+everything else, including all of our own code, is still `tsc` output the
+browser resolves itself.
 
 ## Web Worker
 
@@ -391,6 +391,21 @@ running program, and its cursor position exactly where you left them. The
 one thing a hidden workspace can't do is measure itself (a hidden element
 reports a zero-sized box), so terminals skip fitting while they're away and
 re-fit when their workspace comes forward.
+
+## Project root / file tree
+
+A **project root** is the directory lmux treats as the boundary of the work
+shown in one tree. From a terminal inside a Git repository, it is the path
+reported by `git rev-parse --show-toplevel`; outside Git, it is that shell's
+current directory. Resolving the root to its real path and refusing to follow
+symbolic links keeps a walk from escaping that boundary.
+
+A **file tree** is the hierarchical view of every directory and file below
+that root. The paths are its identities: `src/main/index.ts` names the same
+item in the renderer, the public state and the main-process directory walk.
+Pierre Trees infers directories from those slash-separated paths and
+virtualizes the rows, which means it only puts the visible portion of a large
+project into the DOM.
 
 ## Rendered vs. raw (a markdown tab's two modes)
 
