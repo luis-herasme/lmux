@@ -87,6 +87,11 @@ export const commandSchema = z.discriminatedUnion("type", [
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
   }),
+  // Writes the file a code tab shows, re-reading it from the editor's model.
+  // Refuses to overwrite a file that changed on disk since it was opened,
+  // surfacing the refusal in the tab rather than arguing with whoever else
+  // has the file open.
+  z.object({ type: z.literal("save-file"), id: z.number().optional() }),
   z.object({ type: z.literal("toggle-maximize"), id: z.number().optional() }),
   // Both ignore a tab that isn't a markdown one.
   z.object({
@@ -154,13 +159,19 @@ export type LmuxEvent =
   | { type: "workspace-renamed"; id: number; state: LmuxState }
   | { type: "markdown-mode-changed"; id: number; state: LmuxState }
   // the file was re-read; its text is in the view, not in the state
-  | { type: "markdown-reloaded"; id: number; state: LmuxState };
+  | { type: "markdown-reloaded"; id: number; state: LmuxState }
+  // the code tab's text first diverged from its file; state now says so
+  | { type: "dirty-changed"; id: number; state: LmuxState }
+  // the code tab's work reached disk; state now reads clean for that tab
+  | { type: "file-saved"; id: number; state: LmuxState };
 
 export type TabInfo =
   | { id: number; title: string; kind: "terminal" }
   // the file it shows, so an observer (and a restart) knows which document
   | { id: number; title: string; kind: "markdown"; mode: MarkdownMode; path: string }
-  | { id: number; title: string; kind: "code"; path: string };
+  // dirty: whether the tab holds work the file on disk does not, so an
+  // observer (and a closing window) knows there is something to lose
+  | { id: number; title: string; kind: "code"; path: string; dirty: boolean };
 
 // One tab strip and the pane below it. Group ids are opaque handles
 // assigned by the layout engine, unique within their workspace only.

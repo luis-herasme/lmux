@@ -1,7 +1,7 @@
 import { getSettings, currentTheme, updateSettings } from "./settings.ts";
 import { bridge } from "./bridge.ts";
 import { registerFileLinks } from "./file-links.ts";
-import { disposeCodeTab, openCodeTab } from "./code-tab.ts";
+import { disposeCodeTab, openCodeTab, saveCodeFile } from "./code-tab.ts";
 import { refreshCodeTheme } from "./code.ts";
 import {
   openMarkdownTab,
@@ -77,14 +77,21 @@ export type MarkdownTab = TabCommon & {
 type MonacoCodeEditor = monacoEditor.IStandaloneCodeEditor;
 
 // A file shown as code. `editor` is absent when the file could not be read:
-// the tab exists to say so, and has no Monaco instance behind it.
+// the tab exists to say so, and has no Monaco instance behind it. `dirty`
+// is whether the tab holds work the disk does not; `mtimeMs` is the file's
+// modification time at the last read or write, so a save refuses to
+// overwrite a file that changed on disk in between. `statusElement` shows
+// why a save was refused.
 export type CodeTab = TabCommon & {
   kind: "code";
   element: HTMLElement;
   contentElement: HTMLElement; // Monaco's container, and what takes focus
+  statusElement: HTMLElement;
   filePath: string;
   baseTabId: number | undefined;
   editor: MonacoCodeEditor | undefined;
+  dirty: boolean;
+  mtimeMs: number | undefined;
 };
 
 export type Tab = TerminalTab | MarkdownTab | CodeTab;
@@ -206,10 +213,9 @@ function buildTabElement(id: number): TabElements {
   closeElement.ariaLabel = "Close tab";
   closeElement.addEventListener("click", (event) => {
     event.stopPropagation();
-    executeCommand({
-      type: "close-tab",
-      id,
-    });
+    // a person's × routes through main, so a dirty tab is asked about
+    // before it goes; an agent's close-tab Command goes the other way
+    bridge.closeTab(id);
   });
 
   const tabElement = document.createElement("div");
@@ -673,6 +679,17 @@ export function executeCommand(command: Command): void {
         return;
       }
       reloadMarkdownTab({
+        id: resolved.id,
+        tab: resolved.tab,
+      });
+      return;
+    }
+    case "save-file": {
+      const resolved = resolveTab(command.id);
+      if (resolved === undefined || resolved.tab.kind !== "code") {
+        return;
+      }
+      saveCodeFile({
         id: resolved.id,
         tab: resolved.tab,
       });

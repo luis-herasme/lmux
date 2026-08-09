@@ -180,7 +180,7 @@ src/
     menus.ts           app menu + tab context menu; menu items are Command sources
     bus.ts             dispatch() into the renderer; Event intake (the read model); the screen query
     mcp.ts             the API socket: MCP over a unix socket, tools generated from commandSchema
-    files.ts           file:read for the document and code views; resolves against a shell's cwd
+    files.ts           file:read and file:write for the code view; both resolve against a shell's cwd
     session-state.ts   the last session on disk: written while closing, read before the page exists
   renderer/
     index.html         the page: title bar, sidebar, the layout root, the modals
@@ -259,6 +259,29 @@ change it and update this list.
   `default-src 'self'`. `renderer/code.ts` therefore hands Monaco a real
   file URL through `MonacoEnvironment.getWorker`, so the fallback never
   happens and the CSP stays exactly as strict as it was.
+- **A code tab can be edited, and its work saved.** (Decided 2026-08 for #34.)
+  Dropping `readOnly` is the whole of the editing surface: Monaco owns focus
+  and the caret, and the app's one delegated mousedown handler already
+  activates the tab when it is clicked. What is new is the file half. The
+  page writes through the same bridge `read` uses: `file:write` mirrors
+  `file:read`'s path resolution, and both share it. The tab carries the
+  file's mtime at read; a save guards on it, refusing to overwrite a file
+  that changed on disk in between, and saying why in a thin strip above the
+  editor. `onDidChangeModelContent` flips the tab dirty once, which is a
+  `dirty-changed` Event and a ● in the tab title; it rides on `TabInfo` so
+  an agent (and main, for the close guards) can see it. ⌘S is a File-menu
+  accelerator that dispatches a `save-file` Command like every other
+  affordance; Monaco never binds its own save. A dirty tab is asked about
+  before it closes, whether the ×, the menu, the accelerator or the window
+  is the one closing it, through the same `confirmDiscardDirty` in
+  `dialogs.ts` that a running-process guard sits beside. Decisions: a save
+  guards on mtime rather than raising an external-change prompt (reacting
+  to a file that changed while open, a Reload button, is #34-out-of-scope
+  and deliberately not here); buffers are never stashed in the session (a
+  session stays "what can honestly be rebuilt", so a dirty tab restores
+  clean and the guard on quit is what protects the unsaved work); and the
+  dirty ● leaks into the workspace name when the dirty tab is active, which
+  is the same inheritance tab titles always had.
 - **The IPC contract is a type.** `src/ipc/bridge.ts` declares `Bridge`;
   preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.

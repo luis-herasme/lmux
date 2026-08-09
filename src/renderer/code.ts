@@ -51,6 +51,9 @@ async function importMonaco(): Promise<Monaco> {
   // @ts-expect-error no declaration file beside the bundle; the types come
   // from the monaco-editor package above, the values from here
   const monaco: Monaco = await import("../vendor/monaco.js");
+  // the console door: an agent (or a driver) can reach the editors through
+  // Monaco's own registry, the way window.lmux is the command door
+  Reflect.set(self, "monaco", monaco);
   defineTheme(monaco);
   return monaco;
 }

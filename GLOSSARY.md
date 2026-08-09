@@ -402,6 +402,18 @@ switch to, the way a play button names what it will do rather than what
 is happening. The second button re-reads the file, since nothing watches
 the disk: edit a document in one tab, click Reload in the tab showing it.
 
+## Dirty (a code tab's unsaved work)
+
+A code tab is *dirty* when its editor holds text the file on disk does
+not. It becomes dirty the first time the model changes after opening or
+saving, and clean again when a save lands. The ● in the tab title says so,
+and `dirty` rides on the tab's `TabInfo`, so anyone reading the state (an
+agent, or main deciding whether a close may proceed without asking) can
+see it without paging through the page. The stub of the idea is the stale
+write: a save refuses to overwrite a file whose mtime changed since it was
+read, because the alternative is burying work the disk has and the editor
+does not.
+
 ## Drag-and-drop interception (the one-door rule)
 
 How Dockview stays subordinate to the command bus. A docking library

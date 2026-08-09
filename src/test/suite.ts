@@ -7,6 +7,8 @@ import { describe } from "node:test";
 import assert from "node:assert/strict";
 import * as net from "net";
 import * as path from "path";
+import * as os from "os";
+import { writeFileSync, readFileSync, unlinkSync, utimesSync } from "fs";
 import { z } from "zod";
 import {
   API_SOCKET_PATH,
@@ -195,6 +197,22 @@ function findTabTitle({ state, id }: StateLookupOptions): string | undefined {
   return undefined;
 }
 
+// undefined when the id is not a code tab, so a caller can tell "clean code
+// tab" from "not a code tab".
+function findCodeDirty({ state, id }: StateLookupOptions): boolean | undefined {
+  for (const workspace of state.workspaces) {
+    for (const tab of workspace.tabs) {
+      if (tab.id === id) {
+        if (tab.kind === "code") {
+          return tab.dirty;
+        }
+        return undefined;
+      }
+    }
+  }
+  return undefined;
+}
+
 function tabIds(workspace: WorkspaceInfo): number[] {
   const ids: number[] = [];
   for (const tab of workspace.tabs) {
@@ -304,6 +322,7 @@ const screenSchema = z.object({
 });
 
 const tokenClassSchema = z.array(z.string());
+const probeSchema = z.object({ edited: z.boolean() });
 
 const suite = describe("the command bus", () => {
   busTest({
@@ -626,6 +645,141 @@ const suite = describe("the command bus", () => {
         "typescript",
         "the editor did not recognise a .ts file",
       );
+    },
+  });
+
+  busTest({
+    name: "editing a code tab marks it dirty, and saving writes it to disk",
+    body: async () => {
+      // A dedicated fixture, written and deleted by the case: the save is a
+      // real disk write, and the app's own source is not a file to trample
+      // on (the test above only reads it).
+      const filePath = path.join(os.tmpdir(), `lmux-save-${process.pid}.ts`);
+      const initialContent = "export const value = 1;\n";
+      writeFileSync(filePath, initialContent);
+
+      try {
+        const tabCount = countTabs(lmuxState);
+        sendCommand({ type: "open-file", path: filePath });
+        const opened = await waitForEvent(
+          (event) => countTabs(event.state) === tabCount + 1,
+        );
+        if (opened.type !== "tab-opened") {
+          throw new Error(`a tab arrived as a ${opened.type}`);
+        }
+
+        // openCodeTab awaited Monaco, so the editor exists once the tab is
+        // open; find it by the fixture's unique content and edit its model.
+        // The waiter goes up before the edit, since the change travels to
+        // main and back before the script's own answer.
+        const EDITED = "\n// edited in the suite\n";
+        const dirtying = waitForEvent(
+          (event) => event.type === "dirty-changed",
+        );
+        const probed = probeSchema.parse(
+          await lmuxWindow.webContents.executeJavaScript(`(() => {
+            const expected = ${JSON.stringify(initialContent)};
+            let target = null;
+            for (const editor of window.monaco.editor.getEditors()) {
+              const model = editor.getModel();
+              if (model !== null && model.getValue() === expected) {
+                target = editor;
+                break;
+              }
+            }
+            if (target === null) {
+              return { edited: false };
+            }
+            const model = target.getModel();
+            model.setValue(model.getValue() + ${JSON.stringify(EDITED)});
+            return { edited: true };
+          })()`),
+        );
+        assert.equal(
+          probed.edited,
+          true,
+          "the suite could not find the editor it opened",
+        );
+
+        const dirty = await dirtying;
+        assert.equal(
+          findCodeDirty({ state: dirty.state, id: opened.id }),
+          true,
+          "an edit did not mark the code tab dirty",
+        );
+
+        sendCommand({ type: "save-file", id: opened.id });
+        const saved = await waitForEvent(
+          (event) => event.type === "file-saved",
+        );
+        assert.equal(
+          findCodeDirty({ state: saved.state, id: opened.id }),
+          false,
+          "saving left the code tab dirty",
+        );
+        assert.match(
+          readFileSync(filePath, "utf8"),
+          /edited in the suite/,
+          "save did not reach disk",
+        );
+      } finally {
+        unlinkSync(filePath);
+      }
+    },
+  });
+
+  busTest({
+    name: "save refuses to overwrite a file that changed on disk since it was read",
+    body: async () => {
+      const filePath = path.join(os.tmpdir(), `lmux-stale-${process.pid}.ts`);
+      const initialContent = "export const value = 1;\n";
+      writeFileSync(filePath, initialContent);
+
+      try {
+        const tabCount = countTabs(lmuxState);
+        sendCommand({ type: "open-file", path: filePath });
+        const opened = await waitForEvent(
+          (event) => countTabs(event.state) === tabCount + 1,
+        );
+        if (opened.type !== "tab-opened") {
+          throw new Error(`a tab arrived as a ${opened.type}`);
+        }
+
+        // Someone else changes it while we have it open. Set an mtime that is
+        // provably different from the read's, so the guard cannot be beaten
+        // by two writes landing in the same millisecond. The save below would
+        // otherwise write the editor's stale copy over this.
+        const EXTERNAL = "// someone else's version\n";
+        writeFileSync(filePath, EXTERNAL);
+        utimesSync(filePath, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+
+        sendCommand({ type: "save-file", id: opened.id });
+        // A refused save emits no Event, so the case asks the DOM what the
+        // tab said and the disk what it kept.
+        await pollUntil({
+          check: async () => {
+            const probed = await lmuxWindow.webContents.executeJavaScript(
+              `(() => {
+                for (const element of document.querySelectorAll(".code-status")) {
+                  if (element.classList.contains("visible")) {
+                    return element.textContent.includes("changed on disk");
+                  }
+                }
+                return false;
+              })()`,
+            );
+            return probed;
+          },
+          description: "the refused save to say why",
+        });
+        assert.equal(
+          readFileSync(filePath, "utf8"),
+          EXTERNAL,
+          "a stale save buried the newer change",
+        );
+      } finally {
+        unlinkSync(filePath);
+      }
     },
   });
 
