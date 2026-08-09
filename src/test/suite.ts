@@ -323,7 +323,10 @@ const screenSchema = z.object({
 });
 
 const tokenClassSchema = z.array(z.string());
-const probeSchema = z.object({ edited: z.boolean() });
+const editorTypingSchema = z.object({
+  editorFound: z.boolean(),
+  edited: z.boolean(),
+});
 
 const suite = describe("the command bus", () => {
   busTest({
@@ -670,14 +673,14 @@ const suite = describe("the command bus", () => {
         }
 
         // openCodeTab awaited Monaco, so the editor exists once the tab is
-        // open; find it by the fixture's unique content and edit its model.
-        // The waiter goes up before the edit, since the change travels to
-        // main and back before the script's own answer.
+        // open; find it by the fixture's unique content and type through the
+        // editor. The waiter goes up first because the change travels to main
+        // and back before the script's own answer.
         const EDITED = "\n// edited in the suite\n";
         const dirtying = waitForEvent(
           (event) => event.type === "dirty-changed",
         );
-        const probed = probeSchema.parse(
+        const probed = editorTypingSchema.parse(
           await lmuxWindow.webContents.executeJavaScript(`(() => {
             const expected = ${JSON.stringify(initialContent)};
             let target = null;
@@ -689,17 +692,30 @@ const suite = describe("the command bus", () => {
               }
             }
             if (target === null) {
-              return { edited: false };
+              return {
+                editorFound: false,
+                edited: false,
+              };
             }
-            const model = target.getModel();
-            model.setValue(model.getValue() + ${JSON.stringify(EDITED)});
-            return { edited: true };
+            target.focus();
+            target.trigger("keyboard", "type", {
+              text: ${JSON.stringify(EDITED)},
+            });
+            return {
+              editorFound: true,
+              edited: target.getValue() !== expected,
+            };
           })()`),
+        );
+        assert.equal(
+          probed.editorFound,
+          true,
+          "the suite could not find the editor it opened",
         );
         assert.equal(
           probed.edited,
           true,
-          "the suite could not find the editor it opened",
+          "typing did not change the editor",
         );
 
         const dirty = await dirtying;
