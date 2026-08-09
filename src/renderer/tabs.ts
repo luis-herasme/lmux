@@ -1,13 +1,20 @@
 import { getSettings, currentTheme, updateSettings } from "./settings.ts";
 import { bridge } from "./bridge.ts";
 import { registerFileLinks } from "./file-links.ts";
-import { disposeCodeTab, openCodeTab, saveCodeFile } from "./code-tab.ts";
 import { refreshCodeTheme } from "./code.ts";
 import {
-  disposeTreeTab,
-  focusTreeTab,
-  openTreeTab,
-} from "./tree-tab.ts";
+  activateProjectFile,
+  changeProjectWorkspaceRoot,
+  closeProjectFile,
+  disposeProjectTab,
+  focusProjectTab,
+  openProjectFile,
+  openProjectTab,
+  pinProjectFile,
+  saveAllProjectFiles,
+  saveProjectFile,
+} from "./project-tab.ts";
+import type { ProjectTab } from "./project-tab.ts";
 import {
   openMarkdownTab,
   redrawMarkdown,
@@ -36,10 +43,8 @@ import type {
 } from "../api.ts";
 import type { Session } from "../session.ts";
 import type { ShellDataMessage } from "../ipc/bridge.ts";
-import type { editor as monacoEditor } from "monaco-editor";
 import type { ITheme, Terminal as XtermTerminal } from "@xterm/xterm";
 import type { FitAddon as XtermFitAddon } from "@xterm/addon-fit";
-import type { FileTree as PierreFileTree } from "@pierre/trees";
 import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
 
 // xterm ships classic scripts, so its constructors arrive as page globals
@@ -80,34 +85,7 @@ export type MarkdownTab = TabCommon & {
   markdown: string; // the file's text, shown raw or rendered
 };
 
-type MonacoCodeEditor = monacoEditor.IStandaloneCodeEditor;
-
-// A file shown as code. `editor` is absent when the file could not be read:
-// the tab exists to say so, and has no Monaco instance behind it. `dirty`
-// is whether the tab holds work the disk does not; `mtimeMs` is the file's
-// modification time at the last read or write, so a save refuses to
-// overwrite a file that changed on disk in between. `statusElement` shows
-// why a save was refused.
-export type CodeTab = TabCommon & {
-  kind: "code";
-  element: HTMLElement;
-  contentElement: HTMLElement; // Monaco's container, and what takes focus
-  statusElement: HTMLElement;
-  filePath: string;
-  baseTabId: number | undefined;
-  editor: MonacoCodeEditor | undefined;
-  dirty: boolean;
-  mtimeMs: number | undefined;
-};
-
-export type TreeTab = TabCommon & {
-  kind: "tree";
-  element: HTMLElement;
-  rootPath: string;
-  fileTree: PierreFileTree | undefined;
-};
-
-export type Tab = TerminalTab | MarkdownTab | CodeTab | TreeTab;
+export type Tab = TerminalTab | MarkdownTab | ProjectTab;
 
 // A resolved tab is the caller's explicit id or the active workspace's
 // active tab, when optional; every command that touches a tab resolves
@@ -134,6 +112,26 @@ function resolveTab(id: number | undefined): ResolvedTab | undefined {
     id: resolvedId,
     tab: found.tab,
     workspace: found.workspace,
+  };
+}
+
+type ResolvedProjectTab = {
+  id: number;
+  tab: ProjectTab;
+  workspace: Workspace;
+};
+
+function resolveProjectTab(
+  projectTabId: number | undefined,
+): ResolvedProjectTab | undefined {
+  const resolved = resolveTab(projectTabId);
+  if (resolved === undefined || resolved.tab.kind !== "project") {
+    return undefined;
+  }
+  return {
+    id: resolved.id,
+    tab: resolved.tab,
+    workspace: resolved.workspace,
   };
 }
 
@@ -395,70 +393,58 @@ async function addMarkdownTab({
   tab.contentElement.focus();
 }
 
-type AddCodeTabOptions = {
-  workspace: Workspace;
-  filePath: string;
-  baseTabId: number | undefined;
-  group: DockviewGroupPanel | undefined;
+type FoundProjectTab = {
+  id: number;
+  tab: ProjectTab;
 };
 
-// The store's half of opening a file, matching addMarkdownTab. The pane and
-// the editor are code-tab.ts's business.
-async function addCodeTab({
-  workspace,
-  filePath,
-  baseTabId,
-  group,
-}: AddCodeTabOptions): Promise<void> {
-  const id = nextId++;
-  const tab = await openCodeTab({
-    id,
-    workspace,
-    tabElements: buildTabElement(id),
-    filePath,
-    baseTabId,
-    group,
-  });
-  workspace.tabs.set(id, tab);
-  bridge.emitEvent({
-    type: "tab-opened",
-    id,
-    state: snapshot(),
-  });
-  tab.panel.api.setActive();
-  focusCodeTab(tab);
-}
-
-// Monaco takes focus through its own API: focusing the container would put
-// the caret nowhere and leave the editor unable to receive keys.
-function focusCodeTab(tab: CodeTab): void {
-  if (tab.editor === undefined) {
-    tab.contentElement.focus();
-    return;
+function findProjectTab(workspace: Workspace): FoundProjectTab | undefined {
+  for (const [id, tab] of workspace.tabs) {
+    if (tab.kind !== "project") {
+      continue;
+    }
+    return {
+      id,
+      tab,
+    };
   }
-  tab.editor.focus();
+  return undefined;
 }
 
-type AddTreeTabOptions = {
+type AddProjectTabOptions = {
   workspace: Workspace;
   baseTabId: number | undefined;
-  rootPath: string | undefined;
+  workspaceRootPath: string | undefined;
+  initialFilePath: string | undefined;
+  initialFileBaseTabId: number | undefined;
+  initialFilePreview: boolean;
   group: DockviewGroupPanel | undefined;
 };
 
-async function addTreeTab({
+type CreateProjectTabOptions = Omit<
+  AddProjectTabOptions,
+  "initialFilePreview"
+>;
+
+const pendingProjectTabs = new Map<Workspace, Promise<FoundProjectTab>>();
+
+async function createProjectTab({
   workspace,
   baseTabId,
-  rootPath,
+  workspaceRootPath,
+  initialFilePath,
+  initialFileBaseTabId,
   group,
-}: AddTreeTabOptions): Promise<void> {
+}: CreateProjectTabOptions): Promise<FoundProjectTab> {
   const id = nextId++;
-  const tab = await openTreeTab({
+  const tab = await openProjectTab({
     id,
     workspace,
     tabElements: buildTabElement(id),
     baseTabId,
-    rootPath,
+    workspaceRootPath,
+    initialFilePath,
+    initialFileBaseTabId,
     group,
   });
   workspace.tabs.set(id, tab);
@@ -468,7 +454,56 @@ async function addTreeTab({
     state: snapshot(),
   });
   tab.panel.api.setActive();
-  focusTreeTab(tab);
+  return {
+    id,
+    tab,
+  };
+}
+
+async function addProjectTab({
+  workspace,
+  baseTabId,
+  workspaceRootPath,
+  initialFilePath,
+  initialFileBaseTabId,
+  initialFilePreview,
+  group,
+}: AddProjectTabOptions): Promise<ProjectTab> {
+  let project = findProjectTab(workspace);
+  if (project === undefined) {
+    let pendingProject = pendingProjectTabs.get(workspace);
+    if (pendingProject === undefined) {
+      pendingProject = createProjectTab({
+        workspace,
+        baseTabId,
+        workspaceRootPath,
+        initialFilePath,
+        initialFileBaseTabId,
+        group,
+      });
+      pendingProjectTabs.set(workspace, pendingProject);
+    }
+    try {
+      project = await pendingProject;
+    } finally {
+      if (pendingProjectTabs.get(workspace) === pendingProject) {
+        pendingProjectTabs.delete(workspace);
+      }
+    }
+  }
+  if (initialFilePath !== undefined) {
+    await openProjectFile({
+      id: project.id,
+      tab: project.tab,
+      filePath: initialFilePath,
+      baseTabId: initialFileBaseTabId,
+      preview: initialFilePreview,
+      announce: true,
+    });
+  }
+  project.tab.panel.api.setActive();
+  focusProjectTab(project.tab);
+  return project.tab;
 }
 
 export function executeCommand(command: Command): void {
@@ -640,14 +675,11 @@ export function executeCommand(command: Command): void {
             }
             continue;
           }
-          if (tab.kind === "code") {
-            tab.editor?.updateOptions({
+          if (tab.kind === "project") {
+            tab.editor.updateOptions({
               fontFamily: settings.fontFamily,
               fontSize: settings.fontSize,
             });
-            continue;
-          }
-          if (tab.kind === "tree") {
             continue;
           }
           tab.terminal.options.fontFamily = settings.fontFamily;
@@ -691,6 +723,23 @@ export function executeCommand(command: Command): void {
       if (!activeWorkspace) {
         return;
       }
+      let preview = false;
+      if (command.preview !== undefined) {
+        preview = command.preview;
+      }
+      const project = findProjectTab(activeWorkspace);
+      if (project !== undefined) {
+        project.tab.panel.api.setActive();
+        openProjectFile({
+          id: project.id,
+          tab: project.tab,
+          filePath: command.path,
+          baseTabId: command.baseTabId,
+          preview,
+          announce: true,
+        });
+        return;
+      }
       let group: DockviewGroupPanel | undefined;
       if (command.groupId !== undefined) {
         group = findGroup({
@@ -701,16 +750,25 @@ export function executeCommand(command: Command): void {
           return;
         }
       }
-      addCodeTab({
+      addProjectTab({
         workspace: activeWorkspace,
-        filePath: command.path,
-        baseTabId: command.baseTabId,
+        baseTabId: undefined,
+        workspaceRootPath: undefined,
+        initialFilePath: command.path,
+        initialFileBaseTabId: command.baseTabId,
+        initialFilePreview: preview,
         group,
       });
       return;
     }
-    case "open-tree": {
+    case "open-project": {
       if (!activeWorkspace) {
+        return;
+      }
+      const project = findProjectTab(activeWorkspace);
+      if (project !== undefined) {
+        project.tab.panel.api.setActive();
+        focusProjectTab(project.tab);
         return;
       }
       let group: DockviewGroupPanel | undefined;
@@ -727,11 +785,77 @@ export function executeCommand(command: Command): void {
       if (baseTabId === undefined) {
         baseTabId = activeWorkspace.activeId;
       }
-      addTreeTab({
+      addProjectTab({
         workspace: activeWorkspace,
         baseTabId,
-        rootPath: undefined,
+        workspaceRootPath: undefined,
+        initialFilePath: undefined,
+        initialFileBaseTabId: undefined,
+        initialFilePreview: false,
         group,
+      });
+      return;
+    }
+    case "change-workspace-root": {
+      const workspace = resolveWorkspace(command.workspaceId);
+      if (workspace === undefined) {
+        return;
+      }
+      const project = findProjectTab(workspace);
+      if (project === undefined) {
+        addProjectTab({
+          workspace,
+          baseTabId: undefined,
+          workspaceRootPath: command.path,
+          initialFilePath: undefined,
+          initialFileBaseTabId: undefined,
+          initialFilePreview: false,
+          group: undefined,
+        });
+        return;
+      }
+      changeProjectWorkspaceRoot({
+        id: project.id,
+        tab: project.tab,
+        workspace,
+        workspaceRootPath: command.path,
+      });
+      return;
+    }
+    case "activate-file": {
+      const resolved = resolveProjectTab(command.projectTabId);
+      if (resolved === undefined) {
+        return;
+      }
+      activateProjectFile({
+        id: resolved.id,
+        tab: resolved.tab,
+        filePath: command.path,
+      });
+      return;
+    }
+    case "pin-file": {
+      const resolved = resolveProjectTab(command.projectTabId);
+      if (resolved === undefined) {
+        return;
+      }
+      pinProjectFile({
+        id: resolved.id,
+        tab: resolved.tab,
+        filePath: command.path,
+        announce: true,
+      });
+      return;
+    }
+    case "close-file": {
+      const resolved = resolveProjectTab(command.projectTabId);
+      if (resolved === undefined) {
+        return;
+      }
+      closeProjectFile({
+        id: resolved.id,
+        tab: resolved.tab,
+        filePath: command.path,
       });
       return;
     }
@@ -759,11 +883,23 @@ export function executeCommand(command: Command): void {
       return;
     }
     case "save-file": {
-      const resolved = resolveTab(command.id);
-      if (resolved === undefined || resolved.tab.kind !== "code") {
+      const resolved = resolveProjectTab(command.projectTabId);
+      if (resolved === undefined) {
         return;
       }
-      saveCodeFile({
+      saveProjectFile({
+        id: resolved.id,
+        tab: resolved.tab,
+        filePath: command.path,
+      });
+      return;
+    }
+    case "save-all-files": {
+      const resolved = resolveProjectTab(command.projectTabId);
+      if (resolved === undefined) {
+        return;
+      }
+      saveAllProjectFiles({
         id: resolved.id,
         tab: resolved.tab,
       });
@@ -809,6 +945,11 @@ export function executeCommand(command: Command): void {
       // the window always has a workspace to show
       if (workspaces.size === 1) {
         return;
+      }
+      for (const tab of workspace.tabs.values()) {
+        if (tab.kind === "project") {
+          disposeProjectTab(tab);
+        }
       }
       removeWorkspace(workspace);
       bridge.emitEvent({
@@ -875,25 +1016,21 @@ export function readScreen(request: ScreenRequest): ScreenResult {
       mode: found.tab.mode,
     };
   }
-  if (found.tab.kind === "code") {
-    // the model's language, not a guess from the path: it is what Monaco
-    // actually settled on, and "plaintext" is the honest answer for a file
-    // it has no grammar for
-    let language = "plaintext";
-    const model = found.tab.editor?.getModel();
-    if (model) {
-      language = model.getLanguageId();
+  if (found.tab.kind === "project") {
+    let path: string | null = null;
+    let language: string | null = null;
+    if (found.tab.activeFilePath !== undefined) {
+      path = found.tab.activeFilePath;
+      const model = found.tab.editor.getModel();
+      if (model !== null) {
+        language = model.getLanguageId();
+      }
     }
     return {
-      kind: "code",
-      path: found.tab.filePath,
+      kind: "project",
+      workspaceRootPath: found.tab.workspaceRootPath,
+      path,
       language,
-    };
-  }
-  if (found.tab.kind === "tree") {
-    return {
-      kind: "tree",
-      path: found.tab.rootPath,
     };
   }
   const buffer = found.tab.terminal.buffer.active;
@@ -980,22 +1117,37 @@ export async function restoreSession(session: Session): Promise<void> {
         });
         continue;
       }
-      if (tab.kind === "code") {
-        await addCodeTab({
-          workspace,
-          filePath: tab.path,
-          baseTabId: undefined,
-          group: undefined,
-        });
-        continue;
-      }
-      if (tab.kind === "tree") {
-        await addTreeTab({
+      if (tab.kind === "project") {
+        await addProjectTab({
           workspace,
           baseTabId: undefined,
-          rootPath: tab.path,
+          workspaceRootPath: tab.workspaceRootPath,
+          initialFilePath: undefined,
+          initialFileBaseTabId: undefined,
+          initialFilePreview: false,
           group: undefined,
         });
+        const project = findProjectTab(workspace);
+        if (project === undefined) {
+          continue;
+        }
+        for (const filePath of tab.files) {
+          await openProjectFile({
+            id: project.id,
+            tab: project.tab,
+            filePath,
+            baseTabId: undefined,
+            preview: false,
+            announce: true,
+          });
+        }
+        if (tab.activeFilePath !== null) {
+          activateProjectFile({
+            id: project.id,
+            tab: project.tab,
+            filePath: tab.activeFilePath,
+          });
+        }
         continue;
       }
       createTab({
@@ -1039,11 +1191,8 @@ export function removeTab(id: number): void {
     tab.observer.disconnect();
     tab.terminal.dispose();
   }
-  if (tab.kind === "code") {
-    disposeCodeTab(tab);
-  }
-  if (tab.kind === "tree") {
-    disposeTreeTab(tab);
+  if (tab.kind === "project") {
+    disposeProjectTab(tab);
   }
   if (id === workspace.activeId) {
     workspace.activeId = -1;
@@ -1070,10 +1219,7 @@ export function focusActiveTab(): void {
   if (tab?.kind === "markdown") {
     tab.contentElement.focus();
   }
-  if (tab?.kind === "code") {
-    focusCodeTab(tab);
-  }
-  if (tab?.kind === "tree") {
-    focusTreeTab(tab);
+  if (tab?.kind === "project") {
+    focusProjectTab(tab);
   }
 }

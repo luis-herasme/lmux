@@ -19,18 +19,13 @@ const sessionTabSchema = z.discriminatedUnion("kind", [
     path: z.string(),
     mode: markdownModeSchema,
   }),
-  // A code tab is its path and nothing else. Not the scroll position or the
-  // cursor: both belong to a file that may have changed since, and a
-  // restored caret pointing at a line that moved is worse than none.
+  // Only pinned file paths return. Contents, preview files, cursor positions
+  // and undo history are transient and every file is re-read from disk.
   z.object({
-    kind: z.literal("code"),
-    path: z.string(),
-  }),
-  // The root is already resolved: restoring should show the same project,
-  // not whichever directory a newly spawned shell happens to start in.
-  z.object({
-    kind: z.literal("tree"),
-    path: z.string(),
+    kind: z.literal("project"),
+    workspaceRootPath: z.string(),
+    files: z.array(z.string()),
+    activeFilePath: z.string().nullable(),
   }),
 ]);
 
@@ -74,17 +69,23 @@ export function sessionFromState(state: LmuxState): Session {
         });
         continue;
       }
-      if (tab.kind === "code") {
+      if (tab.kind === "project") {
+        const files: string[] = [];
+        for (const file of tab.files) {
+          if (!file.pinned) {
+            continue;
+          }
+          files.push(file.path);
+        }
+        let activeFilePath: string | null = tab.activeFilePath;
+        if (activeFilePath !== null && !files.includes(activeFilePath)) {
+          activeFilePath = null;
+        }
         tabs.push({
-          kind: "code",
-          path: tab.path,
-        });
-        continue;
-      }
-      if (tab.kind === "tree") {
-        tabs.push({
-          kind: "tree",
-          path: tab.path,
+          kind: "project",
+          workspaceRootPath: tab.workspaceRootPath,
+          files,
+          activeFilePath,
         });
         continue;
       }

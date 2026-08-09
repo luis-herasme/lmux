@@ -36,41 +36,70 @@ export function confirmKilling({
   return choice === 1;
 }
 
-// True when no code tab has unsaved work.
-type ConfirmDiscardDirtyOptions = {
+export type DirtyCloseChoice = "save" | "discard" | "cancel";
+
+type ChooseDirtyCloseOptions = {
   window: BrowserWindow;
   tabs: TabInfo[];
-  action: string; // the affirmative button, phrased as what it does
+  action: string;
+  onlyFilePath?: string;
 };
 
-export function confirmDiscardDirty({
+export function dirtyPathsForTabs(tabs: TabInfo[]): string[] {
+  const dirtyPaths: string[] = [];
+  for (const tab of tabs) {
+    if (tab.kind !== "project") {
+      continue;
+    }
+    for (const file of tab.files) {
+      if (!file.dirty) {
+        continue;
+      }
+      dirtyPaths.push(file.path);
+    }
+  }
+  return dirtyPaths;
+}
+
+export function chooseDirtyClose({
   window,
   tabs,
   action,
-}: ConfirmDiscardDirtyOptions): boolean {
-  const dirtyPaths: string[] = [];
-  for (const tab of tabs) {
-    if (tab.kind !== "code" || !tab.dirty) {
-      continue;
+  onlyFilePath,
+}: ChooseDirtyCloseOptions): DirtyCloseChoice {
+  let dirtyPaths = dirtyPathsForTabs(tabs);
+  if (onlyFilePath !== undefined) {
+    const matchingPaths: string[] = [];
+    for (const dirtyPath of dirtyPaths) {
+      if (dirtyPath === onlyFilePath) {
+        matchingPaths.push(dirtyPath);
+      }
     }
-    dirtyPaths.push(tab.path);
+    dirtyPaths = matchingPaths;
   }
   if (dirtyPaths.length === 0) {
-    return true;
+    return "discard";
   }
-  let message: string;
+
+  let message = `${dirtyPaths.length} files have unsaved changes.`;
+  let saveLabel = "Save All";
   if (dirtyPaths.length === 1) {
     message = `"${path.basename(dirtyPaths[0])}" has unsaved changes.`;
-  } else {
-    message = `${dirtyPaths.length} files have unsaved changes.`;
+    saveLabel = "Save";
   }
   const choice = dialog.showMessageBoxSync(window, {
     type: "warning",
     message,
-    detail: `Closing loses the changes to ${dirtyPaths.join(", ")}.`,
-    buttons: ["Cancel", action],
-    defaultId: 0, // Escape and Return both mean "don't"
+    detail: `${action} affects ${dirtyPaths.join(", ")}.`,
+    buttons: ["Cancel", "Don't Save", saveLabel],
+    defaultId: 0,
     cancelId: 0,
   });
-  return choice === 1;
+  if (choice === 1) {
+    return "discard";
+  }
+  if (choice === 2) {
+    return "save";
+  }
+  return "cancel";
 }

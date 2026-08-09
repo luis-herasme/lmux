@@ -1,47 +1,159 @@
-// Menu items are Command sources: the renderer decides what a "tab" even is.
-import { BrowserWindow, Menu, ipcMain } from "electron";
+// Menu items are Command sources: the renderer decides what a tab even is.
+import { BrowserWindow, Menu, dialog, ipcMain } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
-import { dispatch, lmuxState } from "./bus.ts";
-import { confirmDiscardDirty, confirmKilling } from "./dialogs.ts";
-import type { TabInfo } from "../api.ts";
+import { dispatch, lmuxState, runCommandUntil } from "./bus.ts";
+import { chooseDirtyClose, confirmKilling } from "./dialogs.ts";
+import type { CloseFileRequest } from "../ipc/bridge.ts";
+import type { TabInfo, WorkspaceInfo } from "../api.ts";
 
 type CloseWorkspaceOptions = {
   // the question below needs a window to be asked in, and a click in the page
-  // knows which one better than OS focus does: a page can send while another
-  // app is frontmost, and then nothing is focused
+  // knows which one better than OS focus does.
   window: BrowserWindow | null;
-  id?: number; // defaults to the active workspace, matching the Command
+  workspaceId?: number;
 };
 
-// Closing a workspace kills every shell in it.
-function closeWorkspace({ window, id }: CloseWorkspaceOptions): void {
+function workspaceInfo(
+  workspaceId: number | undefined,
+): WorkspaceInfo | undefined {
+  let resolvedWorkspaceId = workspaceId;
+  if (resolvedWorkspaceId === undefined) {
+    resolvedWorkspaceId = lmuxState.activeWorkspaceId;
+  }
+  for (const workspace of lmuxState.workspaces) {
+    if (workspace.id === resolvedWorkspaceId) {
+      return workspace;
+    }
+  }
+  return undefined;
+}
+
+// projectTabId defaults to the active tab, matching the Commands it forwards.
+function tabInfo(projectTabId: number | undefined): TabInfo | undefined {
+  if (projectTabId === undefined) {
+    const workspace = workspaceInfo(undefined);
+    if (workspace === undefined) {
+      return undefined;
+    }
+    for (const tab of workspace.tabs) {
+      if (tab.id === workspace.activeId) {
+        return tab;
+      }
+    }
+    return undefined;
+  }
+  for (const workspace of lmuxState.workspaces) {
+    for (const tab of workspace.tabs) {
+      if (tab.id === projectTabId) {
+        return tab;
+      }
+    }
+  }
+  return undefined;
+}
+
+async function saveProjectFiles(projectTabId: number): Promise<boolean> {
+  const result = await runCommandUntil({
+    command: {
+      type: "save-all-files",
+      projectTabId,
+    },
+    predicate: (event) =>
+      event.type === "files-save-finished" && event.id === projectTabId,
+  });
+  if (result === undefined || result.type !== "files-save-finished") {
+    return false;
+  }
+  return result.failedPaths.length === 0;
+}
+
+type SaveOneFileOptions = {
+  projectTabId: number;
+  filePath: string;
+};
+
+async function saveOneFile({
+  projectTabId,
+  filePath,
+}: SaveOneFileOptions): Promise<boolean> {
+  const result = await runCommandUntil({
+    command: {
+      type: "save-file",
+      projectTabId,
+      path: filePath,
+    },
+    predicate: (event) =>
+      (event.type === "file-saved" || event.type === "file-save-failed") &&
+      event.id === projectTabId &&
+      event.path === filePath,
+  });
+  return result !== undefined && result.type === "file-saved";
+}
+
+export async function saveDirtyTabs(tabs: TabInfo[]): Promise<boolean> {
+  for (const tab of tabs) {
+    if (tab.kind !== "project") {
+      continue;
+    }
+    let dirty = false;
+    for (const file of tab.files) {
+      if (file.dirty) {
+        dirty = true;
+        break;
+      }
+    }
+    if (!dirty) {
+      continue;
+    }
+    const saved = await saveProjectFiles(tab.id);
+    if (!saved) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Closing a workspace kills every shell and guards every dirty file in it.
+async function closeWorkspace({
+  window,
+  workspaceId,
+}: CloseWorkspaceOptions): Promise<void> {
   if (!window) {
     return;
   }
-  let workspaceId = id;
-  if (workspaceId === undefined) {
-    workspaceId = lmuxState.activeWorkspaceId;
+  const workspace = workspaceInfo(workspaceId);
+  if (workspace === undefined) {
+    return;
   }
   const tabIds: number[] = [];
-  for (const workspace of lmuxState.workspaces) {
-    if (workspace.id !== workspaceId) {
-      continue;
-    }
-    for (const tab of workspace.tabs) {
-      tabIds.push(tab.id);
-    }
+  for (const tab of workspace.tabs) {
+    tabIds.push(tab.id);
   }
-  const proceed = confirmKilling({
+  const killingConfirmed = confirmKilling({
     window,
     tabIds,
     action: "Close Workspace",
   });
-  if (!proceed) {
+  if (!killingConfirmed) {
     return;
+  }
+  const dirtyChoice = chooseDirtyClose({
+    window,
+    tabs: workspace.tabs,
+    action: "Closing the workspace",
+  });
+  if (dirtyChoice === "cancel") {
+    return;
+  }
+  if (dirtyChoice === "save") {
+    const saved = await saveDirtyTabs(workspace.tabs);
+    if (!saved) {
+      return;
+    }
   }
   dispatch({
     type: "close-workspace",
-    id: workspaceId,
+    id: workspace.id,
   });
 }
 
@@ -73,63 +185,121 @@ function cycleWorkspace(step: number): void {
   activateWorkspaceAt((active + step + workspaces.length) % workspaces.length);
 }
 
-// id defaults to the active tab, matching the Command it forwards. Returns
-// undefined when there is no such tab to inspect.
-function tabInfo(id: number | undefined): TabInfo | undefined {
-  if (id === undefined) {
-    for (const workspace of lmuxState.workspaces) {
-      if (workspace.id !== lmuxState.activeWorkspaceId) {
-        continue;
-      }
-      for (const tab of workspace.tabs) {
-        if (tab.id === workspace.activeId) {
-          return tab;
-        }
-      }
-    }
-    return undefined;
-  }
-  for (const workspace of lmuxState.workspaces) {
-    for (const tab of workspace.tabs) {
-      if (tab.id === id) {
-        return tab;
-      }
-    }
-  }
-  return undefined;
-}
-
 type CloseTabOptions = {
   window: BrowserWindow | null;
-  id?: number; // defaults to the active tab, matching the Command
+  tabId?: number;
 };
 
-// Closing a tab that shows unsaved work asks first; the answer decides
-// whether the close Command goes out. A terminal tab never asks. An agent's
-// own close-tab Command is not routed here: it has no window to ask in,
-// exactly like close-workspace. A dirty close with no window to ask in is
-// refused rather than silently losing the work; a clean close dispatches
-// whatever the window state, as it always has.
-function closeTab({ window, id }: CloseTabOptions): void {
-  const tab = tabInfo(id);
-  if (tab !== undefined && tab.kind === "code" && tab.dirty) {
+async function closeTab({ window, tabId }: CloseTabOptions): Promise<void> {
+  const tab = tabInfo(tabId);
+  if (tab !== undefined && tab.kind === "project") {
     if (!window) {
       return;
     }
-    const discardConfirmed = confirmDiscardDirty({
+    const dirtyChoice = chooseDirtyClose({
       window,
       tabs: [tab],
-      action: "Close Tab",
+      action: "Closing the project tab",
     });
-    if (!discardConfirmed) {
+    if (dirtyChoice === "cancel") {
+      return;
+    }
+    if (dirtyChoice === "save") {
+      const saved = await saveProjectFiles(tab.id);
+      if (!saved) {
+        return;
+      }
+    }
+  }
+  dispatch({
+    type: "close-tab",
+    id: tabId,
+  });
+}
+
+type CloseFileOptions = {
+  window: BrowserWindow | null;
+  request: CloseFileRequest;
+};
+
+async function closeFile({
+  window,
+  request,
+}: CloseFileOptions): Promise<void> {
+  const tab = tabInfo(request.projectTabId);
+  if (tab === undefined || tab.kind !== "project") {
+    return;
+  }
+  if (!window) {
+    return;
+  }
+  const dirtyChoice = chooseDirtyClose({
+    window,
+    tabs: [tab],
+    action: "Closing the file",
+    onlyFilePath: request.filePath,
+  });
+  if (dirtyChoice === "cancel") {
+    return;
+  }
+  if (dirtyChoice === "save") {
+    const saved = await saveOneFile({
+      projectTabId: request.projectTabId,
+      filePath: request.filePath,
+    });
+    if (!saved) {
       return;
     }
   }
-  dispatch({ type: "close-tab", id });
+  dispatch({
+    type: "close-file",
+    projectTabId: request.projectTabId,
+    path: request.filePath,
+  });
 }
 
-// Positions, not names: the menu is built once, and a name can change
-// while it is on screen.
+function closeActiveFileOrTab(window: BrowserWindow | null): void {
+  const tab = tabInfo(undefined);
+  if (
+    tab !== undefined &&
+    tab.kind === "project" &&
+    tab.activeFilePath !== null
+  ) {
+    closeFile({
+      window,
+      request: {
+        projectTabId: tab.id,
+        filePath: tab.activeFilePath,
+      },
+    });
+    return;
+  }
+  closeTab({ window });
+}
+
+async function chooseWorkspaceRoot(): Promise<void> {
+  const window = BrowserWindow.getFocusedWindow();
+  if (!window) {
+    return;
+  }
+  const result = await dialog.showOpenDialog(window, {
+    title: "Change Workspace Root",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled) {
+    return;
+  }
+  const workspaceRootPath = result.filePaths.at(0);
+  if (workspaceRootPath === undefined) {
+    return;
+  }
+  dispatch({
+    type: "change-workspace-root",
+    path: workspaceRootPath,
+  });
+}
+
+// Positions, not names: the menu is built once, and a name can change.
 const workspacePositionItems: MenuItemConstructorOptions[] = [];
 for (let position = 0; position < 9; position++) {
   workspacePositionItems.push({
@@ -152,20 +322,32 @@ export function installAppMenu(): void {
             click: () => dispatch({ type: "new-tab" }),
           },
           {
-            label: "Open Project Tree",
-            click: () => dispatch({ type: "open-tree" }),
+            label: "Open Project Tab",
+            click: () => dispatch({ type: "open-project" }),
           },
           {
-            label: "Close Tab",
+            label: "Change Workspace Root…",
+            click: () => {
+              chooseWorkspaceRoot();
+            },
+          },
+          {
+            label: "Close File",
             accelerator: "CmdOrCtrl+W",
-            click: () =>
-              closeTab({ window: BrowserWindow.getFocusedWindow() }),
+            click: () => {
+              closeActiveFileOrTab(BrowserWindow.getFocusedWindow());
+            },
           },
           { type: "separator" },
           {
             label: "Save",
             accelerator: "CmdOrCtrl+S",
             click: () => dispatch({ type: "save-file" }),
+          },
+          {
+            label: "Save All",
+            accelerator: "Alt+CmdOrCtrl+S",
+            click: () => dispatch({ type: "save-all-files" }),
           },
         ],
       },
@@ -180,8 +362,11 @@ export function installAppMenu(): void {
           {
             label: "Close Workspace",
             accelerator: "Shift+CmdOrCtrl+W",
-            click: () =>
-              closeWorkspace({ window: BrowserWindow.getFocusedWindow() }),
+            click: () => {
+              closeWorkspace({
+                window: BrowserWindow.getFocusedWindow(),
+              });
+            },
           },
           { type: "separator" },
           {
@@ -205,19 +390,20 @@ export function installAppMenu(): void {
   );
 }
 
-ipcMain.on("tab:menu", (event, id: number) => {
+ipcMain.on("tab:menu", (event, tabId: number) => {
   Menu.buildFromTemplate([
     {
       label: "Rename Tab…",
-      click: () => event.sender.send("tab:rename-request", id),
+      click: () => event.sender.send("tab:rename-request", tabId),
     },
     {
       label: "Close Tab",
-      click: () =>
+      click: () => {
         closeTab({
           window: BrowserWindow.getFocusedWindow(),
-          id,
-        }),
+          tabId,
+        });
+      },
     },
     { type: "separator" },
     {
@@ -227,37 +413,42 @@ ipcMain.on("tab:menu", (event, id: number) => {
   ]).popup();
 });
 
-// The sidebar's × is a person closing a workspace, like the menu item and
-// the accelerator, so it comes here to be asked the same question.
-ipcMain.on("workspace:close", (event, id: number) =>
+ipcMain.on("workspace:close", (event, workspaceId: number) => {
   closeWorkspace({
     window: BrowserWindow.fromWebContents(event.sender),
-    id,
-  }),
-);
+    workspaceId,
+  });
+});
 
-// A tab's × is a person closing that tab, so it comes here to be asked
-// about unsaved work too.
-ipcMain.on("tab:close", (event, id: number) =>
+ipcMain.on("tab:close", (event, tabId: number) => {
   closeTab({
     window: BrowserWindow.fromWebContents(event.sender),
-    id,
-  }),
-);
+    tabId,
+  });
+});
 
-ipcMain.on("workspace:menu", (event, id: number) => {
+ipcMain.on("file:close", (event, request: CloseFileRequest) => {
+  closeFile({
+    window: BrowserWindow.fromWebContents(event.sender),
+    request,
+  });
+});
+
+ipcMain.on("workspace:menu", (event, workspaceId: number) => {
   Menu.buildFromTemplate([
     {
       label: "Rename Workspace…",
-      click: () => event.sender.send("workspace:rename-request", id),
+      click: () =>
+        event.sender.send("workspace:rename-request", workspaceId),
     },
     {
       label: "Close Workspace",
-      click: () =>
+      click: () => {
         closeWorkspace({
           window: BrowserWindow.fromWebContents(event.sender),
-          id,
-        }),
+          workspaceId,
+        });
+      },
     },
     { type: "separator" },
     {

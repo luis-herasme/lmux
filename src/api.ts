@@ -77,26 +77,51 @@ export const commandSchema = z.discriminatedUnion("type", [
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
   }),
-  // The same, for a file read as code rather than as a document. Which of
-  // the two a path gets is the caller's choice: `open-file` on a .md shows
-  // its source in the editor, which is a different thing from the raw mode
-  // of a markdown tab.
+  // Opens source in the workspace's one project tab. A preview file is
+  // replaceable until edited or pinned; other command sources open pinned.
   z.object({
     type: z.literal("open-file"),
     path: z.string(),
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
+    preview: z.boolean().optional(),
   }),
-  // Writes the file a code tab shows, re-reading it from the editor's model.
-  // Refuses to overwrite a file that changed on disk since it was opened,
-  // surfacing the refusal in the tab rather than arguing with whoever else
-  // has the file open.
-  z.object({ type: z.literal("save-file"), id: z.number().optional() }),
-  // Opens the project containing a terminal's current directory.
   z.object({
-    type: z.literal("open-tree"),
+    type: z.literal("activate-file"),
+    projectTabId: z.number().optional(),
+    path: z.string(),
+  }),
+  z.object({
+    type: z.literal("pin-file"),
+    projectTabId: z.number().optional(),
+    path: z.string(),
+  }),
+  z.object({
+    type: z.literal("close-file"),
+    projectTabId: z.number().optional(),
+    path: z.string(),
+  }),
+  // Save guards on the mtime captured at read. Omitting path means the
+  // visible file; Save All covers every dirty buffer in one project tab.
+  z.object({
+    type: z.literal("save-file"),
+    projectTabId: z.number().optional(),
+    path: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("save-all-files"),
+    projectTabId: z.number().optional(),
+  }),
+  // Opens or activates the project tab rooted from a terminal.
+  z.object({
+    type: z.literal("open-project"),
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("change-workspace-root"),
+    workspaceId: z.number().optional(),
+    path: z.string(),
   }),
   z.object({ type: z.literal("toggle-maximize"), id: z.number().optional() }),
   // Both ignore a tab that isn't a markdown one.
@@ -144,10 +169,13 @@ export type ScreenResult =
   // drive a shell can already read files; saying which file it shows is the
   // part lmux knows and the caller doesn't.
   | { kind: "markdown"; path: string; mode: MarkdownMode }
-  // Same reasoning: the file on disk is the content, and the caller can read
-  // it. What lmux knows is which file, and how it is being read.
-  | { kind: "code"; path: string; language: string }
-  | { kind: "tree"; path: string }
+  // A project tab combines a workspace tree and one visible file buffer.
+  | {
+      kind: "project";
+      workspaceRootPath: string;
+      path: string | null;
+      language: string | null;
+    }
   | { kind: "no-such-tab" };
 
 // Every event carries the full state it produced.
@@ -167,19 +195,50 @@ export type LmuxEvent =
   | { type: "markdown-mode-changed"; id: number; state: LmuxState }
   // the file was re-read; its text is in the view, not in the state
   | { type: "markdown-reloaded"; id: number; state: LmuxState }
-  // the code tab's text first diverged from its file; state now says so
-  | { type: "dirty-changed"; id: number; state: LmuxState }
-  // the code tab's work reached disk; state now reads clean for that tab
-  | { type: "file-saved"; id: number; state: LmuxState };
+  | { type: "file-opened"; id: number; path: string; state: LmuxState }
+  | { type: "file-activated"; id: number; path: string; state: LmuxState }
+  | { type: "file-pinned"; id: number; path: string; state: LmuxState }
+  | { type: "file-closed"; id: number; path: string; state: LmuxState }
+  | { type: "dirty-changed"; id: number; path: string; state: LmuxState }
+  | { type: "file-saved"; id: number; path: string; state: LmuxState }
+  | {
+      type: "file-save-failed";
+      id: number;
+      path: string;
+      error: string;
+      state: LmuxState;
+    }
+  | {
+      type: "files-save-finished";
+      id: number;
+      failedPaths: string[];
+      state: LmuxState;
+    }
+  | {
+      type: "workspace-root-changed";
+      id: number;
+      path: string;
+      state: LmuxState;
+    };
+
+export type ProjectFileInfo = {
+  path: string;
+  dirty: boolean;
+  pinned: boolean;
+};
 
 export type TabInfo =
   | { id: number; title: string; kind: "terminal" }
   // the file it shows, so an observer (and a restart) knows which document
   | { id: number; title: string; kind: "markdown"; mode: MarkdownMode; path: string }
-  // dirty: whether the tab holds work the file on disk does not, so an
-  // observer (and a closing window) knows there is something to lose
-  | { id: number; title: string; kind: "code"; path: string; dirty: boolean }
-  | { id: number; title: string; kind: "tree"; path: string };
+  | {
+      id: number;
+      title: string;
+      kind: "project";
+      workspaceRootPath: string;
+      activeFilePath: string | null;
+      files: ProjectFileInfo[];
+    };
 
 // One tab strip and the pane below it. Group ids are opaque handles
 // assigned by the layout engine, unique within their workspace only.

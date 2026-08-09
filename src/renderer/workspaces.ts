@@ -6,6 +6,7 @@ import type { Tab } from "./tabs.ts";
 import type {
   LayoutNode,
   LmuxState,
+  ProjectFileInfo,
   TabInfo,
   WorkspaceInfo,
 } from "../api.ts";
@@ -387,7 +388,7 @@ export function findGroup({
 type AddPanelOptions = {
   workspace: Workspace;
   id: number;
-  component: "terminal" | "markdown" | "code" | "tree";
+  component: "terminal" | "markdown" | "project";
   title: string;
   paneElement: HTMLElement;
   tabElement: HTMLElement;
@@ -502,22 +503,26 @@ function buildLayout({
         });
         continue;
       }
-      if (tab.kind === "code") {
+      if (tab.kind === "project") {
+        const files: ProjectFileInfo[] = [];
+        for (const file of tab.files.values()) {
+          files.push({
+            path: file.filePath,
+            dirty: file.dirty,
+            pinned: file.pinned,
+          });
+        }
+        let activeFilePath: string | null = null;
+        if (tab.activeFilePath !== undefined) {
+          activeFilePath = tab.activeFilePath;
+        }
         tabList.push({
           id: Number(panelId),
           title,
-          kind: "code",
-          path: tab.filePath,
-          dirty: tab.dirty,
-        });
-        continue;
-      }
-      if (tab.kind === "tree") {
-        tabList.push({
-          id: Number(panelId),
-          title,
-          kind: "tree",
-          path: tab.rootPath,
+          kind: "project",
+          workspaceRootPath: tab.workspaceRootPath,
+          activeFilePath,
+          files,
         });
         continue;
       }

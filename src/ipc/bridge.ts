@@ -46,11 +46,13 @@ export type WriteFileResult =
   | { mtimeMs: number }
   | { error: string };
 
-// A live open names the terminal whose cwd defines the project. A restored
-// tree already knows its root, so it asks for that path directly.
+// A live project can derive its workspace root from a terminal or its first
+// file. A restored project already knows the root and asks for it directly.
 export type ReadProjectTreeRequest = {
   baseTabId?: number;
-  rootPath?: string;
+  workspaceRootPath?: string;
+  filePath?: string;
+  fileBaseTabId?: number;
 };
 
 export type ProjectTreeEntry =
@@ -59,11 +61,16 @@ export type ProjectTreeEntry =
 
 export type ReadProjectTreeResult =
   | {
-      rootPath: string;
+      workspaceRootPath: string;
       name: string;
       entries: ProjectTreeEntry[];
     }
   | { error: string };
+
+export type CloseFileRequest = {
+  projectTabId: number;
+  filePath: string;
+};
 
 // Electron has no invoke in this direction, so main asks with an id and the
 // page answers with it: the only question main ever puts to the page.
@@ -95,9 +102,11 @@ export type Bridge = {
   // a person's workspace ×: routed to main so the shells it would kill are
   // asked about, then dispatched
   closeWorkspace: (id: number) => void;
-  // a person's tab ×: routed to main, so a dirty code tab is asked about
-  // before it goes
+  // a person's tab ×: routed to main, so dirty files are asked about
+  // before the containing project tab goes
   closeTab: (id: number) => void;
+  // the inner file-tab × has the same guard for its one buffer
+  closeFile: (request: CloseFileRequest) => void;
   // request/response pairs on the cable (ipcRenderer.invoke)
   readFile: (request: ReadFileRequest) => Promise<ReadFileResult>;
   writeFile: (request: WriteFileRequest) => Promise<WriteFileResult>;

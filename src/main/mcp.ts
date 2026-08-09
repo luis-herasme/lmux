@@ -49,7 +49,7 @@ const TOOLS = [
       "Drive lmux, the terminal emulator this shell may be running inside. " +
       "One Command per call: open, close, activate, move, split and rename " +
       "tabs; type into a tab's shell; open a markdown document or a file in " +
-      "the code editor; create, " +
+      "the workspace's project tab; manage its file tabs; create, " +
       "switch and rename workspaces; change settings. Answers with lmux's " +
       "whole state once the command settled, so the id of a tab you just " +
       "opened comes back in the reply. Where `id` is optional it means the " +
@@ -83,8 +83,8 @@ const TOOLS = [
       "ask for more `rows` to reach back into scrollback. A tab running a " +
       "full-screen program (vim, htop) answers with that program's painted " +
       "screen and `alternate: true`, and has no scrollback behind it. A " +
-      "markdown or code tab answers with the path it shows rather than any " +
-      "text, since the file on disk is that text.",
+      "markdown or project tab answers with the path it shows rather than " +
+      "any text, since the file on disk is that text.",
     inputSchema: z.toJSONSchema(screenRequestSchema, { io: "input" }),
   },
 ];

@@ -33,6 +33,7 @@ const bridge: Bridge = {
   // a person's tab ×: routed to main so a dirty tab is asked about before the
   // tab goes
   closeTab: (id) => ipcRenderer.send("tab:close", id),
+  closeFile: (request) => ipcRenderer.send("file:close", request),
   readFile: (request) => ipcRenderer.invoke("file:read", request),
   writeFile: (request) => ipcRenderer.invoke("file:write", request),
   readProjectTree: (request) =>
