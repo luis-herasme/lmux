@@ -4,6 +4,11 @@ import { registerFileLinks } from "./file-links.ts";
 import { disposeCodeTab, openCodeTab, saveCodeFile } from "./code-tab.ts";
 import { refreshCodeTheme } from "./code.ts";
 import {
+  disposeTreeTab,
+  focusTreeTab,
+  openTreeTab,
+} from "./tree-tab.ts";
+import {
   openMarkdownTab,
   redrawMarkdown,
   reloadMarkdownTab,
@@ -34,6 +39,7 @@ import type { ShellDataMessage } from "../ipc/bridge.ts";
 import type { editor as monacoEditor } from "monaco-editor";
 import type { ITheme, Terminal as XtermTerminal } from "@xterm/xterm";
 import type { FitAddon as XtermFitAddon } from "@xterm/addon-fit";
+import type { FileTree as PierreFileTree } from "@pierre/trees";
 import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
 
 // xterm ships classic scripts, so its constructors arrive as page globals
@@ -94,7 +100,15 @@ export type CodeTab = TabCommon & {
   mtimeMs: number | undefined;
 };
 
-export type Tab = TerminalTab | MarkdownTab | CodeTab;
+export type TreeTab = TabCommon & {
+  kind: "tree";
+  element: HTMLElement;
+  contentElement: HTMLElement;
+  rootPath: string;
+  fileTree: PierreFileTree | undefined;
+};
+
+export type Tab = TerminalTab | MarkdownTab | CodeTab | TreeTab;
 
 // A resolved tab is the caller's explicit id or the active workspace's
 // active tab, when optional; every command that touches a tab resolves
@@ -426,6 +440,38 @@ function focusCodeTab(tab: CodeTab): void {
   tab.editor.focus();
 }
 
+type AddTreeTabOptions = {
+  workspace: Workspace;
+  baseTabId: number | undefined;
+  rootPath: string | undefined;
+  group: DockviewGroupPanel | undefined;
+};
+
+async function addTreeTab({
+  workspace,
+  baseTabId,
+  rootPath,
+  group,
+}: AddTreeTabOptions): Promise<void> {
+  const id = nextId++;
+  const tab = await openTreeTab({
+    id,
+    workspace,
+    tabElements: buildTabElement(id),
+    baseTabId,
+    rootPath,
+    group,
+  });
+  workspace.tabs.set(id, tab);
+  bridge.emitEvent({
+    type: "tab-opened",
+    id,
+    state: snapshot(),
+  });
+  tab.panel.api.setActive();
+  focusTreeTab(tab);
+}
+
 export function executeCommand(command: Command): void {
   switch (command.type) {
     case "new-tab": {
@@ -602,6 +648,9 @@ export function executeCommand(command: Command): void {
             });
             continue;
           }
+          if (tab.kind === "tree") {
+            continue;
+          }
           tab.terminal.options.fontFamily = settings.fontFamily;
           tab.terminal.options.fontSize = settings.fontSize;
           tab.terminal.options.theme = xtermTheme();
@@ -657,6 +706,32 @@ export function executeCommand(command: Command): void {
         workspace: activeWorkspace,
         filePath: command.path,
         baseTabId: command.baseTabId,
+        group,
+      });
+      return;
+    }
+    case "open-tree": {
+      if (!activeWorkspace) {
+        return;
+      }
+      let group: DockviewGroupPanel | undefined;
+      if (command.groupId !== undefined) {
+        group = findGroup({
+          workspace: activeWorkspace,
+          groupId: command.groupId,
+        });
+        if (!group) {
+          return;
+        }
+      }
+      let baseTabId = command.baseTabId;
+      if (baseTabId === undefined) {
+        baseTabId = activeWorkspace.activeId;
+      }
+      addTreeTab({
+        workspace: activeWorkspace,
+        baseTabId,
+        rootPath: undefined,
         group,
       });
       return;
@@ -816,6 +891,12 @@ export function readScreen(request: ScreenRequest): ScreenResult {
       language,
     };
   }
+  if (found.tab.kind === "tree") {
+    return {
+      kind: "tree",
+      path: found.tab.rootPath,
+    };
+  }
   const buffer = found.tab.terminal.buffer.active;
   let rowCount = found.tab.terminal.rows;
   if (request.rows !== undefined) {
@@ -909,6 +990,15 @@ export async function restoreSession(session: Session): Promise<void> {
         });
         continue;
       }
+      if (tab.kind === "tree") {
+        await addTreeTab({
+          workspace,
+          baseTabId: undefined,
+          rootPath: tab.path,
+          group: undefined,
+        });
+        continue;
+      }
       createTab({
         workspace,
         group: undefined,
@@ -953,6 +1043,9 @@ export function removeTab(id: number): void {
   if (tab.kind === "code") {
     disposeCodeTab(tab);
   }
+  if (tab.kind === "tree") {
+    disposeTreeTab(tab);
+  }
   if (id === workspace.activeId) {
     workspace.activeId = -1;
   }
@@ -980,5 +1073,8 @@ export function focusActiveTab(): void {
   }
   if (tab?.kind === "code") {
     focusCodeTab(tab);
+  }
+  if (tab?.kind === "tree") {
+    focusTreeTab(tab);
   }
 }

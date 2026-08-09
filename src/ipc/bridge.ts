@@ -46,6 +46,25 @@ export type WriteFileResult =
   | { mtimeMs: number }
   | { error: string };
 
+// A live open names the terminal whose cwd defines the project. A restored
+// tree already knows its root, so it asks for that path directly.
+export type ReadProjectTreeRequest = {
+  baseTabId?: number;
+  rootPath?: string;
+};
+
+export type ProjectTreeEntry =
+  | { kind: "directory"; path: string }
+  | { kind: "file"; path: string; absolutePath: string };
+
+export type ReadProjectTreeResult =
+  | {
+      rootPath: string;
+      name: string;
+      entries: ProjectTreeEntry[];
+    }
+  | { error: string };
+
 // Electron has no invoke in this direction, so main asks with an id and the
 // page answers with it: the only question main ever puts to the page.
 export type ScreenReadMessage = {
@@ -79,9 +98,12 @@ export type Bridge = {
   // a person's tab ×: routed to main, so a dirty code tab is asked about
   // before it goes
   closeTab: (id: number) => void;
-  // the two request/response pairs on the cable (ipcRenderer.invoke)
+  // request/response pairs on the cable (ipcRenderer.invoke)
   readFile: (request: ReadFileRequest) => Promise<ReadFileResult>;
   writeFile: (request: WriteFileRequest) => Promise<WriteFileResult>;
+  readProjectTree: (
+    request: ReadProjectTreeRequest,
+  ) => Promise<ReadProjectTreeResult>;
   // the session the last run left behind, if there is one to rebuild
   readSession: () => Promise<Session | null>;
 };

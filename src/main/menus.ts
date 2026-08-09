@@ -152,6 +152,10 @@ export function installAppMenu(): void {
             click: () => dispatch({ type: "new-tab" }),
           },
           {
+            label: "Open Project Tree",
+            click: () => dispatch({ type: "open-tree" }),
+          },
+          {
             label: "Close Tab",
             accelerator: "CmdOrCtrl+W",
             click: () =>

@@ -387,7 +387,7 @@ export function findGroup({
 type AddPanelOptions = {
   workspace: Workspace;
   id: number;
-  component: "terminal" | "markdown" | "code";
+  component: "terminal" | "markdown" | "code" | "tree";
   title: string;
   paneElement: HTMLElement;
   tabElement: HTMLElement;
@@ -509,6 +509,15 @@ function buildLayout({
           kind: "code",
           path: tab.filePath,
           dirty: tab.dirty,
+        });
+        continue;
+      }
+      if (tab.kind === "tree") {
+        tabList.push({
+          id: Number(panelId),
+          title,
+          kind: "tree",
+          path: tab.rootPath,
         });
         continue;
       }

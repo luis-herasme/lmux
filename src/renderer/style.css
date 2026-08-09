@@ -443,8 +443,30 @@ dialog select:focus {
   outline: none;
 }
 
-/* shown instead of an editor when the file could not be read */
-.code-error {
+/* Pierre Trees paints inside a shadow root, so its public custom properties
+   are the theme boundary rather than selectors from this page. */
+.tree-pane,
+.tree-content {
+  height: 100%;
+  background: var(--background);
+}
+
+.tree-content {
+  --trees-bg-override: var(--background);
+  --trees-fg-override: var(--foreground);
+  --trees-fg-muted-override: var(--tab-foreground);
+  --trees-selected-bg-override: var(--selection-background);
+  --trees-selected-fg-override: var(--foreground);
+  --trees-border-color-override: var(--separator);
+  --trees-focus-ring-color-override: var(--accent);
+  --trees-font-family-override: var(--ui-font-family);
+  --trees-font-size-override: 13px;
+  --trees-scrollbar-thumb-override: var(--scrollbar-thumb);
+}
+
+/* shown instead of a file view when its path could not be read */
+.code-error,
+.tree-error {
   display: flex;
   flex-direction: column;
   gap: 6px;

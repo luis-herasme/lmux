@@ -3,12 +3,22 @@
 // Event carries a full snapshot, so a case needs no DOM knowledge except
 // where the state deliberately holds none (a terminal's fitted size, a
 // document's scroll position), which is what the probes below are for.
+import { execFileSync } from "child_process";
 import { describe } from "node:test";
 import assert from "node:assert/strict";
 import * as net from "net";
 import * as path from "path";
 import * as os from "os";
-import { writeFileSync, readFileSync, unlinkSync, utimesSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "fs";
 import { z } from "zod";
 import {
   API_SOCKET_PATH,
@@ -21,6 +31,7 @@ import {
   waitForEvent,
 } from "./harness.ts";
 import { lmuxState } from "../main/bus.ts";
+import { sessionFromState } from "../session.ts";
 import type { LmuxState, WorkspaceInfo } from "../api.ts";
 
 // tsc emits no .md, so the fixture is read from source, the way main reads
@@ -320,10 +331,89 @@ const screenSchema = z.object({
   lines: z.array(z.string()).optional(),
   alternate: z.boolean().optional(),
   language: z.string().optional(),
+  path: z.string().optional(),
 });
 
+type WaitForTerminalTextOptions = {
+  terminalId: number;
+  text: string;
+  description: string;
+};
+
+async function waitForTerminalText({
+  terminalId,
+  text,
+  description,
+}: WaitForTerminalTextOptions): Promise<void> {
+  await pollUntil({
+    check: async () => {
+      const screen = screenSchema.parse(
+        await callTool({
+          name: "screen",
+          toolArguments: { tabId: terminalId },
+        }),
+      );
+      if (screen.kind !== "terminal" || screen.lines === undefined) {
+        return false;
+      }
+      for (const line of screen.lines) {
+        if (line.includes(text)) {
+          return true;
+        }
+      }
+      return false;
+    },
+    description,
+  });
+}
+
 const tokenClassSchema = z.array(z.string());
-const probeSchema = z.object({ edited: z.boolean() });
+const editorTypingSchema = z.object({
+  found: z.boolean(),
+  edited: z.boolean(),
+});
+const treeClickSchema = z.object({
+  clicked: z.boolean(),
+  gitVisible: z.boolean(),
+});
+
+type ClickVisibleTreeFileOptions = {
+  relativePath: string;
+};
+
+async function clickVisibleTreeFile({
+  relativePath,
+}: ClickVisibleTreeFileOptions): Promise<z.infer<typeof treeClickSchema>> {
+  const probed = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    for (const contentElement of document.querySelectorAll(".tree-content")) {
+      if (contentElement.offsetParent === null) {
+        continue;
+      }
+      const host = contentElement.querySelector("file-tree-container");
+      if (host === null || host.shadowRoot === null) {
+        return { clicked: false, gitVisible: false };
+      }
+      let target = null;
+      let gitVisible = false;
+      for (const item of host.shadowRoot.querySelectorAll("[data-item-path]")) {
+        const itemPath = item.getAttribute("data-item-path");
+        if (itemPath === ".git") {
+          gitVisible = true;
+        }
+        if (itemPath === ${JSON.stringify(relativePath)}) {
+          target = item;
+        }
+      }
+      if (!(target instanceof HTMLElement)) {
+        return { clicked: false, gitVisible };
+      }
+      target.click();
+      return { clicked: true, gitVisible };
+    }
+    return { clicked: false, gitVisible: false };
+  })()`);
+  return treeClickSchema.parse(probed);
+}
 
 const suite = describe("the command bus", () => {
   busTest({
@@ -650,6 +740,191 @@ const suite = describe("the command bus", () => {
   });
 
   busTest({
+    name: "a project tree follows the terminal's git root and opens a selected file",
+    body: async () => {
+      const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-tree-"));
+      const nestedPath = path.join(rootPath, "nested");
+      const filePath = path.join(rootPath, "project.ts");
+      mkdirSync(nestedPath);
+      writeFileSync(filePath, "export const project = true;\n");
+      execFileSync("git", ["init", "--quiet", rootPath]);
+      const canonicalRootPath = realpathSync(rootPath);
+      const canonicalFilePath = path.join(canonicalRootPath, "project.ts");
+
+      let terminalId: number | undefined;
+      for (const workspace of lmuxState.workspaces) {
+        if (terminalId !== undefined) {
+          break;
+        }
+        for (const tab of workspace.tabs) {
+          if (tab.kind === "terminal") {
+            terminalId = tab.id;
+            break;
+          }
+        }
+      }
+      if (terminalId === undefined) {
+        rmSync(rootPath, {
+          recursive: true,
+          force: true,
+        });
+        throw new Error("the tree case found no terminal");
+      }
+
+      const quotedNestedPath =
+        "'" + nestedPath.replaceAll("'", "'\"'\"'") + "'";
+      const PROJECT_READY = "LMUX_TREE_PROJECT_READY";
+      sendCommand({
+        type: "write",
+        id: terminalId,
+        // A split marker keeps PTY input echo from looking like completion.
+        text: `cd ${quotedNestedPath} && printf 'LMUX_TREE_PROJECT_%s\\n' READY\n`,
+      });
+      await waitForTerminalText({
+        terminalId,
+        text: PROJECT_READY,
+        description: "the test shell to enter the nested project directory",
+      });
+
+      try {
+        const tabCount = countTabs(lmuxState);
+        sendCommand({
+          type: "open-tree",
+          baseTabId: terminalId,
+        });
+        const opened = await waitForEvent(
+          (event) => countTabs(event.state) === tabCount + 1,
+        );
+        if (opened.type !== "tab-opened") {
+          throw new Error(`a tab arrived as a ${opened.type}`);
+        }
+
+        let openedTreePath: string | undefined;
+        for (const workspace of opened.state.workspaces) {
+          for (const tab of workspace.tabs) {
+            if (tab.id === opened.id && tab.kind === "tree") {
+              openedTreePath = tab.path;
+            }
+          }
+        }
+        assert.equal(
+          openedTreePath,
+          canonicalRootPath,
+          "the nested shell directory did not resolve to its git root",
+        );
+        assert.equal(
+          findTabTitle({
+            state: opened.state,
+            id: opened.id,
+          }),
+          path.basename(rootPath),
+          "the tree tab is not named for the project root",
+        );
+
+        const treeScreen = screenSchema.parse(
+          await callTool({
+            name: "screen",
+            toolArguments: { tabId: opened.id },
+          }),
+        );
+        assert.equal(treeScreen.kind, "tree");
+        assert.equal(treeScreen.path, canonicalRootPath);
+
+        const savedSession = sessionFromState(opened.state);
+        let savedTreePath: string | undefined;
+        for (const workspace of savedSession.workspaces) {
+          for (const tab of workspace.tabs) {
+            if (tab.kind === "tree") {
+              savedTreePath = tab.path;
+            }
+          }
+        }
+        assert.equal(
+          savedTreePath,
+          canonicalRootPath,
+          "the session did not keep the tree's resolved root",
+        );
+
+        const fileOpened = waitForEvent(
+          (event) => countTabs(event.state) === tabCount + 2,
+        );
+        const clicked = await clickVisibleTreeFile({
+          relativePath: "project.ts",
+        });
+        assert.equal(clicked.clicked, true, "the project file was not in the tree");
+        assert.equal(clicked.gitVisible, false, ".git appeared in the project tree");
+
+        const openedFile = await fileOpened;
+        if (openedFile.type !== "tab-opened") {
+          throw new Error(`a tab arrived as a ${openedFile.type}`);
+        }
+        assert.equal(
+          findTabTitle({
+            state: openedFile.state,
+            id: openedFile.id,
+          }),
+          "project.ts",
+          "selecting the file did not open a code tab",
+        );
+        const fileScreen = screenSchema.parse(
+          await callTool({
+            name: "screen",
+            toolArguments: { tabId: openedFile.id },
+          }),
+        );
+        assert.equal(fileScreen.kind, "code");
+        assert.equal(fileScreen.path, canonicalFilePath);
+
+        const treeActivated = waitForEvent(
+          (event) => event.type === "tab-activated" && event.id === opened.id,
+        );
+        sendCommand({
+          type: "activate-tab",
+          id: opened.id,
+        });
+        await treeActivated;
+
+        const fileReopened = waitForEvent(
+          (event) => countTabs(event.state) === tabCount + 3,
+        );
+        const clickedAgain = await clickVisibleTreeFile({
+          relativePath: "project.ts",
+        });
+        assert.equal(
+          clickedAgain.clicked,
+          true,
+          "the selected project file could not be clicked again",
+        );
+        const reopenedFile = await fileReopened;
+        assert.equal(
+          reopenedFile.type,
+          "tab-opened",
+          "clicking the selected file did not open it again",
+        );
+      } finally {
+        const SHELL_RESET = "LMUX_TREE_SHELL_RESET";
+        sendCommand({
+          type: "write",
+          id: terminalId,
+          text: "cd ~ && printf 'LMUX_TREE_SHELL_%s\\n' RESET\n",
+        });
+        try {
+          await waitForTerminalText({
+            terminalId,
+            text: SHELL_RESET,
+            description: "the test shell to leave the temporary project",
+          });
+        } finally {
+          rmSync(rootPath, {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
+    },
+  });
+
+  busTest({
     name: "editing a code tab marks it dirty, and saving writes it to disk",
     body: async () => {
       // A dedicated fixture, written and deleted by the case: the save is a
@@ -670,14 +945,14 @@ const suite = describe("the command bus", () => {
         }
 
         // openCodeTab awaited Monaco, so the editor exists once the tab is
-        // open; find it by the fixture's unique content and edit its model.
-        // The waiter goes up before the edit, since the change travels to
-        // main and back before the script's own answer.
+        // open; find it by the fixture's unique content and type through the
+        // editor. The waiter goes up first because the change travels to main
+        // and back before the script's own answer.
         const EDITED = "\n// edited in the suite\n";
         const dirtying = waitForEvent(
           (event) => event.type === "dirty-changed",
         );
-        const probed = probeSchema.parse(
+        const probed = editorTypingSchema.parse(
           await lmuxWindow.webContents.executeJavaScript(`(() => {
             const expected = ${JSON.stringify(initialContent)};
             let target = null;
@@ -689,17 +964,30 @@ const suite = describe("the command bus", () => {
               }
             }
             if (target === null) {
-              return { edited: false };
+              return {
+                found: false,
+                edited: false,
+              };
             }
-            const model = target.getModel();
-            model.setValue(model.getValue() + ${JSON.stringify(EDITED)});
-            return { edited: true };
+            target.focus();
+            target.trigger("keyboard", "type", {
+              text: ${JSON.stringify(EDITED)},
+            });
+            return {
+              found: true,
+              edited: target.getValue() !== expected,
+            };
           })()`),
+        );
+        assert.equal(
+          probed.found,
+          true,
+          "the suite could not find the editor it opened",
         );
         assert.equal(
           probed.edited,
           true,
-          "the suite could not find the editor it opened",
+          "typing did not change the editor",
         );
 
         const dirty = await dirtying;
