@@ -92,8 +92,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   // surfacing the refusal in the tab rather than arguing with whoever else
   // has the file open.
   z.object({ type: z.literal("save-file"), id: z.number().optional() }),
-  // Opens the project containing the named terminal's cwd, in the active
-  // group by default. Without baseTabId, the active tab is that terminal.
+  // Opens the project containing a terminal's current directory.
   z.object({
     type: z.literal("open-tree"),
     baseTabId: z.number().optional(),
@@ -148,7 +147,6 @@ export type ScreenResult =
   // Same reasoning: the file on disk is the content, and the caller can read
   // it. What lmux knows is which file, and how it is being read.
   | { kind: "code"; path: string; language: string }
-  // A tree's screen is the project boundary it makes visible.
   | { kind: "tree"; path: string }
   | { kind: "no-such-tab" };
 
@@ -181,7 +179,6 @@ export type TabInfo =
   // dirty: whether the tab holds work the file on disk does not, so an
   // observer (and a closing window) knows there is something to lose
   | { id: number; title: string; kind: "code"; path: string; dirty: boolean }
-  // The resolved root is enough to rebuild the tree and identify its project.
   | { id: number; title: string; kind: "tree"; path: string };
 
 // One tab strip and the pane below it. Group ids are opaque handles

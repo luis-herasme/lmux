@@ -1,14 +1,8 @@
 // The bundler, and the only thing in the project that needs one.
 //
-// Everything else the page loads — xterm, Dockview, zod, the markdown
-// libraries — ships a browser build that a relative `node_modules` path can
-// reach, so the browser resolves it and no build step stands in between
-// (ARCHITECTURE.md). Monaco and Pierre Trees do not: their ES modules use
-// bare specifiers, which a page loaded from disk cannot resolve.
-//
-// Those two dependencies are bundled. The app's own code is still plain
-// `tsc` output loaded as ES modules, and adding a dependency here should
-// stay a decision, not a habit.
+// Most dependencies expose files the browser can load directly. Monaco and
+// Pierre Trees use bare specifiers, so only those two are bundled. The app's
+// own modules remain one-to-one `tsc` output (ARCHITECTURE.md).
 import * as esbuild from "esbuild";
 import * as path from "path";
 import { fileURLToPath } from "url";

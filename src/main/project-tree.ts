@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { ipcMain } from "electron";
 import type { Dirent } from "fs";
-import { readdir, realpath, stat } from "fs/promises";
+import { readdir, realpath } from "fs/promises";
 import * as path from "path";
 import { getShellCwd } from "./shells.ts";
 import type {
@@ -61,10 +61,6 @@ async function resolveProjectRoot(
   }
   try {
     const canonicalRootPath = await realpath(rootPath);
-    const rootStatistics = await stat(canonicalRootPath);
-    if (!rootStatistics.isDirectory()) {
-      return { error: `${canonicalRootPath} is not a directory` };
-    }
     return { rootPath: canonicalRootPath };
   } catch (error) {
     return { error: String(error) };

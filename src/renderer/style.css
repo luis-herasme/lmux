@@ -443,15 +443,10 @@ dialog select:focus {
   outline: none;
 }
 
-/* Pierre Trees paints inside a shadow root, so its public custom properties
-   are the theme boundary rather than selectors from this page. */
-.tree-pane,
-.tree-content {
+/* Pierre Trees is themed through public custom properties on its host. */
+.tree-pane {
   height: 100%;
   background: var(--background);
-}
-
-.tree-content {
   --trees-bg-override: var(--background);
   --trees-fg-override: var(--foreground);
   --trees-fg-muted-override: var(--tab-foreground);

@@ -103,7 +103,6 @@ export type CodeTab = TabCommon & {
 export type TreeTab = TabCommon & {
   kind: "tree";
   element: HTMLElement;
-  contentElement: HTMLElement;
   rootPath: string;
   fileTree: PierreFileTree | undefined;
 };
