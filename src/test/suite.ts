@@ -202,12 +202,13 @@ function findTabTitle({ state, id }: StateLookupOptions): string | undefined {
 function findCodeDirty({ state, id }: StateLookupOptions): boolean | undefined {
   for (const workspace of state.workspaces) {
     for (const tab of workspace.tabs) {
-      if (tab.id === id) {
-        if (tab.kind === "code") {
-          return tab.dirty;
-        }
+      if (tab.id !== id) {
+        continue;
+      }
+      if (tab.kind !== "code") {
         return undefined;
       }
+      return tab.dirty;
     }
   }
   return undefined;

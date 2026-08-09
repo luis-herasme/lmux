@@ -1,5 +1,4 @@
-// Only main can show a native dialog, and only main knows what a PTY is
-// running or whether a file on disk has newer work than the page bought.
+// Only main can show a native dialog or inspect processes and files.
 import { dialog } from "electron";
 import type { BrowserWindow } from "electron";
 import * as path from "path";
@@ -37,9 +36,7 @@ export function confirmKilling({
   return choice === 1;
 }
 
-// True when no code tab in `tabs` has unsaved work, so callers close without
-// asking about the ones that do. Mirrors confirmKilling: the path list is the
-// whole of what the dialog needs to say.
+// True when no code tab has unsaved work.
 type ConfirmDiscardDirtyOptions = {
   window: BrowserWindow;
   tabs: TabInfo[];
@@ -51,25 +48,26 @@ export function confirmDiscardDirty({
   tabs,
   action,
 }: ConfirmDiscardDirtyOptions): boolean {
-  const dirty: string[] = [];
+  const dirtyPaths: string[] = [];
   for (const tab of tabs) {
-    if (tab.kind === "code" && tab.dirty) {
-      dirty.push(tab.path);
+    if (tab.kind !== "code" || !tab.dirty) {
+      continue;
     }
+    dirtyPaths.push(tab.path);
   }
-  if (dirty.length === 0) {
+  if (dirtyPaths.length === 0) {
     return true;
   }
   let message: string;
-  if (dirty.length === 1) {
-    message = `"${path.basename(dirty[0])}" has unsaved changes.`;
+  if (dirtyPaths.length === 1) {
+    message = `"${path.basename(dirtyPaths[0])}" has unsaved changes.`;
   } else {
-    message = `${dirty.length} files have unsaved changes.`;
+    message = `${dirtyPaths.length} files have unsaved changes.`;
   }
   const choice = dialog.showMessageBoxSync(window, {
     type: "warning",
     message,
-    detail: `Closing loses the changes to ${dirty.join(", ")}.`,
+    detail: `Closing loses the changes to ${dirtyPaths.join(", ")}.`,
     buttons: ["Cancel", action],
     defaultId: 0, // Escape and Return both mean "don't"
     cancelId: 0,

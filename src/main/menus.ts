@@ -116,12 +116,12 @@ function closeTab({ window, id }: CloseTabOptions): void {
     if (!window) {
       return;
     }
-    const discard = confirmDiscardDirty({
+    const discardConfirmed = confirmDiscardDirty({
       window,
       tabs: [tab],
       action: "Close Tab",
     });
-    if (!discard) {
+    if (!discardConfirmed) {
       return;
     }
   }

@@ -177,11 +177,6 @@ function setCodeTabTitle(tab: CodeTab): void {
   tab.panel.setTitle(title);
 }
 
-function showSaveError(tab: CodeTab, message: string): void {
-  tab.statusElement.textContent = message;
-  tab.statusElement.classList.add("visible");
-}
-
 // The editor holds the text; writing it is the one operation a save names a
 // Command for. A refused write (the file moved under us) leaves the tab
 // dirty and the reason on screen, so nothing is silently lost.
@@ -205,7 +200,8 @@ export async function saveCodeFile({
     content: tab.editor.getValue(),
   });
   if ("error" in result) {
-    showSaveError(tab, result.error);
+    tab.statusElement.textContent = result.error;
+    tab.statusElement.classList.add("visible");
     return;
   }
   tab.statusElement.classList.remove("visible");

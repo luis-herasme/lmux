@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import { readFile, stat, writeFile } from "fs/promises";
-import * as path from "path";
 import * as os from "os";
+import * as path from "path";
 import { getShellCwd } from "./shells.ts";
 import type {
   ReadFileRequest,
@@ -28,11 +28,11 @@ async function resolveFilePath({
   filePath,
   baseTabId,
 }: ResolveFilePathOptions): Promise<ResolvedFilePath> {
-  let result = filePath;
-  if (result.startsWith("~/")) {
-    result = path.join(os.homedir(), result.slice(2));
+  let resolvedPath = filePath;
+  if (resolvedPath.startsWith("~/")) {
+    resolvedPath = path.join(os.homedir(), resolvedPath.slice(2));
   }
-  if (!path.isAbsolute(result)) {
+  if (!path.isAbsolute(resolvedPath)) {
     let base: string | undefined;
     if (baseTabId !== undefined) {
       base = await getShellCwd(baseTabId);
@@ -42,9 +42,9 @@ async function resolveFilePath({
         error: `Can't resolve ${filePath}: the tab's shell directory is unknown`,
       };
     }
-    result = path.resolve(base, result);
+    resolvedPath = path.resolve(base, resolvedPath);
   }
-  return { path: path.resolve(result) };
+  return { path: path.resolve(resolvedPath) };
 }
 
 ipcMain.handle(
@@ -58,15 +58,15 @@ ipcMain.handle(
       return resolved;
     }
     try {
-      const stats = await stat(resolved.path);
-      if (stats.size > MAX_FILE_BYTES) {
+      const fileStats = await stat(resolved.path);
+      if (fileStats.size > MAX_FILE_BYTES) {
         return { error: `${resolved.path} is too large to render` };
       }
       const content = await readFile(resolved.path, "utf8");
       return {
         resolvedPath: resolved.path,
         content,
-        mtimeMs: stats.mtimeMs,
+        mtimeMs: fileStats.mtimeMs,
       };
     } catch (error) {
       return { error: String(error) };
@@ -82,11 +82,11 @@ ipcMain.handle(
       baseTabId: request.baseTabId,
     });
     if ("error" in resolved) {
-      return { error: resolved.error };
+      return resolved;
     }
     try {
-      const before = await stat(resolved.path);
-      if (before.mtimeMs !== request.expectedMtimeMs) {
+      const beforeWriteStats = await stat(resolved.path);
+      if (beforeWriteStats.mtimeMs !== request.expectedMtimeMs) {
         // the file changed after it was read; writing would bury that change
         return {
           error: `${resolved.path} changed on disk since it was opened; it was not overwritten`,
@@ -94,8 +94,8 @@ ipcMain.handle(
       }
       await writeFile(resolved.path, request.content, "utf8");
       // the write set a new mtime, which the next save guards against
-      const after = await stat(resolved.path);
-      return { mtimeMs: after.mtimeMs };
+      const afterWriteStats = await stat(resolved.path);
+      return { mtimeMs: afterWriteStats.mtimeMs };
     } catch (error) {
       return { error: String(error) };
     }
