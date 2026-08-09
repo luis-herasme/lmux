@@ -158,10 +158,6 @@ export function createCodeEditor({
       filePath,
     }),
     theme: THEME_NAME,
-    // Read-only until #34 makes it otherwise. Monaco still gives selection,
-    // find, folding and the scrollbar minimap-free.
-    readOnly: true,
-    domReadOnly: true,
     fontFamily: settings.fontFamily,
     fontSize: settings.fontSize,
     minimap: { enabled: false },
