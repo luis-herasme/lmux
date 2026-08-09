@@ -392,20 +392,38 @@ one thing a hidden workspace can't do is measure itself (a hidden element
 reports a zero-sized box), so terminals skip fitting while they're away and
 re-fit when their workspace comes forward.
 
-## Project root / file tree
+## Workspace root / file tree
 
-A **project root** is the directory lmux treats as the boundary of the work
-shown in one tree. From a terminal inside a Git repository, it is the path
-reported by `git rev-parse --show-toplevel`; outside Git, it is that shell's
-current directory. Resolving the root to its real path and refusing to follow
+A **workspace root** is the stable top directory shown by one workspace's file
+tree. The first project tab derives it from a file's Git repository, or from a
+terminal's Git repository or current directory. Changing it is explicit and
+does not close file tabs. Resolving it to its real path and refusing to follow
 symbolic links keeps a walk from escaping that boundary.
 
-A **file tree** is the hierarchical view of every directory and file below
-that root. The paths are its identities: `src/main/index.ts` names the same
-item in the renderer, the public state and the main-process directory walk.
-Pierre Trees infers directories from those slash-separated paths and
-virtualizes the rows, which means it only puts the visible portion of a large
-project into the DOM.
+A **file tree** is the hierarchical view of every directory and file below the
+workspace root. The paths are its identities: `src/main/index.ts` names the
+same item in the renderer, the public state and the main-process directory
+walk. Pierre Trees virtualizes the rows, so only the visible portion enters
+the DOM.
+
+## Project tab / file tab
+
+A **project tab** is the workspace's one Dockview tab for files. It contains
+the file tree, an inner file-tab strip and one editor. Its title is the
+workspace root folder name. Opening another file reuses this project tab;
+files outside the workspace root are valid file tabs but do not change the
+tree.
+
+A **file tab** names one in-memory file buffer inside the project tab. A
+single tree click opens a replaceable **preview file tab**. Editing it or
+double-clicking its tree item makes it a **pinned file tab**, which remains
+until explicitly closed. The file-tab strip, not Dockview, switches the one
+Monaco editor between those buffers.
+
+A **buffer** is a file's in-memory model: its text, dirty state, undo history,
+cursor and scroll position. Switching files keeps each buffer alive. A restart
+restores pinned paths from disk, never unsaved buffer contents or the temporary
+preview.
 
 ## Rendered vs. raw (a markdown tab's two modes)
 
@@ -417,17 +435,15 @@ switch to, the way a play button names what it will do rather than what
 is happening. The second button re-reads the file, since nothing watches
 the disk: edit a document in one tab, click Reload in the tab showing it.
 
-## Dirty (a code tab's unsaved work)
+## Dirty (a file buffer's unsaved work)
 
-A code tab is *dirty* when its editor holds text the file on disk does
-not. It becomes dirty the first time the model changes after opening or
-saving, and clean again when a save lands. The ● in the tab title says so,
-and `dirty` rides on the tab's `TabInfo`, so anyone reading the state (an
-agent, or main deciding whether a close may proceed without asking) can
-see it without paging through the page. The stub of the idea is the stale
-write: a save refuses to overwrite a file whose mtime changed since it was
-read, because the alternative is burying work the disk has and the editor
-does not.
+A file buffer is *dirty* when its model holds text the file on disk does not.
+It becomes dirty on the first edit after opening or saving, which also pins a
+preview file. The ● in the file tab and the modified mark in the tree say so,
+and `dirty` rides on the project's file state so main can guard every kind of
+close. A save refuses to overwrite a file whose mtime changed since it was
+read, because the alternative is burying work the disk has and the editor does
+not.
 
 ## Drag-and-drop interception (the one-door rule)
 

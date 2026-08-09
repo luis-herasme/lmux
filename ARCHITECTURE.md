@@ -63,8 +63,12 @@ showTabMenu(id)              renderer → main   "right-click on tab `id`: show 
 onRenameRequest((id))        main → renderer   "the user picked Rename in tab `id`'s menu"
 showWorkspaceMenu(id)        renderer → main   "right-click on workspace `id`: show its native menu"
 onWorkspaceRenameRequest((id)) main → renderer "the user picked Rename in workspace `id`'s menu"
-closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: ask about its shells, then close it"
-readFile({path, baseTabId})  renderer → main   "read this file for the markdown view" (request/response)
+closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: guard its shells and dirty files"
+closeTab(id)                 renderer → main   "the outer ×: guard every dirty file in that tab"
+closeFile({projectTabId, filePath}) renderer → main "the inner ×: guard that one buffer"
+readFile({path, baseTabId})  renderer → main   "read a document or project buffer" (request/response)
+writeFile({...})             renderer → main   "save one buffer with its expected mtime" (request/response)
+readProjectTree({...})       renderer → main   "resolve and walk one workspace root" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
 onScreenRead({readId, ...})  main → renderer   "what is tab `id` showing?" (request/response, the only one this way)
 answerScreenRead({readId, result}) renderer → main "here is what it shows"
@@ -180,8 +184,8 @@ src/
     menus.ts           app menu + tab context menu; menu items are Command sources
     bus.ts             dispatch() into the renderer; Event intake (the read model); the screen query
     mcp.ts             the API socket: MCP over a unix socket, tools generated from commandSchema
-    files.ts           file:read and file:write for the code view; both resolve against a shell's cwd
-    project-tree.ts    project-root resolution and the guarded directory walk
+    files.ts           file:read and file:write for project buffers; both resolve against a shell's cwd
+    project-tree.ts    workspace-root resolution and the guarded directory walk
     session-state.ts   the last session on disk: written while closing, read before the page exists
   renderer/
     index.html         the page: title bar, sidebar, the layout root, the modals
@@ -196,9 +200,9 @@ src/
     settings-dialog.ts the settings modal; controls are Command sources
     sidebar-resize.ts  the sidebar's drag handle; a drag ends as one Command
     markdown.ts        GitHub-look rendering (markdown-it + DOMPurify)
-    code-tab.ts        a file's pane: the editor in it, and the read that fills it
+    project-tab.ts     one workspace's file tabs, buffers and Monaco editor
+    project-tree.ts    Pierre Trees: bundle loading, path translation and file activation
     code.ts            Monaco: loaded on demand, themed from THEMES, language by filename
-    tree-tab.ts        a project's pane: Pierre Trees and file selection into open-file
     file-links.ts      the terminal link provider: Cmd+click a *.md or source path
     dom.ts             requireElement: strict lookups of index.html's fixed elements
   test/
@@ -234,12 +238,11 @@ change it and update this list.
   `scripts/bundle-vendor.mjs` writes their browser bundles to `dist/vendor/`.
   The app's own modules remain one-to-one `tsc` output, and another dependency
   joins the bundle only when a feature demonstrates the same need.
-- **Monaco is loaded when the first code tab opens, not at boot.** It is
-  about 4MB with every language grammar it ships, and the grammars are most
-  of what makes a code tab worth having. A dynamic `import()` in
+- **Monaco is loaded when the first project tab opens, not at boot.** It is
+  about 4MB with every language grammar it ships. A dynamic `import()` in
   `renderer/code.ts` keeps that cost off the boot path entirely: a session
-  that never opens a file never pays it. Cost we accept: the first code tab
-  of a session is slower than the ones after it.
+  that never opens a project never pays it. Cost we accept: the first project
+  tab of a session is slower than the ones after it.
 - **A Worker is loaded from a file, never from a blob.** Two things we
   established by trying them rather than by reasoning about them, both worth
   writing down because the obvious expectation is wrong in one direction and
@@ -250,40 +253,31 @@ change it and update this list.
   `default-src 'self'`. `renderer/code.ts` therefore hands Monaco a real
   file URL through `MonacoEnvironment.getWorker`, so the fallback never
   happens and the CSP stays exactly as strict as it was.
-- **A code tab can be edited, and its work saved.** (Decided 2026-08 for #34.)
-  Dropping `readOnly` is the whole of the editing surface: Monaco owns focus
-  and the caret, and the app's one delegated mousedown handler already
-  activates the tab when it is clicked. What is new is the file half. The
-  page writes through the same bridge `read` uses: `file:write` mirrors
-  `file:read`'s path resolution, and both share it. The tab carries the
-  file's mtime at read; a save guards on it, refusing to overwrite a file
-  that changed on disk in between, and saying why in a thin strip above the
-  editor. `onDidChangeModelContent` flips the tab dirty once, which is a
-  `dirty-changed` Event and a ● in the tab title; it rides on `TabInfo` so
-  an agent (and main, for the close guards) can see it. ⌘S is a File-menu
-  accelerator that dispatches a `save-file` Command like every other
-  affordance; Monaco never binds its own save. A dirty tab is asked about
-  before it closes, whether the ×, the menu, the accelerator or the window
-  is the one closing it, through the same `confirmDiscardDirty` in
-  `dialogs.ts` that a running-process guard sits beside. Decisions: a save
-  guards on mtime rather than raising an external-change prompt (reacting
-  to a file that changed while open, a Reload button, is #34-out-of-scope
-  and deliberately not here); buffers are never stashed in the session (a
-  session stays "what can honestly be rebuilt", so a dirty tab restores
-  clean and the guard on quit is what protects the unsaved work); and the
-  dirty ● leaks into the workspace name when the dirty tab is active, which
-  is the same inheritance tab titles always had.
-- **The project tree is a Dockview panel backed by Pierre Trees.** (Decided
-  2026-08 for #35.) `open-tree` finds the named terminal's Git root, falling
-  back to its current directory. Main resolves that boundary, omits `.git` and
-  symlinks, and skips unreadable children. Pierre receives relative paths;
-  files also carry the absolute path dispatched through `open-file`. The
-  resolved root is enough to restore the tab. `@pierre/trees` is pinned at
-  `1.0.0-beta.6` because it and its Preact dependency are prereleases, and its
-  virtualization and `setGitStatus` support #36. The bundle loads on the first
-  tree. Click activation listens inside Pierre's shadow root because selection
-  changes omit repeat clicks. File mutations, Git decorations and filesystem
-  watching remain out of scope.
+- **Each workspace has one composite project tab.** (Replaces the separate
+  code and tree panels introduced for #34 and #35.) Dockview owns the outer
+  tab; inside it, a stable workspace-root tree sits beside an inner file-tab
+  strip and one Monaco editor. `open-file` creates or reuses that project tab.
+  A tree single-click replaces one clean preview file, while editing or
+  double-clicking pins it. Each file owns a Monaco model, so dirty text, undo,
+  cursor and scroll state survive file switches without multiplying Dockview
+  panels. Files outside the workspace root are ordinary file tabs and leave
+  the tree unchanged. The outer title is the root folder name; changing the
+  root is an explicit folder-picker action and keeps every file tab open.
+- **File buffers save through one guarded path.** The page writes through the
+  same bridge `read` uses. Each buffer carries the mtime from its last read or
+  write, and a stale save is refused rather than burying a disk change. ⌘S
+  saves the visible buffer; Save All and close guards can save every dirty
+  buffer. Closing a dirty file offers Save, Don't Save and Cancel; bulk closes
+  offer Save All. Dirty state is a ● in the file tab and a modified mark in
+  the tree, and it rides in `TabInfo` for main and agents. Sessions restore
+  pinned paths from disk, never unsaved model contents or the preview file.
+- **The workspace tree is backed by Pierre Trees.** Main resolves the root
+  from the first file or named terminal, omits `.git` and symlinks, and skips
+  unreadable children. Pierre receives relative paths and virtualizes visible
+  rows. `@pierre/trees` remains pinned at `1.0.0-beta.6` because it and Preact
+  are prereleases. Click activation listens inside Pierre's shadow root because
+  selection changes omit repeat clicks. File mutations and filesystem watching
+  remain out of scope.
 - **The IPC contract is a type.** `src/ipc/bridge.ts` declares `Bridge`;
   preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.
@@ -730,6 +724,7 @@ change it and update this list.
   | `Menlo` as the default terminal font | `theme.ts` | a font that exists there |
   | `role: "appMenu"` | `main/menus.ts` | macOS puts the app menu first; other platforms do not have one |
   | A unix socket for the API, and `nc -U` as the documented client | `main/mcp.ts`, `README.md` | Windows has no unix sockets in the same sense; a named pipe, and a different client |
+  | `/` used to derive file labels and workspace-relative headers | `renderer/project-tab.ts` | path-aware values supplied by main instead of slicing renderer paths |
   | ⌘/⇧⌘/⌃ typed into tooltips and menu labels | `api.ts`, `tabs.ts`, `workspaces.ts`, `index.html` | labels computed per platform (the accelerators themselves already use `CmdOrCtrl`) |
 
   Note the last row's asymmetry: the *behavior* is already portable because
@@ -966,9 +961,10 @@ change it and update this list.
   one new request/response pair on the cable, `readSession`. If there is
   nothing to rebuild, boot opens one empty workspace exactly as before.
   What a session holds is deliberately less than the state: a workspace's
-  tabs in order, a document's path and mode, a project tree's resolved root,
-  which tab and workspace you were looking at, and a workspace's name only
-  when a rename pinned it. It carries no ids, because the renderer assigns
+  tabs in order, a document's path and mode, a project tab's workspace root,
+  pinned file paths and active pinned file, which outer tab and workspace you
+  were looking at, and a workspace's name only when a rename pinned it. It
+  carries no ids, because the renderer assigns
   those as it creates tabs, so a restored tab is a new tab wearing the old
   contents. A terminal tab carries nothing at all: shells cannot be restored,
   only respawned, and scrollback is gone either way. The corresponding

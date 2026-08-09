@@ -428,25 +428,24 @@ dialog select:focus {
   background: var(--background);
 }
 
-/* Monaco paints its own surface from the theme defined in code.ts; the pane
-   only has to give it a box with a height to measure. */
-.code-pane {
+/* A project is one Dockview panel: a stable tree beside one editor region. */
+.project-pane {
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
   background: var(--background);
-}
-
-.code-editor {
-  flex: 1;
-  min-height: 0;
-  outline: none;
 }
 
 /* Pierre Trees is themed through public custom properties on its host. */
-.tree-pane {
-  height: 100%;
+.project-tree {
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--separator);
   background: var(--background);
+  color: var(--tab-foreground);
+  font-family: var(--ui-font-family);
+  font-size: 13px;
   --trees-bg-override: var(--background);
   --trees-fg-override: var(--foreground);
   --trees-fg-muted-override: var(--tab-foreground);
@@ -459,9 +458,116 @@ dialog select:focus {
   --trees-scrollbar-thumb-override: var(--scrollbar-thumb);
 }
 
+.project-editor-region {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-tabs {
+  flex: none;
+  min-height: 32px;
+  display: flex;
+  overflow-x: auto;
+  background: var(--tab-bar-background);
+  border-bottom: 1px solid var(--separator);
+}
+
+.file-tab {
+  flex: none;
+  max-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  color: var(--tab-foreground);
+  background: transparent;
+  border-right: 1px solid var(--separator);
+  font-family: var(--ui-font-family);
+  font-size: 12px;
+  cursor: default;
+}
+
+.file-tab.active {
+  color: var(--tab-active-foreground);
+  background: var(--background);
+}
+
+.file-tab.preview .file-tab-title {
+  font-style: italic;
+}
+
+.file-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tab-close {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  font-size: 15px;
+  line-height: 16px;
+}
+
+.file-tab-close:hover {
+  background: var(--selection-background);
+}
+
+.file-header {
+  flex: none;
+  min-height: 24px;
+  padding: 5px 10px;
+  overflow: hidden;
+  color: var(--tab-foreground);
+  border-bottom: 1px solid var(--separator);
+  font-family: var(--ui-font-family);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-editor-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.code-editor {
+  min-height: 0;
+  outline: none;
+}
+
+.project-editor {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.project-editor.visible {
+  display: block;
+}
+
+.project-empty {
+  display: none;
+  padding: 24px;
+  color: var(--tab-foreground);
+  font-family: var(--ui-font-family);
+  font-size: 13px;
+}
+
+.project-empty.visible {
+  display: block;
+}
+
 /* shown instead of a file view when its path could not be read */
-.code-error,
-.tree-error {
+.code-error {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -469,6 +575,14 @@ dialog select:focus {
   color: var(--tab-active-foreground);
   font-family: var(--ui-font-family);
   font-size: 13px;
+}
+
+.project-file-error {
+  display: none;
+}
+
+.project-file-error.visible {
+  display: flex;
 }
 
 /* a refused save says why, above the editor, until the tab closes */

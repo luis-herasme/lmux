@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain } from "electron";
+import type { IpcMainEvent } from "electron";
 import type {
   Command,
   LmuxEvent,
@@ -54,6 +55,34 @@ export function runCommand(command: Command): Promise<LmuxState> {
     const capTimer = setTimeout(settled, SETTLE_CAP_MS);
     quietTimer = setTimeout(settled, QUIET_MS);
     ipcMain.on("event", restartQuiet);
+    dispatch(command);
+  });
+}
+
+type RunCommandUntilOptions = {
+  command: Command;
+  predicate: (event: LmuxEvent) => boolean;
+};
+
+// Native close dialogs need the final save result before they may close.
+export function runCommandUntil({
+  command,
+  predicate,
+}: RunCommandUntilOptions): Promise<LmuxEvent | undefined> {
+  return new Promise((resolve) => {
+    function finished(_event: IpcMainEvent, lmuxEvent: LmuxEvent): void {
+      if (!predicate(lmuxEvent)) {
+        return;
+      }
+      clearTimeout(timer);
+      ipcMain.off("event", finished);
+      resolve(lmuxEvent);
+    }
+    const timer = setTimeout(() => {
+      ipcMain.off("event", finished);
+      resolve(undefined);
+    }, 5000); // file writes are local; five seconds is a failed operation
+    ipcMain.on("event", finished);
     dispatch(command);
   });
 }

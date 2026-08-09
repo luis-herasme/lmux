@@ -32,7 +32,7 @@ import {
 } from "./harness.ts";
 import { lmuxState } from "../main/bus.ts";
 import { sessionFromState } from "../session.ts";
-import type { LmuxState, WorkspaceInfo } from "../api.ts";
+import type { LmuxState, TabInfo, WorkspaceInfo } from "../api.ts";
 
 // tsc emits no .md, so the fixture is read from source, the way main reads
 // index.html.
@@ -44,9 +44,11 @@ const FIXTURE_PATH = path.join(
 // A real source file rather than a fixture: the case is about a grammar
 // recognising TypeScript, and the app's own code is the TypeScript nearest
 // to hand.
-const SOURCE_FILE_PATH = path.join(
-  import.meta.dirname,
-  "../../src/renderer/code.ts",
+const SOURCE_FILE_PATH = realpathSync(
+  path.join(
+    import.meta.dirname,
+    "../../src/renderer/code.ts",
+  ),
 );
 
 // executeJavaScript is the only way to ask the page something the bus does
@@ -197,6 +199,17 @@ function findWorkspace({
   return undefined;
 }
 
+function findTabInfo({ state, id }: StateLookupOptions): TabInfo | undefined {
+  for (const workspace of state.workspaces) {
+    for (const tab of workspace.tabs) {
+      if (tab.id === id) {
+        return tab;
+      }
+    }
+  }
+  return undefined;
+}
+
 function findTabTitle({ state, id }: StateLookupOptions): string | undefined {
   for (const workspace of state.workspaces) {
     for (const tab of workspace.tabs) {
@@ -208,18 +221,25 @@ function findTabTitle({ state, id }: StateLookupOptions): string | undefined {
   return undefined;
 }
 
-// undefined when the id is not a code tab, so a caller can tell "clean code
-// tab" from "not a code tab".
-function findCodeDirty({ state, id }: StateLookupOptions): boolean | undefined {
+type FindProjectFileDirtyOptions = StateLookupOptions & {
+  filePath: string;
+};
+
+function findProjectFileDirty({
+  state,
+  id,
+  filePath,
+}: FindProjectFileDirtyOptions): boolean | undefined {
   for (const workspace of state.workspaces) {
     for (const tab of workspace.tabs) {
-      if (tab.id !== id) {
+      if (tab.id !== id || tab.kind !== "project") {
         continue;
       }
-      if (tab.kind !== "code") {
-        return undefined;
+      for (const file of tab.files) {
+        if (file.path === filePath) {
+          return file.dirty;
+        }
       }
-      return tab.dirty;
     }
   }
   return undefined;
@@ -330,8 +350,9 @@ const screenSchema = z.object({
   kind: z.string(),
   lines: z.array(z.string()).optional(),
   alternate: z.boolean().optional(),
-  language: z.string().optional(),
-  path: z.string().optional(),
+  language: z.string().nullable().optional(),
+  path: z.string().nullable().optional(),
+  workspaceRootPath: z.string().optional(),
 });
 
 const tokenClassSchema = z.array(z.string());
@@ -339,14 +360,64 @@ const editorTypingSchema = z.object({
   editorFound: z.boolean(),
   edited: z.boolean(),
 });
+
+type EditOpenEditorOptions = {
+  expectedContent: string;
+  addedContent: string;
+};
+
+async function editOpenEditor({
+  expectedContent,
+  addedContent,
+}: EditOpenEditorOptions): Promise<z.infer<typeof editorTypingSchema>> {
+  const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    const expected = ${JSON.stringify(expectedContent)};
+    let target = null;
+    for (const editor of window.monaco.editor.getEditors()) {
+      const model = editor.getModel();
+      if (model !== null && model.getValue() === expected) {
+        target = editor;
+        break;
+      }
+    }
+    if (target === null) {
+      return {
+        editorFound: false,
+        edited: false,
+      };
+    }
+    target.focus();
+    target.trigger("keyboard", "type", {
+      text: ${JSON.stringify(addedContent)},
+    });
+    return {
+      editorFound: true,
+      edited: target.getValue() !== expected,
+    };
+  })()`);
+  return editorTypingSchema.parse(result);
+}
+
 const treeClickSchema = z.object({
   clicked: z.boolean(),
   gitVisible: z.boolean(),
 });
 
-async function clickVisibleTreeFile(relativePath: string) {
+type ClickVisibleTreeFileOptions = {
+  relativePath: string;
+  clickCount?: number;
+};
+
+async function clickVisibleTreeFile({
+  relativePath,
+  clickCount,
+}: ClickVisibleTreeFileOptions) {
+  let resolvedClickCount = clickCount;
+  if (resolvedClickCount === undefined) {
+    resolvedClickCount = 1;
+  }
   const probed = await lmuxWindow.webContents.executeJavaScript(`(() => {
-    for (const treeElement of document.querySelectorAll(".tree-pane")) {
+    for (const treeElement of document.querySelectorAll(".project-tree")) {
       if (treeElement.offsetParent === null) {
         continue;
       }
@@ -368,7 +439,11 @@ async function clickVisibleTreeFile(relativePath: string) {
       if (!(target instanceof HTMLElement)) {
         return { clicked: false, gitVisible };
       }
-      target.click();
+      target.dispatchEvent(new MouseEvent("click", {
+        bubbles: true,
+        composed: true,
+        detail: ${resolvedClickCount},
+      }));
       return { clicked: true, gitVisible };
     }
     return { clicked: false, gitVisible: false };
@@ -643,7 +718,7 @@ const suite = describe("the command bus", () => {
   });
 
   busTest({
-    name: "a code file opens in an editor, coloured by its grammar",
+    name: "a code file opens inside the workspace project tab",
     body: async () => {
       const tabCount = countTabs(lmuxState);
       sendCommand({
@@ -651,26 +726,36 @@ const suite = describe("the command bus", () => {
         path: SOURCE_FILE_PATH,
       });
       const opened = await waitForEvent(
-        (event) => countTabs(event.state) === tabCount + 1,
+        (event) =>
+          event.type === "file-opened" && event.path === SOURCE_FILE_PATH,
       );
-      if (opened.type !== "tab-opened") {
-        throw new Error(`a tab arrived as a ${opened.type}`);
+      if (opened.type !== "file-opened") {
+        throw new Error(`the file arrived as a ${opened.type}`);
       }
-
+      const project = findTabInfo({
+        state: opened.state,
+        id: opened.id,
+      });
+      assert.equal(project?.kind, "project");
+      if (project?.kind !== "project") {
+        throw new Error("open-file created no project tab");
+      }
+      assert.equal(countTabs(opened.state), tabCount + 1);
       assert.equal(
-        findTabTitle({
-          state: opened.state,
-          id: opened.id,
-        }),
-        "code.ts",
-        "the tab is not named for the file it shows",
+        project.title,
+        path.basename(realpathSync(path.join(import.meta.dirname, "../.."))),
       );
+      assert.equal(project.activeFilePath, SOURCE_FILE_PATH);
+      assert.deepEqual(project.files, [
+        {
+          path: SOURCE_FILE_PATH,
+          dirty: false,
+          pinned: true,
+        },
+      ]);
 
       // A language's grammar is imported the first time it is needed, so the
-      // first paint carries no colours at all. Asserting on that paint would
-      // pass against an editor that never highlights anything: what says the
-      // grammar arrived is the tokens being told apart, which is more than
-      // the one class an unhighlighted document uses.
+      // first paint carries no colours at all.
       await pollUntil({
         check: async () => {
           const classes = tokenClassSchema.parse(
@@ -691,26 +776,26 @@ const suite = describe("the command bus", () => {
           },
         }),
       );
-      assert.equal(screen.kind, "code");
-      assert.equal(
-        screen.language,
-        "typescript",
-        "the editor did not recognise a .ts file",
-      );
+      assert.equal(screen.kind, "project");
+      assert.equal(screen.path, SOURCE_FILE_PATH);
+      assert.equal(screen.language, "typescript");
     },
   });
 
   busTest({
-    name: "a project tree follows the terminal's git root and opens a selected file",
+    name: "one project tab previews and pins files from its workspace tree",
     body: async () => {
       const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-tree-"));
       const nestedPath = path.join(rootPath, "nested");
       const filePath = path.join(rootPath, "project.ts");
+      const otherFilePath = path.join(rootPath, "other.ts");
       mkdirSync(nestedPath);
       writeFileSync(filePath, "export const project = true;\n");
+      writeFileSync(otherFilePath, "export const other = true;\n");
       execFileSync("git", ["init", "--quiet", rootPath]);
       const canonicalRootPath = realpathSync(rootPath);
       const canonicalFilePath = path.join(canonicalRootPath, "project.ts");
+      const canonicalOtherFilePath = path.join(canonicalRootPath, "other.ts");
       const projectWorkspace = await openWorkspace();
 
       try {
@@ -725,7 +810,6 @@ const suite = describe("the command bus", () => {
         sendCommand({
           type: "write",
           id: terminalId,
-          // A split marker keeps PTY input echo from looking like completion.
           text: `cd ${quotedNestedPath} && printf 'LMUX_TREE_PROJECT_%s\\n' READY\n`,
         });
         await pollUntil({
@@ -749,12 +833,12 @@ const suite = describe("the command bus", () => {
             }
             return false;
           },
-          description: "the test shell to enter the nested project directory",
+          description: "the test shell to enter the nested workspace directory",
         });
 
         const tabCount = countTabs(lmuxState);
         sendCommand({
-          type: "open-tree",
+          type: "open-project",
           baseTabId: terminalId,
         });
         const opened = await waitForEvent(
@@ -764,67 +848,191 @@ const suite = describe("the command bus", () => {
           throw new Error(`a tab arrived as a ${opened.type}`);
         }
 
-        const openedTree = opened.state.workspaces.at(-1)?.tabs.at(-1);
-        assert.deepEqual(openedTree, {
+        const openedProject = findTabInfo({
+          state: opened.state,
+          id: opened.id,
+        });
+        assert.deepEqual(openedProject, {
           id: opened.id,
           title: path.basename(canonicalRootPath),
-          kind: "tree",
-          path: canonicalRootPath,
+          kind: "project",
+          workspaceRootPath: canonicalRootPath,
+          activeFilePath: null,
+          files: [],
         });
 
-        const treeScreen = screenSchema.parse(
+        const projectScreen = screenSchema.parse(
           await callTool({
             name: "screen",
             toolArguments: { tabId: opened.id },
           }),
         );
-        assert.equal(treeScreen.kind, "tree");
-        assert.equal(treeScreen.path, canonicalRootPath);
+        assert.equal(projectScreen.kind, "project");
+        assert.equal(projectScreen.workspaceRootPath, canonicalRootPath);
+        assert.equal(projectScreen.path, null);
 
-        const savedTree = sessionFromState(opened.state)
-          .workspaces.at(-1)
-          ?.tabs.at(-1);
-        assert.deepEqual(savedTree, {
-          kind: "tree",
-          path: canonicalRootPath,
+        const firstOpening = waitForEvent(
+          (event) =>
+            event.type === "file-opened" &&
+            event.path === canonicalFilePath,
+        );
+        const firstClick = await clickVisibleTreeFile({
+          relativePath: "project.ts",
         });
+        assert.equal(firstClick.clicked, true);
+        assert.equal(firstClick.gitVisible, false, ".git appeared in the tree");
+        const firstOpened = await firstOpening;
+        assert.equal(countTabs(firstOpened.state), tabCount + 1);
 
-        const fileOpened = waitForEvent(
-          (event) => countTabs(event.state) === tabCount + 2,
+        const secondOpening = waitForEvent(
+          (event) =>
+            event.type === "file-opened" &&
+            event.path === canonicalOtherFilePath,
         );
-        const clicked = await clickVisibleTreeFile("project.ts");
-        assert.equal(clicked.clicked, true);
-        assert.equal(clicked.gitVisible, false, ".git appeared in the tree");
-
-        const openedFile = await fileOpened;
-        if (openedFile.type !== "tab-opened") {
-          throw new Error(`a tab arrived as a ${openedFile.type}`);
-        }
-        const fileScreen = screenSchema.parse(
-          await callTool({
-            name: "screen",
-            toolArguments: { tabId: openedFile.id },
-          }),
-        );
-        assert.equal(fileScreen.kind, "code");
-        assert.equal(fileScreen.path, canonicalFilePath);
-
-        const treeActivated = waitForEvent(
-          (event) => event.type === "tab-activated" && event.id === opened.id,
-        );
-        sendCommand({
-          type: "activate-tab",
+        const secondClick = await clickVisibleTreeFile({
+          relativePath: "other.ts",
+        });
+        assert.equal(secondClick.clicked, true);
+        const secondOpened = await secondOpening;
+        const secondProject = findTabInfo({
+          state: secondOpened.state,
           id: opened.id,
         });
-        await treeActivated;
+        assert.equal(secondProject?.kind, "project");
+        if (secondProject?.kind !== "project") {
+          throw new Error("the project tab disappeared");
+        }
+        assert.deepEqual(secondProject.files, [
+          {
+            path: canonicalOtherFilePath,
+            dirty: false,
+            pinned: false,
+          },
+        ]);
 
-        const fileReopened = waitForEvent(
-          (event) => countTabs(event.state) === tabCount + 3,
+        const pinning = waitForEvent(
+          (event) =>
+            event.type === "file-activated" &&
+            event.path === canonicalOtherFilePath,
         );
-        const clickedAgain = await clickVisibleTreeFile("project.ts");
-        assert.equal(clickedAgain.clicked, true);
-        const reopenedFile = await fileReopened;
-        assert.equal(reopenedFile.type, "tab-opened");
+        await clickVisibleTreeFile({
+          relativePath: "other.ts",
+          clickCount: 2,
+        });
+        const pinned = await pinning;
+        const pinnedProject = findTabInfo({
+          state: pinned.state,
+          id: opened.id,
+        });
+        assert.equal(pinnedProject?.kind, "project");
+        if (pinnedProject?.kind !== "project") {
+          throw new Error("pinning lost the project tab");
+        }
+        assert.equal(pinnedProject.files.at(0)?.pinned, true);
+
+        const savedProject = sessionFromState(pinned.state)
+          .workspaces.at(-1)
+          ?.tabs.at(-1);
+        assert.deepEqual(savedProject, {
+          kind: "project",
+          workspaceRootPath: canonicalRootPath,
+          files: [canonicalOtherFilePath],
+          activeFilePath: canonicalOtherFilePath,
+        });
+
+        const nextPreview = waitForEvent(
+          (event) =>
+            event.type === "file-opened" &&
+            event.path === canonicalFilePath,
+        );
+        await clickVisibleTreeFile({ relativePath: "project.ts" });
+        const previewed = await nextPreview;
+        const previewedProject = findTabInfo({
+          state: previewed.state,
+          id: opened.id,
+        });
+        assert.equal(previewedProject?.kind, "project");
+        if (previewedProject?.kind !== "project") {
+          throw new Error("previewing lost the project tab");
+        }
+        assert.equal(previewedProject.files.length, 2);
+        assert.equal(previewedProject.files.at(1)?.pinned, false);
+
+        const tabPinning = waitForEvent(
+          (event) =>
+            event.type === "file-activated" &&
+            event.path === canonicalFilePath,
+        );
+        const tabDoubleClicked = z.boolean().parse(
+          await lmuxWindow.webContents.executeJavaScript(`(() => {
+            const element = document.querySelector(".file-tab.active");
+            if (!(element instanceof HTMLElement)) {
+              return false;
+            }
+            element.dispatchEvent(new MouseEvent("dblclick", {
+              bubbles: true,
+              detail: 2,
+            }));
+            return true;
+          })()`),
+        );
+        assert.equal(tabDoubleClicked, true);
+        const tabPinned = await tabPinning;
+        const tabPinnedProject = findTabInfo({
+          state: tabPinned.state,
+          id: opened.id,
+        });
+        assert.equal(tabPinnedProject?.kind, "project");
+        if (tabPinnedProject?.kind !== "project") {
+          throw new Error("file-tab pinning lost the project tab");
+        }
+        assert.equal(tabPinnedProject.files.at(1)?.pinned, true);
+
+        const canonicalNestedPath = realpathSync(nestedPath);
+        sendCommand({
+          type: "change-workspace-root",
+          workspaceId: projectWorkspace.id,
+          path: canonicalNestedPath,
+        });
+        const rootChanged = await waitForEvent(
+          (event) =>
+            event.type === "workspace-root-changed" &&
+            event.path === canonicalNestedPath,
+        );
+        const changedProject = findTabInfo({
+          state: rootChanged.state,
+          id: opened.id,
+        });
+        assert.equal(changedProject?.kind, "project");
+        if (changedProject?.kind !== "project") {
+          throw new Error("changing the root lost the project tab");
+        }
+        assert.equal(changedProject.workspaceRootPath, canonicalNestedPath);
+        assert.equal(changedProject.files.length, 2);
+
+        for (const openFile of changedProject.files) {
+          const closing = waitForEvent(
+            (event) =>
+              event.type === "file-closed" && event.path === openFile.path,
+          );
+          sendCommand({
+            type: "close-file",
+            projectTabId: opened.id,
+            path: openFile.path,
+          });
+          await closing;
+        }
+        const emptiedProject = findTabInfo({
+          state: lmuxState,
+          id: opened.id,
+        });
+        assert.equal(emptiedProject?.kind, "project");
+        if (emptiedProject?.kind !== "project") {
+          throw new Error("closing files closed the project tab");
+        }
+        assert.equal(emptiedProject.activeFilePath, null);
+        assert.equal(emptiedProject.files.length, 0);
+        assert.equal(countTabs(lmuxState), tabCount + 1);
       } finally {
         const workspaceClosed = waitForEvent(
           (event) =>
@@ -848,7 +1056,7 @@ const suite = describe("the command bus", () => {
   });
 
   busTest({
-    name: "editing a code tab marks it dirty, and saving writes it to disk",
+    name: "editing a project file pins it, marks it dirty and saves it",
     body: async () => {
       // A dedicated fixture, written and deleted by the case: the save is a
       // real disk write, and the app's own source is not a file to trample
@@ -856,52 +1064,31 @@ const suite = describe("the command bus", () => {
       const filePath = path.join(os.tmpdir(), `lmux-save-${process.pid}.ts`);
       const initialContent = "export const value = 1;\n";
       writeFileSync(filePath, initialContent);
+      const canonicalFilePath = realpathSync(filePath);
 
       try {
-        const tabCount = countTabs(lmuxState);
         sendCommand({ type: "open-file", path: filePath });
         const opened = await waitForEvent(
-          (event) => countTabs(event.state) === tabCount + 1,
+          (event) =>
+            event.type === "file-opened" && event.path === canonicalFilePath,
         );
-        if (opened.type !== "tab-opened") {
-          throw new Error(`a tab arrived as a ${opened.type}`);
+        if (opened.type !== "file-opened") {
+          throw new Error(`the file arrived as a ${opened.type}`);
         }
 
-        // openCodeTab awaited Monaco, so the editor exists once the tab is
-        // open; find it by the fixture's unique content and type through the
-        // editor. The waiter goes up first because the change travels to main
-        // and back before the script's own answer.
+        // Find the fixture's unique model and type through the real editor.
+        // The waiter goes up first because the change travels to main and
+        // back before the script's own answer.
         const EDITED = "\n// edited in the suite\n";
         const dirtying = waitForEvent(
-          (event) => event.type === "dirty-changed",
+          (event) =>
+            event.type === "dirty-changed" &&
+            event.path === canonicalFilePath,
         );
-        const probed = editorTypingSchema.parse(
-          await lmuxWindow.webContents.executeJavaScript(`(() => {
-            const expected = ${JSON.stringify(initialContent)};
-            let target = null;
-            for (const editor of window.monaco.editor.getEditors()) {
-              const model = editor.getModel();
-              if (model !== null && model.getValue() === expected) {
-                target = editor;
-                break;
-              }
-            }
-            if (target === null) {
-              return {
-                editorFound: false,
-                edited: false,
-              };
-            }
-            target.focus();
-            target.trigger("keyboard", "type", {
-              text: ${JSON.stringify(EDITED)},
-            });
-            return {
-              editorFound: true,
-              edited: target.getValue() !== expected,
-            };
-          })()`),
-        );
+        const probed = await editOpenEditor({
+          expectedContent: initialContent,
+          addedContent: EDITED,
+        });
         assert.equal(
           probed.editorFound,
           true,
@@ -915,19 +1102,86 @@ const suite = describe("the command bus", () => {
 
         const dirty = await dirtying;
         assert.equal(
-          findCodeDirty({ state: dirty.state, id: opened.id }),
+          findProjectFileDirty({
+            state: dirty.state,
+            id: opened.id,
+            filePath: canonicalFilePath,
+          }),
           true,
-          "an edit did not mark the code tab dirty",
+          "an edit did not mark the project file dirty",
+        );
+        const dirtyProject = findTabInfo({
+          state: dirty.state,
+          id: opened.id,
+        });
+        assert.equal(dirtyProject?.kind, "project");
+        if (dirtyProject?.kind !== "project") {
+          throw new Error("editing lost the project tab");
+        }
+        let dirtyFilePinned: boolean | undefined;
+        for (const projectFile of dirtyProject.files) {
+          if (projectFile.path === canonicalFilePath) {
+            dirtyFilePinned = projectFile.pinned;
+            break;
+          }
+        }
+        assert.equal(
+          dirtyFilePinned,
+          true,
+          "editing left a preview replaceable",
         );
 
-        sendCommand({ type: "save-file", id: opened.id });
+        const switchingAway = waitForEvent(
+          (event) =>
+            (event.type === "file-opened" ||
+              event.type === "file-activated") &&
+            event.path === SOURCE_FILE_PATH,
+        );
+        sendCommand({
+          type: "open-file",
+          path: SOURCE_FILE_PATH,
+        });
+        await switchingAway;
+        const switchingBack = waitForEvent(
+          (event) =>
+            event.type === "file-activated" &&
+            event.path === canonicalFilePath,
+        );
+        sendCommand({
+          type: "activate-file",
+          projectTabId: opened.id,
+          path: canonicalFilePath,
+        });
+        await switchingBack;
+        const editSurvived = z.boolean().parse(
+          await lmuxWindow.webContents.executeJavaScript(`(() => {
+            for (const editor of window.monaco.editor.getEditors()) {
+              if (editor.getValue().includes(${JSON.stringify(EDITED)})) {
+                return true;
+              }
+            }
+            return false;
+          })()`),
+        );
+        assert.equal(editSurvived, true, "switching files lost unsaved work");
+
+        sendCommand({
+          type: "save-file",
+          projectTabId: opened.id,
+          path: canonicalFilePath,
+        });
         const saved = await waitForEvent(
-          (event) => event.type === "file-saved",
+          (event) =>
+            event.type === "file-saved" && event.path === canonicalFilePath,
         );
         assert.equal(
-          findCodeDirty({ state: saved.state, id: opened.id }),
+          findProjectFileDirty({
+            state: saved.state,
+            id: opened.id,
+            filePath: canonicalFilePath,
+          }),
           false,
-          "saving left the code tab dirty",
+          "saving left the project file dirty",
         );
         assert.match(
           readFileSync(filePath, "utf8"),
@@ -941,20 +1195,132 @@ const suite = describe("the command bus", () => {
   });
 
   busTest({
+    name: "Save All writes every dirty project buffer",
+    body: async () => {
+      const firstPath = path.join(
+        os.tmpdir(),
+        `lmux-save-all-first-${process.pid}.ts`,
+      );
+      const secondPath = path.join(
+        os.tmpdir(),
+        `lmux-save-all-second-${process.pid}.ts`,
+      );
+      const firstContent = "export const first = 1;\n";
+      const secondContent = "export const second = 2;\n";
+      const FIRST_EDIT = "\n// first edit\n";
+      const SECOND_EDIT = "\n// second edit\n";
+      writeFileSync(firstPath, firstContent);
+      writeFileSync(secondPath, secondContent);
+      const canonicalFirstPath = realpathSync(firstPath);
+      const canonicalSecondPath = realpathSync(secondPath);
+
+      try {
+        sendCommand({ type: "open-file", path: firstPath });
+        const firstOpened = await waitForEvent(
+          (event) =>
+            event.type === "file-opened" &&
+            event.path === canonicalFirstPath,
+        );
+        if (firstOpened.type !== "file-opened") {
+          throw new Error(`the first file arrived as a ${firstOpened.type}`);
+        }
+        const firstDirtying = waitForEvent(
+          (event) =>
+            event.type === "dirty-changed" &&
+            event.path === canonicalFirstPath,
+        );
+        const firstEdit = await editOpenEditor({
+          expectedContent: firstContent,
+          addedContent: FIRST_EDIT,
+        });
+        assert.equal(firstEdit.edited, true);
+        await firstDirtying;
+
+        sendCommand({ type: "open-file", path: secondPath });
+        await waitForEvent(
+          (event) =>
+            event.type === "file-opened" &&
+            event.path === canonicalSecondPath,
+        );
+        const secondDirtying = waitForEvent(
+          (event) =>
+            event.type === "dirty-changed" &&
+            event.path === canonicalSecondPath,
+        );
+        const secondEdit = await editOpenEditor({
+          expectedContent: secondContent,
+          addedContent: SECOND_EDIT,
+        });
+        assert.equal(secondEdit.edited, true);
+        await secondDirtying;
+
+        sendCommand({
+          type: "save-all-files",
+          projectTabId: firstOpened.id,
+        });
+        const finished = await waitForEvent(
+          (event) =>
+            event.type === "files-save-finished" &&
+            event.id === firstOpened.id,
+        );
+        if (finished.type !== "files-save-finished") {
+          throw new Error(`Save All finished as a ${finished.type}`);
+        }
+        assert.deepEqual(finished.failedPaths, []);
+        assert.equal(
+          findProjectFileDirty({
+            state: finished.state,
+            id: firstOpened.id,
+            filePath: canonicalFirstPath,
+          }),
+          false,
+        );
+        assert.equal(
+          findProjectFileDirty({
+            state: finished.state,
+            id: firstOpened.id,
+            filePath: canonicalSecondPath,
+          }),
+          false,
+        );
+        assert.match(readFileSync(firstPath, "utf8"), /first edit/);
+        assert.match(readFileSync(secondPath, "utf8"), /second edit/);
+
+        for (const filePath of [canonicalFirstPath, canonicalSecondPath]) {
+          const closing = waitForEvent(
+            (event) =>
+              event.type === "file-closed" && event.path === filePath,
+          );
+          sendCommand({
+            type: "close-file",
+            projectTabId: firstOpened.id,
+            path: filePath,
+          });
+          await closing;
+        }
+      } finally {
+        unlinkSync(firstPath);
+        unlinkSync(secondPath);
+      }
+    },
+  });
+
+  busTest({
     name: "save refuses to overwrite a file that changed on disk since it was read",
     body: async () => {
       const filePath = path.join(os.tmpdir(), `lmux-stale-${process.pid}.ts`);
       const initialContent = "export const value = 1;\n";
       writeFileSync(filePath, initialContent);
+      const canonicalFilePath = realpathSync(filePath);
 
       try {
-        const tabCount = countTabs(lmuxState);
         sendCommand({ type: "open-file", path: filePath });
         const opened = await waitForEvent(
-          (event) => countTabs(event.state) === tabCount + 1,
+          (event) =>
+            event.type === "file-opened" && event.path === canonicalFilePath,
         );
-        if (opened.type !== "tab-opened") {
-          throw new Error(`a tab arrived as a ${opened.type}`);
+        if (opened.type !== "file-opened") {
+          throw new Error(`the file arrived as a ${opened.type}`);
         }
 
         // Someone else changes it while we have it open. Set an mtime that is
@@ -965,9 +1331,18 @@ const suite = describe("the command bus", () => {
         writeFileSync(filePath, EXTERNAL);
         utimesSync(filePath, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
 
-        sendCommand({ type: "save-file", id: opened.id });
-        // A refused save emits no Event, so the case asks the DOM what the
-        // tab said and the disk what it kept.
+        sendCommand({
+          type: "save-file",
+          projectTabId: opened.id,
+          path: canonicalFilePath,
+        });
+        await waitForEvent(
+          (event) =>
+            event.type === "file-save-failed" &&
+            event.path === canonicalFilePath,
+        );
+        // The case asks the DOM what the project tab said and the disk what
+        // it kept.
         await pollUntil({
           check: async () => {
             const probed = await lmuxWindow.webContents.executeJavaScript(

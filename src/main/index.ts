@@ -6,10 +6,10 @@ import { killAllShells } from "./shells.ts";
 import { savedWindowBounds, saveWindowBounds } from "./window-state.ts";
 import { savedSession, saveSession } from "./session-state.ts";
 import { sessionFromState } from "../session.ts";
-import { confirmKilling, confirmDiscardDirty } from "./dialogs.ts";
+import { chooseDirtyClose, confirmKilling } from "./dialogs.ts";
 import { lmuxState } from "./bus.ts";
 import type { TabInfo } from "../api.ts";
-import { installAppMenu } from "./menus.ts";
+import { installAppMenu, saveDirtyTabs } from "./menus.ts";
 import "./files.js"; // registers file:read and file:write
 import "./project-tree.js"; // registers project-tree:read
 import "./mcp.js"; // listens on the API socket
@@ -47,8 +47,24 @@ function createWindow(): void {
     options.height = saved.height;
   }
   const browserWindow = new BrowserWindow(options);
+  let closeApproved = false;
+  let closeInProgress = false;
 
   browserWindow.on("close", (event) => {
+    if (closeApproved) {
+      // only once the close is really happening, and the normal bounds, so a
+      // zoomed window remembers the size it unzooms to
+      saveWindowBounds(browserWindow.getNormalBounds());
+      // whatever Event arrived last describes what can honestly be restored
+      saveSession(sessionFromState(lmuxState));
+      return;
+    }
+    event.preventDefault();
+    if (closeInProgress) {
+      return;
+    }
+    closeInProgress = true;
+
     const tabIds: number[] = [];
     const allTabs: TabInfo[] = [];
     for (const workspace of lmuxState.workspaces) {
@@ -63,24 +79,31 @@ function createWindow(): void {
       action: "Close Window",
     });
     if (!killingConfirmed) {
-      event.preventDefault();
+      closeInProgress = false;
       return;
     }
-    const discardConfirmed = confirmDiscardDirty({
+    const dirtyChoice = chooseDirtyClose({
       window: browserWindow,
       tabs: allTabs,
-      action: "Close Window",
+      action: "Closing the window",
     });
-    if (!discardConfirmed) {
-      event.preventDefault();
+    if (dirtyChoice === "cancel") {
+      closeInProgress = false;
       return;
     }
-    // only once the close is really happening, and the normal bounds, so a
-    // zoomed window remembers the size it unzooms to
-    saveWindowBounds(browserWindow.getNormalBounds());
-    // the read model is the truth here as everywhere: whatever Event arrived
-    // last describes what the window looked like when it was closed
-    saveSession(sessionFromState(lmuxState));
+    if (dirtyChoice === "discard") {
+      closeApproved = true;
+      browserWindow.close();
+      return;
+    }
+    saveDirtyTabs(allTabs).then((saved) => {
+      closeInProgress = false;
+      if (!saved) {
+        return;
+      }
+      closeApproved = true;
+      browserWindow.close();
+    });
   });
 
   browserWindow.on("closed", killAllShells);

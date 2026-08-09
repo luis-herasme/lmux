@@ -1,10 +1,10 @@
 // Monaco, and the three things it needs before it will run here: a worker it
 // can reach, a theme built from ours, and a language guessed from a
-// filename. The tab that uses all this is code-tab.ts.
+// filename. The project tab that uses all this is project-tab.ts.
 import { currentTheme, getSettings } from "./settings.ts";
 import type * as monacoModule from "monaco-editor";
 
-type Monaco = typeof monacoModule;
+export type Monaco = typeof monacoModule;
 
 // One name, redefined whenever the palette changes. Monaco's themes are
 // global to the page, so every editor follows this one without being told.
@@ -40,7 +40,7 @@ export function loadMonaco(): Promise<Monaco> {
   return loading;
 }
 
-// 4MB of editor and language grammars, fetched when the first code tab opens
+// 4MB of editor and language grammars, fetched when the first project tab opens
 // rather than at boot: a terminal that never shows a file should not pay for
 // one.
 async function importMonaco(): Promise<Monaco> {
@@ -109,7 +109,7 @@ type LanguageForPathOptions = {
   filePath: string;
 };
 
-function languageForPath({ monaco, filePath }: LanguageForPathOptions): string {
+export function languageForPath({ monaco, filePath }: LanguageForPathOptions): string {
   const fileName = filePath.slice(filePath.lastIndexOf("/") + 1).toLowerCase();
   const extension = fileName.slice(fileName.lastIndexOf("."));
   for (const language of monaco.languages.getLanguages()) {
@@ -140,23 +140,15 @@ function languageForPath({ monaco, filePath }: LanguageForPathOptions): string {
 export type CodeEditorOptions = {
   monaco: Monaco;
   container: HTMLElement;
-  content: string;
-  filePath: string;
 };
 
 export function createCodeEditor({
   monaco,
   container,
-  content,
-  filePath,
 }: CodeEditorOptions): monacoModule.editor.IStandaloneCodeEditor {
   const settings = getSettings();
   return monaco.editor.create(container, {
-    value: content,
-    language: languageForPath({
-      monaco,
-      filePath,
-    }),
+    model: null,
     theme: THEME_NAME,
     fontFamily: settings.fontFamily,
     fontSize: settings.fontSize,

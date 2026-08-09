@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { readFile, stat, writeFile } from "fs/promises";
+import { readFile, realpath, stat, writeFile } from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { getShellCwd } from "./shells.ts";
@@ -12,19 +12,18 @@ import type {
 
 const MAX_FILE_BYTES = 5_000_000; // rendering a huge file would freeze the page
 
-type ResolveFilePathOptions = {
+export type ResolveFilePathOptions = {
   filePath: string;
   baseTabId: number | undefined;
 };
 
-type ResolvedFilePath =
+export type ResolvedFilePath =
   | { path: string }
   | { error: string };
 
-// Read and write resolve a path the same way: ~ expands, a relative path
-// lands against the shell cwd of the tab that asked, and ".." is collapsed
-// so a link can point out of its document's directory.
-async function resolveFilePath({
+// File reads can begin with a shell-relative path. The canonical result is
+// stored by the caller and used for later writes.
+export async function resolveFilePath({
   filePath,
   baseTabId,
 }: ResolveFilePathOptions): Promise<ResolvedFilePath> {
@@ -44,7 +43,11 @@ async function resolveFilePath({
     }
     resolvedPath = path.resolve(base, resolvedPath);
   }
-  return { path: path.resolve(resolvedPath) };
+  try {
+    return { path: await realpath(path.resolve(resolvedPath)) };
+  } catch (error) {
+    return { error: String(error) };
+  }
 }
 
 ipcMain.handle(
@@ -77,24 +80,17 @@ ipcMain.handle(
 ipcMain.handle(
   "file:write",
   async (_event, request: WriteFileRequest): Promise<WriteFileResult> => {
-    const resolved = await resolveFilePath({
-      filePath: request.path,
-      baseTabId: request.baseTabId,
-    });
-    if ("error" in resolved) {
-      return resolved;
-    }
     try {
-      const beforeWriteStats = await stat(resolved.path);
+      const beforeWriteStats = await stat(request.path);
       if (beforeWriteStats.mtimeMs !== request.expectedMtimeMs) {
         // the file changed after it was read; writing would bury that change
         return {
-          error: `${resolved.path} changed on disk since it was opened; it was not overwritten`,
+          error: `${request.path} changed on disk since it was opened; it was not overwritten`,
         };
       }
-      await writeFile(resolved.path, request.content, "utf8");
+      await writeFile(request.path, request.content, "utf8");
       // the write set a new mtime, which the next save guards against
-      const afterWriteStats = await stat(resolved.path);
+      const afterWriteStats = await stat(request.path);
       return { mtimeMs: afterWriteStats.mtimeMs };
     } catch (error) {
       return { error: String(error) };
