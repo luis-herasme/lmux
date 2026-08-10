@@ -486,8 +486,8 @@ dialog select:focus {
 
 .project-tree-row:hover,
 .project-tree-row:focus-visible {
-  color: var(--foreground);
-  background: var(--selection-background);
+  color: var(--tab-active-foreground);
+  background: var(--separator);
   outline: none;
 }
 
