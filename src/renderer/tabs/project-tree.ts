@@ -98,71 +98,72 @@ function treeEntryName(treePath: string): string {
   return treePath.slice(separatorPosition + 1);
 }
 
-function gitDecorationLabel(status: GitDecorationStatus): string {
-  switch (status) {
-    case "added":
-      return "Index Added";
-    case "conflicting":
-      return "Conflict";
-    case "copied":
-      return "Index Copied";
-    case "deleted":
-      return "Deleted";
-    case "ignored":
-      return "Ignored";
-    case "intent-to-add":
-      return "Intent to Add";
-    case "intent-to-rename":
-      return "Intent to Rename";
-    case "modified":
-      return "Modified";
-    case "renamed":
-      return "Index Renamed";
-    case "staged-deleted":
-      return "Index Deleted";
-    case "staged-modified":
-      return "Index Modified";
-    case "submodule":
-      return "Submodule";
-    case "type-changed":
-      return "Type Changed";
-    case "untracked":
-      return "Untracked";
-  }
-}
+type GitDecorationPresentation = {
+  label: string;
+  badge: string | undefined;
+};
 
-function gitDecorationBadge(
-  status: GitDecorationStatus,
-): string | undefined {
-  switch (status) {
-    case "added":
-      return "A";
-    case "conflicting":
-      return "!";
-    case "copied":
-      return "C";
-    case "deleted":
-    case "staged-deleted":
-      return "D";
-    case "ignored":
-      return undefined;
-    case "intent-to-add":
-      return "A";
-    case "intent-to-rename":
-      return "R";
-    case "modified":
-    case "staged-modified":
-      return "M";
-    case "renamed":
-      return "R";
-    case "submodule":
-      return "S";
-    case "type-changed":
-      return "T";
-    case "untracked":
-      return "U";
-  }
-}
+const GIT_DECORATION_PRESENTATIONS: Record<
+  GitDecorationStatus,
+  GitDecorationPresentation
+> = {
+  added: {
+    label: "Index Added",
+    badge: "A",
+  },
+  conflicting: {
+    label: "Conflict",
+    badge: "!",
+  },
+  copied: {
+    label: "Index Copied",
+    badge: "C",
+  },
+  deleted: {
+    label: "Deleted",
+    badge: "D",
+  },
+  ignored: {
+    label: "Ignored",
+    badge: undefined,
+  },
+  "intent-to-add": {
+    label: "Intent to Add",
+    badge: "A",
+  },
+  "intent-to-rename": {
+    label: "Intent to Rename",
+    badge: "R",
+  },
+  modified: {
+    label: "Modified",
+    badge: "M",
+  },
+  renamed: {
+    label: "Index Renamed",
+    badge: "R",
+  },
+  "staged-deleted": {
+    label: "Index Deleted",
+    badge: "D",
+  },
+  "staged-modified": {
+    label: "Index Modified",
+    badge: "M",
+  },
+  submodule: {
+    label: "Submodule",
+    badge: "S",
+  },
+  "type-changed": {
+    label: "Type Changed",
+    badge: "T",
+  },
+  untracked: {
+    label: "Untracked",
+    badge: "U",
+  },
+};
 
 function gitDecorationPropagates(status: GitDecorationStatus): boolean {
   if (
@@ -238,13 +239,12 @@ function applyProjectTreeRowDecoration({
     return;
   }
 
-  const badge = gitDecorationBadge(status);
-  if (badge !== undefined) {
-    rowElement.dataset.gitDecorationBadge = badge;
+  const presentation = GIT_DECORATION_PRESENTATIONS[status];
+  if (presentation.badge !== undefined) {
+    rowElement.dataset.gitDecorationBadge = presentation.badge;
   }
-  const label = gitDecorationLabel(status);
-  rowElement.title = `${treePath} • ${label}`;
-  rowElement.ariaLabel = `${name}, ${label}`;
+  rowElement.title = `${treePath} • ${presentation.label}`;
+  rowElement.ariaLabel = `${name}, ${presentation.label}`;
 }
 
 function appendProjectTreeEntries({
