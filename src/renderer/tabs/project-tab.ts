@@ -1,6 +1,6 @@
 // One workspace's file experience: its stable root, tree, file tabs and
 // editor. Dockview sees this whole unit as one project tab.
-import { bridge } from "./bridge.ts";
+import { bridge } from "../bridge.ts";
 import {
   createCodeEditor,
   languageForPath,
@@ -12,13 +12,13 @@ import {
   readProjectTreeGitDecorationsResultSchema,
   saveNewFileResultSchema,
   watchProjectTreeResultSchema,
-} from "../ipc/bridge.ts";
+} from "../../ipc/bridge.ts";
 import type {
   ReadProjectTreeGitDecorationsResult,
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
   WatchProjectTreeResult,
-} from "../ipc/bridge.ts";
+} from "../../ipc/bridge.ts";
 import {
   focusProjectTree,
   mountProjectTree,
@@ -26,14 +26,14 @@ import {
   setProjectTreeGitDecorations,
 } from "./project-tree.ts";
 import type { ProjectTree } from "./project-tree.ts";
-import { executeCommand } from "./tabs.ts";
-import type { TabElements } from "./tabs.ts";
+import { executeCommand } from "./index.ts";
+import type { TabElements } from "./index.ts";
 import {
   addPanel,
   refreshWorkspaceName,
   snapshot,
-} from "./workspaces.ts";
-import type { Workspace } from "./workspaces.ts";
+} from "../workspaces.ts";
+import type { Workspace } from "../workspaces.ts";
 import type { editor as monacoEditor } from "monaco-editor";
 import type { IDockviewPanel, DockviewGroupPanel } from "dockview";
 

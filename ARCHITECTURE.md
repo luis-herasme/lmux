@@ -20,14 +20,13 @@ page around the terminal, which buys three things:
    grid. Anything the web can render, a view in this app can render.
 2. **Integrated browser views.** Embedding a live web page next to the
    terminal is nearly free in Electron; in a TUI it's impossible.
-3. **A VS Code view.** VS Code can run in the browser, so it can be embedded
-   here as an integrated view into the codebase. Researched and confirmed
-   possible; the chosen path is recorded in "Decisions so far."
+3. **Integrated project editing.** A project tab combines a lazy file tree,
+   file buffers and a Monaco editor without turning the terminal into an
+   editor.
 
-None of this exists yet; today the app is only the terminal. But when these
-features arrive, they are renderer-side views living *beside* xterm.js, and
-the split described next is what keeps them from complicating the terminal
-itself.
+These capabilities now exist as terminal, Markdown and project tab kinds.
+Each tab kind owns its renderer-side content while sharing the workspace
+layout and command bus.
 
 ## The one idea
 
@@ -195,17 +194,19 @@ src/
     index.ts           boot: settings → CSS, cable wiring, the first workspace
     bridge.ts          the page's globals picked up: window.bridge, once, typed
     workspaces.ts      Workspace store: one Dockview each, the sidebar, the state snapshot
-    tabs.ts            Tab store + executeCommand (the consumer), kept behind the bus
-    markdown-tab.ts    a document's pane: the toolbar, the two modes, reload, its links
+    tabs/
+      index.ts         Tab store + executeCommand (the consumer), kept behind the bus
+      terminal-tab.ts  terminal pane, xterm lifecycle and terminal screen reads
+      file-links.ts    terminal link provider: Cmd+click a *.md or source path
+      markdown-tab.ts  a document's pane: the toolbar, the two modes, reload, its links
+      markdown.ts      GitHub-look rendering (markdown-it + DOMPurify)
+      project-tab.ts   one workspace's file tabs, buffers and Monaco editor
+      project-tree.ts  native lazy directories, Git decorations and file activation
+      code.ts          Monaco: loaded on demand, themed from THEMES, language by filename
     rename-dialog.ts   the rename modal
     settings.ts        the current settings: value, persistence, hand-off to CSS
     settings-dialog.ts the settings modal; controls are Command sources
     sidebar-resize.ts  the sidebar's drag handle; a drag ends as one Command
-    markdown.ts        GitHub-look rendering (markdown-it + DOMPurify)
-    project-tab.ts     one workspace's file tabs, buffers and Monaco editor
-    project-tree.ts    native lazy directories, Git decorations and file activation
-    code.ts            Monaco: loaded on demand, themed from THEMES, language by filename
-    file-links.ts      the terminal link provider: Cmd+click a *.md or source path
     dom.ts             requireElement: strict lookups of index.html's fixed elements
   test/
     index.ts           the entry Electron starts; hands over once the app is ready

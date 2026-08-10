@@ -1,6 +1,6 @@
 import { THEMES } from "../theme.ts";
 import { getSettings } from "./settings.ts";
-import { executeCommand, focusActiveTab } from "./tabs.ts";
+import { executeCommand, focusActiveTab } from "./tabs/index.ts";
 import { requireElement } from "./dom.ts";
 
 const dialogElement = requireElement("settings-dialog");

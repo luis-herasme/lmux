@@ -1,4 +1,4 @@
-import { executeCommand, getTabTitle, focusActiveTab } from "./tabs.ts";
+import { executeCommand, getTabTitle, focusActiveTab } from "./tabs/index.ts";
 import { workspaces } from "./workspaces.ts";
 import { requireElement } from "./dom.ts";
 

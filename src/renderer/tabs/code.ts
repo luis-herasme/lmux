@@ -1,7 +1,7 @@
 // Monaco, and the three things it needs before it will run here: a worker it
 // can reach, a theme built from ours, and a language guessed from a
 // filename. The project tab that uses all this is project-tab.ts.
-import { currentTheme, getSettings } from "./settings.ts";
+import { currentTheme, getSettings } from "../settings.ts";
 import type * as monacoModule from "monaco-editor";
 
 export type Monaco = typeof monacoModule;
@@ -20,8 +20,8 @@ const THEME_NAME = "lmux";
 //     fallback entirely, so the CSP stays as strict as it was.
 //
 // Resolved against this module rather than against whoever calls in: this
-// file is dist/renderer/code.js and the worker is in dist/vendor/.
-const workerUrl = new URL("../vendor/editor.worker.js", import.meta.url);
+// file is dist/renderer/tabs/code.js and the worker is in dist/vendor/.
+const workerUrl = new URL("../../vendor/editor.worker.js", import.meta.url);
 
 type MonacoEnvironment = {
   getWorker: () => Worker;
@@ -50,7 +50,7 @@ async function importMonaco(): Promise<Monaco> {
   Reflect.set(self, "MonacoEnvironment", environment);
   // @ts-expect-error no declaration file beside the bundle; the types come
   // from the monaco-editor package above, the values from here
-  const monaco: Monaco = await import("../vendor/monaco.js");
+  const monaco: Monaco = await import("../../vendor/monaco.js");
   // the console door: an agent (or a driver) can reach the editors through
   // Monaco's own registry, the way window.lmux is the command door
   Reflect.set(self, "monaco", monaco);

@@ -70,7 +70,7 @@ Life of a keystroke, starting when you press `l`:
 ```mermaid
 sequenceDiagram
     participant You
-    participant X as xterm.js<br/>(renderer/tabs.ts)
+    participant X as xterm.js<br/>(renderer/tabs/terminal-tab.ts)
     participant M as main process<br/>(main/shells.ts)
     participant P as PTY
     participant Z as zsh
@@ -109,25 +109,28 @@ the other end echoes it back.
 | `src/renderer/index.ts`        | Renderer boot: settings → CSS, cable wiring, first workspace |
 | `src/renderer/bridge.ts`       | Picks `window.bridge` up off the page once, typed, and exports it |
 | `src/renderer/workspaces.ts`   | Workspace store: one layout each, the sidebar, the snapshot  |
-| `src/renderer/tabs.ts`         | Tab store + operations + `executeCommand` (the consumer)     |
+| `src/renderer/tabs/index.ts`   | Tab store + operations + `executeCommand` (the consumer)     |
+| `src/renderer/tabs/terminal-tab.ts` | Terminal pane, xterm lifecycle and terminal screen reads |
+| `src/renderer/tabs/markdown-tab.ts` | A document's pane: toolbar, rendered/raw, reload, its links |
+| `src/renderer/tabs/markdown.ts` | GitHub-look Markdown rendering (markdown-it + DOMPurify)    |
+| `src/renderer/tabs/file-links.ts` | Terminal link provider: Cmd+click a source path opens it   |
+| `src/renderer/tabs/project-tab.ts` | One workspace's file buffers, tabs, editor and tree lifecycle |
+| `src/renderer/tabs/project-tree.ts` | Lazy tree rows, reconciliation and Git decorations        |
+| `src/renderer/tabs/code.ts`    | Monaco loading, theming and language selection               |
 | `src/renderer/rename-dialog.ts`| The rename modal (tabs and workspaces)                       |
 | `src/renderer/settings.ts`     | Current settings: value, localStorage persistence, → CSS     |
 | `src/renderer/settings-dialog.ts`| The settings modal (each control issues a Command)         |
 | `src/renderer/sidebar-resize.ts`| The sidebar's drag handle; a drag ends as one Command       |
-| `src/renderer/markdown.ts`     | GitHub-look Markdown rendering (markdown-it + DOMPurify)     |
-| `src/renderer/markdown-tab.ts` | A document's pane: toolbar, rendered/raw, reload, its links  |
-| `src/renderer/file-links.ts`   | Terminal link provider: Cmd+click a source path opens it     |
 | `src/main/files.ts`            | File reads, guarded writes and Save As                       |
 | `src/main/project-tree.ts`     | Lazy directory reads, Git status and filesystem watchers     |
-| `src/renderer/project-tab.ts`  | One workspace's file buffers, tabs, editor and tree lifecycle|
-| `src/renderer/project-tree.ts` | Lazy tree rows, reconciliation and Git decorations           |
 | `src/renderer/dom.ts`          | `requireElement`: strict, typed lookups of the page's fixed elements |
 | `src/test/harness.ts`          | Boots the real app for the suite, waits for Events, tallies failures |
 | `src/test/suite.ts`            | The cases: Commands in, state snapshots asserted on           |
 | `tsconfig.json`                | Compiler settings; `tsc` mirrors `src/` into `dist/` 1:1     |
 
-There is deliberately no bundler, no framework, and no abstraction for
-features we don't have yet. Features get added when we need them.
+Application modules stay as one-to-one TypeScript output, without a framework
+or an application bundler. Monaco and its worker are the one vendor-bundling
+exception. Features and abstractions get added only when needed.
 
 ## Driving lmux
 

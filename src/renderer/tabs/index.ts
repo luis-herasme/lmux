@@ -1,6 +1,5 @@
-import { getSettings, currentTheme, updateSettings } from "./settings.ts";
-import { bridge } from "./bridge.ts";
-import { registerFileLinks } from "./file-links.ts";
+import { getSettings, updateSettings } from "../settings.ts";
+import { bridge } from "../bridge.ts";
 import { refreshCodeTheme } from "./code.ts";
 import {
   activateProjectFile,
@@ -22,10 +21,16 @@ import {
   reloadMarkdownTab,
   setMarkdownMode,
 } from "./markdown-tab.ts";
+import type { MarkdownTab } from "./markdown-tab.ts";
+import {
+  openTerminalTab,
+  readTerminalScreen,
+  refreshTerminalTabSettings,
+} from "./terminal-tab.ts";
+import type { TerminalTab } from "./terminal-tab.ts";
 import {
   activateWorkspace,
   activeWorkspace,
-  addPanel,
   createWorkspace,
   findGroup,
   findTab,
@@ -34,57 +39,12 @@ import {
   setWorkspaceName,
   snapshot,
   workspaces,
-} from "./workspaces.ts";
-import type { Workspace } from "./workspaces.ts";
-import type {
-  Command,
-  MarkdownMode,
-  ScreenRequest,
-  ScreenResult,
-} from "../api.ts";
-import type { Session } from "../session.ts";
-import type { ShellDataMessage } from "../ipc/bridge.ts";
-import type { ITheme, Terminal as XtermTerminal } from "@xterm/xterm";
-import type { FitAddon as XtermFitAddon } from "@xterm/addon-fit";
-import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
-
-// xterm ships classic scripts, so its constructors arrive as page globals
-// rather than as modules (see the script tags in index.html). Picked up the
-// same way the cable is, in renderer/bridge.ts.
-const Terminal: typeof XtermTerminal = Reflect.get(window, "Terminal");
-const FitAddon: { FitAddon: typeof XtermFitAddon } = Reflect.get(
-  window,
-  "FitAddon",
-);
-if (!Terminal || !FitAddon) {
-  throw new Error("xterm's scripts did not load: window.Terminal is missing");
-}
-
-type TabCommon = {
-  panel: IDockviewPanel;
-  titleElement: HTMLElement;
-  titlePinned: boolean;
-};
-
-type TerminalTab = TabCommon & {
-  kind: "terminal";
-  terminal: XtermTerminal;
-  observer: ResizeObserver;
-  fitAddon: XtermFitAddon;
-};
-
-export type MarkdownTab = TabCommon & {
-  kind: "markdown";
-  element: HTMLElement; // the pane: toolbar above, content below
-  contentElement: HTMLElement; // what scrolls and takes focus
-  modeButton: HTMLElement;
-  // what a reload re-reads: the resolved path once we have one, so a
-  // reload doesn't depend on the base tab's shell staying where it was
-  filePath: string;
-  baseTabId: number | undefined;
-  mode: MarkdownMode;
-  markdown: string; // the file's text, shown raw or rendered
-};
+} from "../workspaces.ts";
+import type { Workspace } from "../workspaces.ts";
+import type { Command, ScreenRequest, ScreenResult } from "../../api.ts";
+import type { Session } from "../../session.ts";
+import type { ShellDataMessage } from "../../ipc/bridge.ts";
+import type { DockviewGroupPanel } from "dockview";
 
 export type Tab = TerminalTab | MarkdownTab | ProjectTab;
 
@@ -176,36 +136,6 @@ export function getTabTitle(id: number): string | undefined {
   return title;
 }
 
-function copyOnCmdC(event: KeyboardEvent): boolean {
-  if (!activeWorkspace) {
-    return true;
-  }
-  const tab = activeWorkspace.tabs.get(activeWorkspace.activeId);
-  if (tab?.kind !== "terminal") {
-    return true;
-  }
-  if (
-    event.type === "keydown" &&
-    event.metaKey &&
-    event.key === "c" &&
-    tab.terminal.hasSelection()
-  ) {
-    navigator.clipboard.writeText(tab.terminal.getSelection());
-    return false;
-  }
-  return true;
-}
-
-function xtermTheme(): ITheme {
-  const theme = currentTheme();
-  return {
-    background: theme.background,
-    foreground: theme.foreground,
-    cursor: theme.cursor,
-    selectionBackground: theme.selectionBackground,
-  };
-}
-
 export type TabElements = {
   tabElement: HTMLElement;
   titleElement: HTMLElement;
@@ -245,120 +175,6 @@ function buildTabElement(id: number): TabElements {
 }
 
 let nextId = 0;
-
-type CreateTabOptions = {
-  workspace: Workspace;
-  group: DockviewGroupPanel | undefined;
-};
-
-function createTab({ workspace, group }: CreateTabOptions): void {
-  const id = nextId++;
-
-  const paneElement = document.createElement("div");
-  paneElement.className = "terminal-pane";
-
-  const { tabElement, titleElement } = buildTabElement(id);
-  const panel = addPanel({
-    workspace,
-    id,
-    component: "terminal",
-    title: "Untitled",
-    paneElement,
-    tabElement,
-    group,
-  });
-
-  const settings = getSettings();
-  const terminal = new Terminal({
-    fontFamily: settings.fontFamily,
-    fontSize: settings.fontSize,
-    cursorBlink: true,
-    theme: xtermTheme(),
-  });
-  const fitAddon = new FitAddon.FitAddon();
-  terminal.loadAddon(fitAddon);
-
-  // one mechanism for grid sizing: any box change re-fits the grid, except
-  // the zero box a hidden workspace reports (fitting against it would
-  // resize the shell to nothing)
-  const observer = new ResizeObserver(() => {
-    if (paneElement.clientWidth === 0 || paneElement.clientHeight === 0) {
-      return;
-    }
-    fitAddon.fit();
-  });
-  observer.observe(paneElement);
-
-  workspace.tabs.set(id, {
-    kind: "terminal",
-    panel,
-    terminal,
-    titleElement,
-    titlePinned: false,
-    observer,
-    fitAddon,
-  });
-  bridge.emitEvent({
-    type: "tab-opened",
-    id,
-    state: snapshot(),
-  });
-
-  // xterm can only measure a visible container: activate first, then open
-  panel.api.setActive();
-  terminal.open(paneElement);
-  fitAddon.fit();
-  terminal.focus();
-
-  bridge.spawnShell({
-    id,
-    cols: terminal.cols,
-    rows: terminal.rows,
-  });
-
-  terminal.onData((data) => {
-    bridge.writeToShell({
-      id,
-      data,
-    });
-  });
-  terminal.onResize(({ cols, rows }) => {
-    bridge.resizeShell({
-      id,
-      cols,
-      rows,
-    });
-  });
-  terminal.attachCustomKeyEventHandler(copyOnCmdC);
-
-  terminal.onTitleChange((title) => {
-    executeCommand({
-      type: "set-tab-title",
-      id,
-      title,
-      transient: true,
-    });
-  });
-
-  registerFileLinks({
-    terminal,
-    openPath: ({ path, kind }) => {
-      if (kind === "markdown") {
-        executeCommand({
-          type: "open-markdown",
-          path,
-          baseTabId: id,
-        });
-        return;
-      }
-      executeCommand({
-        type: "open-file",
-        path,
-        baseTabId: id,
-      });
-    },
-  });
-}
 
 type AddMarkdownTabOptions = {
   workspace: Workspace;
@@ -517,9 +333,12 @@ export function executeCommand(command: Command): void {
           return;
         }
       }
-      createTab({
+      const terminalTabId = nextId++;
+      openTerminalTab({
         workspace: activeWorkspace,
+        tabId: terminalTabId,
         group,
+        tabElements: buildTabElement(terminalTabId),
       });
       return;
     }
@@ -677,12 +496,10 @@ export function executeCommand(command: Command): void {
             });
             continue;
           }
-          tab.terminal.options.fontFamily = settings.fontFamily;
-          tab.terminal.options.fontSize = settings.fontSize;
-          tab.terminal.options.theme = xtermTheme();
-          if (workspace === activeWorkspace) {
-            tab.fitAddon.fit();
-          }
+          refreshTerminalTabSettings({
+            tab,
+            fit: workspace === activeWorkspace,
+          });
         }
       }
       bridge.emitEvent({
@@ -938,9 +755,12 @@ export function executeCommand(command: Command): void {
         id: workspace.id,
         state: snapshot(),
       });
-      createTab({
+      const terminalTabId = nextId++;
+      openTerminalTab({
         workspace,
+        tabId: terminalTabId,
         group: undefined,
+        tabElements: buildTabElement(terminalTabId),
       });
       return;
     }
@@ -1043,52 +863,10 @@ export function readScreen(request: ScreenRequest): ScreenResult {
       language,
     };
   }
-  const buffer = found.tab.terminal.buffer.active;
-  let rowCount = found.tab.terminal.rows;
-  if (request.rows !== undefined) {
-    rowCount = request.rows;
-  }
-  // The bottom of the buffer, not of the viewport: an agent asking what a
-  // command printed wants the newest output, wherever the human has
-  // scrolled to. On the alternate buffer there is no scrollback, so this is
-  // the painted screen and nothing else.
-  let top = buffer.length - rowCount;
-  if (top < 0) {
-    top = 0;
-  }
-
-  const lines: string[] = [];
-  for (let row = top; row < buffer.length; row++) {
-    const line = buffer.getLine(row);
-    if (line === undefined) {
-      continue;
-    }
-    // A line too long for the width is stored as several rows. Trimming the
-    // right of one whose successor continues it would eat the spaces at the
-    // seam, so only the last row of a run is trimmed.
-    const next = buffer.getLine(row + 1);
-    let continues = false;
-    if (next !== undefined && next.isWrapped) {
-      continues = true;
-    }
-    const text = line.translateToString(!continues);
-    const previous = lines.at(-1);
-    if (line.isWrapped && previous !== undefined) {
-      lines[lines.length - 1] = previous + text;
-      continue;
-    }
-    lines.push(text);
-  }
-  // the empty rows below the last output are the terminal's, not the
-  // shell's, and say nothing
-  while (lines.at(-1) === "") {
-    lines.pop();
-  }
-  return {
-    kind: "terminal",
-    lines,
-    alternate: buffer.type === "alternate",
-  };
+  return readTerminalScreen({
+    tab: found.tab,
+    rows: request.rows,
+  });
 }
 
 // Rebuilding what the last run left behind. Not a Command: it is the boot
@@ -1159,9 +937,12 @@ export async function restoreSession(session: Session): Promise<void> {
         }
         continue;
       }
-      createTab({
+      const terminalTabId = nextId++;
+      openTerminalTab({
         workspace,
+        tabId: terminalTabId,
         group: undefined,
+        tabElements: buildTabElement(terminalTabId),
       });
     }
     // the store keeps insertion order, so the saved position is the tab

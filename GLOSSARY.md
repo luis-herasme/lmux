@@ -366,6 +366,13 @@ VS Code's editor area feel the way it does. This project uses
 group, and onto a pane's edge to split; window-edge drops and whole-group
 drags stay disabled until a feature needs them.
 
+## Tab / tab kind / pane
+
+A **tab** is one selectable item and its content in a workspace layout. A
+**tab kind** describes that content: terminal, Markdown or project. A **pane**
+is the layout region displaying one active tab. The project tab is itself a
+composite view containing the file tree, file tabs and editor.
+
 ## Workspace
 
 A whole lmux of its own inside the same window: its own pane layout, its

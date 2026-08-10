@@ -7,7 +7,7 @@ import {
   readScreen,
   removeTab,
   restoreSession,
-} from "./tabs.ts";
+} from "./tabs/index.ts";
 import { openRenameDialog } from "./rename-dialog.ts";
 import "./settings-dialog.js";
 import "./sidebar-resize.js";

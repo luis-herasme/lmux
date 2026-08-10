@@ -1,15 +1,27 @@
-// Everything a markdown tab does: its pane, its two modes, re-reading the
-// file, and the links inside the document. The tab record itself, and the
-// store holding it, stay in tabs.ts.
-import { bridge } from "./bridge.ts";
+// Everything a Markdown tab does: its pane, modes, reload and links.
+import { bridge } from "../bridge.ts";
 import { renderMarkdown } from "./markdown.ts";
-import { executeCommand } from "./tabs.ts";
-import type { MarkdownTab, TabElements } from "./tabs.ts";
-import { addPanel, snapshot } from "./workspaces.ts";
-import type { Workspace } from "./workspaces.ts";
-import type { MarkdownMode } from "../api.ts";
-import type { ReadFileResult } from "../ipc/bridge.ts";
-import type { DockviewGroupPanel } from "dockview";
+import { executeCommand } from "./index.ts";
+import type { TabElements } from "./index.ts";
+import { addPanel, snapshot } from "../workspaces.ts";
+import type { Workspace } from "../workspaces.ts";
+import type { MarkdownMode } from "../../api.ts";
+import type { ReadFileResult } from "../../ipc/bridge.ts";
+import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
+
+export type MarkdownTab = {
+  kind: "markdown";
+  panel: IDockviewPanel;
+  titleElement: HTMLElement;
+  titlePinned: boolean;
+  element: HTMLElement;
+  contentElement: HTMLElement;
+  modeButton: HTMLElement;
+  filePath: string;
+  baseTabId: number | undefined;
+  mode: MarkdownMode;
+  markdown: string;
+};
 
 type MarkdownTextOptions = {
   result: ReadFileResult;

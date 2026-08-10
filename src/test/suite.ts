@@ -50,7 +50,7 @@ const FIXTURE_PATH = path.join(
 const SOURCE_FILE_PATH = realpathSync(
   path.join(
     import.meta.dirname,
-    "../../src/renderer/code.ts",
+    "../../src/renderer/tabs/code.ts",
   ),
 );
 

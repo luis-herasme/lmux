@@ -1,8 +1,8 @@
 // One workspace = one Dockview instance = one pane layout with its own
 // tabs. Only the active one is displayed; the others keep their terminals
 // and their shells alive off screen.
-import { executeCommand, focusActiveTab } from "./tabs.ts";
-import type { Tab } from "./tabs.ts";
+import { executeCommand, focusActiveTab } from "./tabs/index.ts";
+import type { Tab } from "./tabs/index.ts";
 import type {
   LayoutNode,
   LmuxState,
