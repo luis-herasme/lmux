@@ -112,9 +112,10 @@ Function` both throw `EvalError`, an injected inline `<script>` never
 runs, and `fetch` to a remote host is refused. The warning also only
 prints in development, since Electron silences these for a packaged app.
 It is left switched on rather than muted, so a *real* warning is still
-visible later. The one genuine loosening is `style-src 'unsafe-inline'`,
-which Dockview and xterm require because they inject `<style>` blocks at
-runtime and offer no way to carry a nonce.
+visible later. The genuine loosenings are `style-src 'unsafe-inline'`, which
+Dockview and xterm require because they inject `<style>` blocks at runtime and
+offer no way to carry a nonce, and `font-src data:`, which loads Monaco's
+bundled, non-executable Codicon font.
 
 ## The command bus: the public interface
 
@@ -186,7 +187,7 @@ src/
     bus.ts             dispatch() into the renderer; Event intake (the read model); the screen query
     mcp.ts             the API socket: MCP over a unix socket, tools generated from commandSchema
     files.ts           file:read and file:write for project buffers; both resolve against a shell's cwd
-    project-tree.ts    workspace-root resolution and bounded directory reads
+    project-tree.ts    workspace roots, bounded directory reads and Git/tree watchers
     session-state.ts   the last session on disk: written while closing, read before the page exists
   renderer/
     index.html         the page: title bar, sidebar, the layout root, the modals
@@ -202,7 +203,7 @@ src/
     sidebar-resize.ts  the sidebar's drag handle; a drag ends as one Command
     markdown.ts        GitHub-look rendering (markdown-it + DOMPurify)
     project-tab.ts     one workspace's file tabs, buffers and Monaco editor
-    project-tree.ts    native lazy directories, dirty marks and file activation
+    project-tree.ts    native lazy directories, Git decorations and file activation
     code.ts            Monaco: loaded on demand, themed from THEMES, language by filename
     file-links.ts      the terminal link provider: Cmd+click a *.md or source path
     dom.ts             requireElement: strict lookups of index.html's fixed elements
@@ -275,19 +276,39 @@ change it and update this list.
   stays `Untitled`; its first save opens the native Save As dialog and turns
   that same buffer into a guarded disk file. Closing a dirty file offers Save,
   Don't Save and Cancel; bulk closes offer Save All. Dirty state is a ● in the
-  file tab and a modified mark in the tree, and it rides in `TabInfo` for main
-  and agents. Sessions restore pinned paths from disk, never unsaved model
+  file tab and rides in `TabInfo` for main and agents. The tree instead shows
+  Git state. Sessions restore pinned paths from disk, never unsaved model
   contents, untitled buffers or the preview file.
 - **The workspace tree loads one directory at a time.** (Replaces the eager
   Pierre Trees implementation.) Main resolves the root from the first file or
   named terminal, then returns only one directory's immediate children. Native
-  `<details>` elements request children on first expansion and retain them for
-  the project tab's lifetime. Reads omit `.git`, symlinks and special entries;
-  stop with a visible error above 10,000 immediate entries; and expose Retry
-  after filesystem failures. Root changes show one loading state and commit the
-  root, title and tree together. Row virtualization and paged reads remain in
-  #44; tree mutation controls, refresh and filesystem watching remain out of
-  scope.
+  `<details>` elements request children on first expansion. Tree rows use
+  Monaco's bundled VS Code Codicons. Reads omit `.git`, symlinks and special
+  entries; stop with a visible error above 10,000 immediate entries; and expose
+  Retry after filesystem failures. Root changes show one loading state and
+  commit the root, title and tree together. Row virtualization and paged reads
+  remain in #44; tree mutation controls remain out of scope.
+- **Explorer decorations are Git state, not editor dirty state.** Main reads
+  NUL-delimited porcelain status and the Git index after the tree commits its
+  root. The result is compared with the current `HEAD`, not specifically the
+  repository's main branch. Working-tree status replaces staged status for the
+  same path, matching VS Code; ignored paths have color without a badge,
+  submodules use `S`, and changed descendants give folders a generic bubble.
+  Both the filename and badge use the matching `gitDecoration.*` color from
+  VS Code's Git extension. Saving clears the buffer's dirty dot but leaves `M`
+  until Git reports the file clean.
+- **Filesystem events invalidate the tree; they are never treated as truth.** A
+  debounced recursive watcher covers the workspace and, for worktrees, Git
+  metadata outside it. Each event makes the renderer reread Git and reconcile
+  only loaded parent directories, retaining unchanged `<details>` nodes and
+  their expansion state. Saves also refresh explicitly, so a coalesced watcher
+  event cannot hide an lmux-owned change. Root replacement and project disposal
+  close the watcher, and request generations discard late results. Missing Git
+  leaves an undecorated tree; unavailable recursive watching leaves explicit
+  save refreshes working. A stopped workspace watcher triggers one full refresh
+  and up to three delayed rebind attempts. Incoming remote arrows, an SCM view
+  and editor-tab Git decorations are separate VS
+  Code features and remain out of scope.
 - **The IPC contract is a type.** `src/ipc/bridge.ts` declares `Bridge`;
   preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.
@@ -729,6 +750,7 @@ change it and update this list.
   | Assumption | Where | What another platform needs |
   | --- | --- | --- |
   | `lsof` to read a shell's cwd | `main/shells.ts` | `/proc/<pid>/cwd` on Linux; no direct equivalent on Windows |
+  | `git` on `PATH` for repository roots and decorations | `main/project-tree.ts` | install or bundle Git; failure already leaves an undecorated tree |
   | `titleBarStyle: "hiddenInset"`, and a 36px strip sized for the traffic lights | `main/index.ts`, `style.css` | a non-inset title bar, or the native one |
   | `/bin/zsh` fallback, spawned `-l` | `main/shells.ts` | `$SHELL` is usually right; Windows needs a different shell entirely |
   | `Menlo` as the default terminal font | `theme.ts` | a font that exists there |

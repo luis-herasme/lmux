@@ -455,12 +455,14 @@ dialog select:focus {
 }
 
 .project-tree-root {
-  padding-left: 0;
+  padding-left: 8px;
 }
 
 .project-tree-row {
   box-sizing: border-box;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   width: 100%;
   min-height: 24px;
   overflow: hidden;
@@ -469,19 +471,70 @@ dialog select:focus {
   font: inherit;
   line-height: 18px;
   text-align: left;
-  text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .project-tree-directory > summary {
-  display: list-item;
-  padding-left: 2px;
+  padding-left: 4px;
+  list-style: none;
+}
+
+.project-tree-directory > summary::-webkit-details-marker {
+  display: none;
+}
+
+.project-tree-disclosure::before,
+.project-tree-icon::before {
+  font: normal normal normal 16px/1 codicon;
+  text-align: center;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Monaco bundles VS Code's Codicon font and its stable glyph mapping. */
+.project-tree-disclosure {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.project-tree-disclosure::before {
+  content: "\eab6";
+}
+
+.project-tree-directory[open] > summary .project-tree-disclosure::before {
+  content: "\eab4";
+}
+
+.project-tree-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.project-tree-folder-icon::before {
+  content: "\ea83";
+}
+
+.project-tree-directory[open] > summary .project-tree-folder-icon::before {
+  content: "\eaf7";
 }
 
 .project-tree-file {
+  padding-left: 24px;
   border: 0;
   background: transparent;
+}
+
+.project-tree-file-icon::before {
+  content: "\ea7b";
+}
+
+.project-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
 }
 
 .project-tree-row:hover,
@@ -491,11 +544,72 @@ dialog select:focus {
   outline: none;
 }
 
-.project-tree-file.dirty::after {
-  content: "M";
-  float: right;
-  margin-left: 8px;
-  color: var(--accent);
+.project-tree-row[data-git-decoration="added"],
+.project-tree-row[data-git-decoration="intent-to-add"] {
+  --project-tree-git-foreground: var(--git-added-foreground);
+}
+
+.project-tree-row[data-git-decoration="modified"],
+.project-tree-row[data-git-decoration="type-changed"] {
+  --project-tree-git-foreground: var(--git-modified-foreground);
+}
+
+.project-tree-row[data-git-decoration="deleted"] {
+  --project-tree-git-foreground: var(--git-deleted-foreground);
+}
+
+.project-tree-row[data-git-decoration="copied"],
+.project-tree-row[data-git-decoration="intent-to-rename"],
+.project-tree-row[data-git-decoration="renamed"] {
+  --project-tree-git-foreground: var(--git-renamed-foreground);
+}
+
+.project-tree-row[data-git-decoration="untracked"] {
+  --project-tree-git-foreground: var(--git-untracked-foreground);
+}
+
+.project-tree-row[data-git-decoration="ignored"] {
+  --project-tree-git-foreground: var(--git-ignored-foreground);
+}
+
+.project-tree-row[data-git-decoration="staged-modified"] {
+  --project-tree-git-foreground: var(--git-stage-modified-foreground);
+}
+
+.project-tree-row[data-git-decoration="staged-deleted"] {
+  --project-tree-git-foreground: var(--git-stage-deleted-foreground);
+}
+
+.project-tree-row[data-git-decoration="conflicting"] {
+  --project-tree-git-foreground: var(--git-conflicting-foreground);
+}
+
+.project-tree-row[data-git-decoration="submodule"] {
+  --project-tree-git-foreground: var(--git-submodule-foreground);
+}
+
+.project-tree-row[data-git-decoration] .project-tree-name {
+  color: var(--project-tree-git-foreground);
+}
+
+.project-tree-row[data-git-decoration-badge]::after,
+.project-tree-row[data-git-decoration-bubble]::after {
+  flex: none;
+  margin-left: auto;
+  color: var(--project-tree-git-foreground);
+}
+
+.project-tree-row[data-git-decoration-badge]::after {
+  content: attr(data-git-decoration-badge);
+}
+
+/* Propagated child decorations use VS Code's generic ancestor bubble. */
+.project-tree-row[data-git-decoration-bubble]::after {
+  margin-right: 6px;
+  content: "\ea71";
+  font: normal normal normal 14px/1 codicon;
+  opacity: 0.4;
+  -webkit-font-smoothing: antialiased;
 }
 
 .project-tree-message,

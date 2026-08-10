@@ -1,6 +1,8 @@
 import { bridge } from "./bridge.ts";
 import type {
+  GitDecorationStatus,
   ProjectTreeEntry,
+  ProjectTreeGitDecoration,
   ReadProjectTreeResult,
 } from "../ipc/bridge.ts";
 
@@ -15,7 +17,12 @@ export type ProjectTree = {
   treeElement: HTMLElement;
   workspaceRootPath: string;
   openFile: OpenTreeFile;
-  dirtyTreePaths: Set<string>;
+  gitDecorations: Map<string, GitDecorationStatus>;
+  propagatedGitDecorations: Map<string, GitDecorationStatus>;
+  loadedDirectoryLists: Map<string, HTMLUListElement>;
+  directoryRequestGenerations: Map<string, number>;
+  pendingDirectoryRefreshes: Set<string>;
+  nextDirectoryRequestGeneration: number;
   focusedElement: HTMLElement | undefined;
 };
 
@@ -45,9 +52,42 @@ type LoadProjectTreeDirectoryOptions = {
   workspaceRelativeDirectoryPath: string;
 };
 
-type SetProjectTreeDirtyOptions = {
+type SetProjectTreeGitDecorationsOptions = {
   projectTree: ProjectTree | undefined;
-  dirtyFilePaths: string[];
+  decorations: ProjectTreeGitDecoration[];
+};
+
+type ApplyProjectTreeRowDecorationOptions = {
+  projectTree: ProjectTree;
+  rowElement: HTMLElement;
+  name: string;
+};
+
+type HasIgnoredGitAncestorOptions = {
+  projectTree: ProjectTree;
+  treePath: string;
+};
+
+type RefreshProjectTreePathsOptions = {
+  projectTree: ProjectTree;
+  paths: string[] | null;
+};
+
+type RefreshProjectTreeDirectoryOptions = {
+  projectTree: ProjectTree;
+  workspaceRelativeDirectoryPath: string;
+  listElement: HTMLUListElement;
+};
+
+type ReconcileProjectTreeEntriesOptions = {
+  projectTree: ProjectTree;
+  listElement: HTMLUListElement;
+  entries: ProjectTreeEntry[];
+};
+
+type PruneLoadedDirectoryOptions = {
+  projectTree: ProjectTree;
+  directoryPath: string;
 };
 
 function treeEntryName(treePath: string): string {
@@ -56,6 +96,155 @@ function treeEntryName(treePath: string): string {
     return treePath;
   }
   return treePath.slice(separatorPosition + 1);
+}
+
+function gitDecorationLabel(status: GitDecorationStatus): string {
+  switch (status) {
+    case "added":
+      return "Index Added";
+    case "conflicting":
+      return "Conflict";
+    case "copied":
+      return "Index Copied";
+    case "deleted":
+      return "Deleted";
+    case "ignored":
+      return "Ignored";
+    case "intent-to-add":
+      return "Intent to Add";
+    case "intent-to-rename":
+      return "Intent to Rename";
+    case "modified":
+      return "Modified";
+    case "renamed":
+      return "Index Renamed";
+    case "staged-deleted":
+      return "Index Deleted";
+    case "staged-modified":
+      return "Index Modified";
+    case "submodule":
+      return "Submodule";
+    case "type-changed":
+      return "Type Changed";
+    case "untracked":
+      return "Untracked";
+  }
+}
+
+function gitDecorationBadge(
+  status: GitDecorationStatus,
+): string | undefined {
+  switch (status) {
+    case "added":
+      return "A";
+    case "conflicting":
+      return "!";
+    case "copied":
+      return "C";
+    case "deleted":
+    case "staged-deleted":
+      return "D";
+    case "ignored":
+      return undefined;
+    case "intent-to-add":
+      return "A";
+    case "intent-to-rename":
+      return "R";
+    case "modified":
+    case "staged-modified":
+      return "M";
+    case "renamed":
+      return "R";
+    case "submodule":
+      return "S";
+    case "type-changed":
+      return "T";
+    case "untracked":
+      return "U";
+  }
+}
+
+function gitDecorationPropagates(status: GitDecorationStatus): boolean {
+  if (
+    status === "deleted" ||
+    status === "ignored" ||
+    status === "staged-deleted" ||
+    status === "submodule"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function hasIgnoredGitAncestor({
+  projectTree,
+  treePath,
+}: HasIgnoredGitAncestorOptions): boolean {
+  let separatorPosition = treePath.lastIndexOf("/");
+  while (separatorPosition >= 0) {
+    const ancestorPath = treePath.slice(0, separatorPosition);
+    if (projectTree.gitDecorations.get(ancestorPath) === "ignored") {
+      return true;
+    }
+    separatorPosition = ancestorPath.lastIndexOf("/");
+  }
+  return false;
+}
+
+function applyProjectTreeRowDecoration({
+  projectTree,
+  rowElement,
+  name,
+}: ApplyProjectTreeRowDecorationOptions): void {
+  const treePath = rowElement.dataset.projectTreePath;
+  const kind = rowElement.dataset.projectTreeKind;
+  if (treePath === undefined || kind === undefined) {
+    return;
+  }
+
+  delete rowElement.dataset.gitDecoration;
+  delete rowElement.dataset.gitDecorationBadge;
+  delete rowElement.dataset.gitDecorationBubble;
+  rowElement.title = treePath;
+  rowElement.ariaLabel = name;
+
+  let status = projectTree.gitDecorations.get(treePath);
+  let descendantDecoration = false;
+  if (
+    status === undefined &&
+    hasIgnoredGitAncestor({
+      projectTree,
+      treePath,
+    })
+  ) {
+    status = "ignored";
+  }
+  if (status === undefined && kind === "directory") {
+    status = projectTree.propagatedGitDecorations.get(treePath);
+    descendantDecoration = status !== undefined;
+  }
+  if (status === undefined) {
+    return;
+  }
+
+  rowElement.dataset.gitDecoration = status;
+  if (status === "ignored") {
+    return;
+  }
+  if (descendantDecoration) {
+    rowElement.dataset.gitDecorationBubble = "true";
+    rowElement.title = `${treePath} • Contains emphasized items`;
+    rowElement.ariaLabel = `${name}, contains emphasized items`;
+    return;
+  }
+
+  const badge = gitDecorationBadge(status);
+  if (badge !== undefined) {
+    rowElement.dataset.gitDecorationBadge = badge;
+  }
+  const label = gitDecorationLabel(status);
+  rowElement.title = `${treePath} • ${label}`;
+  rowElement.ariaLabel = `${name}, ${label}`;
 }
 
 function appendProjectTreeEntries({
@@ -78,6 +267,13 @@ async function loadProjectTreeDirectory({
   childrenElement,
   workspaceRelativeDirectoryPath,
 }: LoadProjectTreeDirectoryOptions): Promise<void> {
+  projectTree.nextDirectoryRequestGeneration += 1;
+  const requestGeneration = projectTree.nextDirectoryRequestGeneration;
+  projectTree.directoryRequestGenerations.set(
+    workspaceRelativeDirectoryPath,
+    requestGeneration,
+  );
+
   const loadingElement = document.createElement("li");
   loadingElement.className = "project-tree-message";
   loadingElement.textContent = "Loading…";
@@ -93,6 +289,17 @@ async function loadProjectTreeDirectory({
     result = { error: String(error) };
   }
 
+  if (
+    projectTree.directoryRequestGenerations.get(
+      workspaceRelativeDirectoryPath,
+    ) !== requestGeneration
+  ) {
+    return;
+  }
+  projectTree.loadedDirectoryLists.set(
+    workspaceRelativeDirectoryPath,
+    childrenElement,
+  );
   if ("error" in result) {
     const errorElement = document.createElement("li");
     errorElement.className = "project-tree-message project-tree-error";
@@ -117,6 +324,17 @@ async function loadProjectTreeDirectory({
 
     errorElement.append(errorTextElement, retryElement);
     childrenElement.replaceChildren(errorElement);
+    if (
+      projectTree.pendingDirectoryRefreshes.delete(
+        workspaceRelativeDirectoryPath,
+      )
+    ) {
+      await refreshProjectTreeDirectory({
+        projectTree,
+        workspaceRelativeDirectoryPath,
+        listElement: childrenElement,
+      });
+    }
     return;
   }
 
@@ -126,13 +344,25 @@ async function loadProjectTreeDirectory({
     emptyElement.className = "project-tree-message";
     emptyElement.textContent = "Empty";
     childrenElement.append(emptyElement);
-    return;
+  } else {
+    appendProjectTreeEntries({
+      projectTree,
+      listElement: childrenElement,
+      entries: result.entries,
+    });
   }
-  appendProjectTreeEntries({
-    projectTree,
-    listElement: childrenElement,
-    entries: result.entries,
-  });
+
+  if (
+    projectTree.pendingDirectoryRefreshes.delete(
+      workspaceRelativeDirectoryPath,
+    )
+  ) {
+    await refreshProjectTreeDirectory({
+      projectTree,
+      workspaceRelativeDirectoryPath,
+      listElement: childrenElement,
+    });
+  }
 }
 
 function appendProjectTreeEntry({
@@ -153,8 +383,25 @@ function appendProjectTreeEntry({
     summaryElement.className = "project-tree-row";
     summaryElement.dataset.projectTreeKind = "directory";
     summaryElement.dataset.projectTreePath = entry.path;
-    summaryElement.textContent = name;
     summaryElement.title = entry.path;
+
+    const disclosureElement = document.createElement("span");
+    disclosureElement.className = "project-tree-disclosure";
+    disclosureElement.ariaHidden = "true";
+
+    const iconElement = document.createElement("span");
+    iconElement.className = "project-tree-icon project-tree-folder-icon";
+    iconElement.ariaHidden = "true";
+
+    const nameElement = document.createElement("span");
+    nameElement.className = "project-tree-name";
+    nameElement.textContent = name;
+    summaryElement.append(disclosureElement, iconElement, nameElement);
+    applyProjectTreeRowDecoration({
+      projectTree,
+      rowElement: summaryElement,
+      name,
+    });
     summaryElement.addEventListener("focus", () => {
       projectTree.focusedElement = summaryElement;
     });
@@ -188,15 +435,21 @@ function appendProjectTreeEntry({
   fileElement.dataset.projectTreeKind = "file";
   fileElement.dataset.projectTreePath = entry.path;
   fileElement.dataset.fileName = name;
-  fileElement.textContent = name;
   fileElement.title = entry.path;
-  const dirty = projectTree.dirtyTreePaths.has(entry.path);
-  fileElement.classList.toggle("dirty", dirty);
-  if (dirty) {
-    fileElement.ariaLabel = `${name}, modified`;
-  } else {
-    fileElement.ariaLabel = name;
-  }
+
+  const iconElement = document.createElement("span");
+  iconElement.className = "project-tree-icon project-tree-file-icon";
+  iconElement.ariaHidden = "true";
+
+  const nameElement = document.createElement("span");
+  nameElement.className = "project-tree-name";
+  nameElement.textContent = name;
+  fileElement.append(iconElement, nameElement);
+  applyProjectTreeRowDecoration({
+    projectTree,
+    rowElement: fileElement,
+    name,
+  });
   fileElement.addEventListener("focus", () => {
     projectTree.focusedElement = fileElement;
   });
@@ -221,11 +474,17 @@ export function mountProjectTree({
     treeElement,
     workspaceRootPath,
     openFile,
-    dirtyTreePaths: new Set(),
+    gitDecorations: new Map(),
+    propagatedGitDecorations: new Map(),
+    loadedDirectoryLists: new Map(),
+    directoryRequestGenerations: new Map(),
+    pendingDirectoryRefreshes: new Set(),
+    nextDirectoryRequestGeneration: 0,
     focusedElement: undefined,
   };
   const listElement = document.createElement("ul");
   listElement.className = "project-tree-list project-tree-root";
+  projectTree.loadedDirectoryLists.set("", listElement);
   if (entries.length === 0) {
     const emptyElement = document.createElement("li");
     emptyElement.className = "project-tree-message";
@@ -242,45 +501,262 @@ export function mountProjectTree({
   return projectTree;
 }
 
-export function setProjectTreeDirty({
+function pruneLoadedDirectory({
   projectTree,
-  dirtyFilePaths,
-}: SetProjectTreeDirtyOptions): void {
-  if (projectTree === undefined) {
-    return;
+  directoryPath,
+}: PruneLoadedDirectoryOptions): void {
+  const descendantPrefix = `${directoryPath}/`;
+  for (const loadedPath of Array.from(
+    projectTree.loadedDirectoryLists.keys(),
+  )) {
+    if (
+      loadedPath === directoryPath ||
+      loadedPath.startsWith(descendantPrefix)
+    ) {
+      projectTree.loadedDirectoryLists.delete(loadedPath);
+    }
   }
-  projectTree.dirtyTreePaths.clear();
-  let prefix = projectTree.workspaceRootPath;
-  if (!prefix.endsWith("/")) {
-    prefix += "/";
+  for (const requestedPath of Array.from(
+    projectTree.directoryRequestGenerations.keys(),
+  )) {
+    if (
+      requestedPath === directoryPath ||
+      requestedPath.startsWith(descendantPrefix)
+    ) {
+      projectTree.directoryRequestGenerations.delete(requestedPath);
+      projectTree.pendingDirectoryRefreshes.delete(requestedPath);
+    }
   }
-  for (const dirtyFilePath of dirtyFilePaths) {
-    if (!dirtyFilePath.startsWith(prefix)) {
+}
+
+function reconcileProjectTreeEntries({
+  projectTree,
+  listElement,
+  entries,
+}: ReconcileProjectTreeEntriesOptions): void {
+  const existingItems = new Map<string, HTMLLIElement>();
+  for (const childElement of Array.from(listElement.children)) {
+    if (!(childElement instanceof HTMLLIElement)) {
       continue;
     }
-    projectTree.dirtyTreePaths.add(dirtyFilePath.slice(prefix.length));
-  }
-
-  const fileElements =
-    projectTree.treeElement.querySelectorAll<HTMLButtonElement>(
-      ".project-tree-file",
+    const rowElement = childElement.querySelector<HTMLElement>(
+      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
     );
-  for (const fileElement of fileElements) {
-    const treePath = fileElement.dataset.projectTreePath;
+    const treePath = rowElement?.dataset.projectTreePath;
     if (treePath === undefined) {
       continue;
     }
-    const dirty = projectTree.dirtyTreePaths.has(treePath);
-    fileElement.classList.toggle("dirty", dirty);
-    let label = fileElement.dataset.fileName;
-    if (label === undefined) {
-      label = treeEntryName(treePath);
+    existingItems.set(treePath, childElement);
+  }
+
+  const orderedItems: HTMLLIElement[] = [];
+  const retainedPaths = new Set<string>();
+  for (const entry of entries) {
+    retainedPaths.add(entry.path);
+    let itemElement = existingItems.get(entry.path);
+    const existingRow = itemElement?.querySelector<HTMLElement>(
+      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
+    );
+    if (
+      existingRow?.dataset.projectTreeKind === "directory" &&
+      existingRow.dataset.projectTreeKind !== entry.kind
+    ) {
+      pruneLoadedDirectory({
+        projectTree,
+        directoryPath: entry.path,
+      });
     }
-    if (dirty) {
-      fileElement.ariaLabel = `${label}, modified`;
-    } else {
-      fileElement.ariaLabel = label;
+    if (
+      itemElement === undefined ||
+      existingRow?.dataset.projectTreeKind !== entry.kind
+    ) {
+      appendProjectTreeEntry({
+        projectTree,
+        listElement,
+        entry,
+      });
+      const appendedItem = listElement.lastElementChild;
+      if (!(appendedItem instanceof HTMLLIElement)) {
+        continue;
+      }
+      itemElement = appendedItem;
     }
+    orderedItems.push(itemElement);
+  }
+
+  for (const [existingPath, itemElement] of existingItems) {
+    if (retainedPaths.has(existingPath)) {
+      continue;
+    }
+    const rowElement = itemElement.querySelector<HTMLElement>(
+      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
+    );
+    if (rowElement?.dataset.projectTreeKind !== "directory") {
+      continue;
+    }
+    pruneLoadedDirectory({
+      projectTree,
+      directoryPath: existingPath,
+    });
+  }
+
+  if (orderedItems.length === 0) {
+    const emptyElement = document.createElement("li");
+    emptyElement.className = "project-tree-message";
+    emptyElement.textContent = "Empty";
+    listElement.replaceChildren(emptyElement);
+    return;
+  }
+  listElement.replaceChildren(...orderedItems);
+}
+
+async function refreshProjectTreeDirectory({
+  projectTree,
+  workspaceRelativeDirectoryPath,
+  listElement,
+}: RefreshProjectTreeDirectoryOptions): Promise<void> {
+  projectTree.nextDirectoryRequestGeneration += 1;
+  const requestGeneration = projectTree.nextDirectoryRequestGeneration;
+  projectTree.directoryRequestGenerations.set(
+    workspaceRelativeDirectoryPath,
+    requestGeneration,
+  );
+
+  let result: ReadProjectTreeResult;
+  try {
+    result = await bridge.readProjectTree({
+      workspaceRootPath: projectTree.workspaceRootPath,
+      workspaceRelativeDirectoryPath,
+    });
+  } catch {
+    return;
+  }
+  if (
+    "error" in result ||
+    result.workspaceRootPath !== projectTree.workspaceRootPath ||
+    projectTree.loadedDirectoryLists.get(workspaceRelativeDirectoryPath) !==
+      listElement ||
+    projectTree.directoryRequestGenerations.get(
+      workspaceRelativeDirectoryPath,
+    ) !== requestGeneration
+  ) {
+    return;
+  }
+  reconcileProjectTreeEntries({
+    projectTree,
+    listElement,
+    entries: result.entries,
+  });
+}
+
+export async function refreshProjectTreePaths({
+  projectTree,
+  paths,
+}: RefreshProjectTreePathsOptions): Promise<void> {
+  const directoryPaths = new Set<string>();
+  const knownDirectoryPaths = new Set<string>();
+  for (const directoryPath of projectTree.loadedDirectoryLists.keys()) {
+    knownDirectoryPaths.add(directoryPath);
+  }
+  for (const directoryPath of projectTree.directoryRequestGenerations.keys()) {
+    knownDirectoryPaths.add(directoryPath);
+  }
+
+  if (paths === null) {
+    for (const directoryPath of knownDirectoryPaths) {
+      directoryPaths.add(directoryPath);
+    }
+  } else {
+    for (const changedPath of paths) {
+      if (changedPath === ".git" || changedPath.startsWith(".git/")) {
+        continue;
+      }
+      if (changedPath.length === 0) {
+        for (const directoryPath of knownDirectoryPaths) {
+          directoryPaths.add(directoryPath);
+        }
+        continue;
+      }
+      const separatorPosition = changedPath.lastIndexOf("/");
+      if (separatorPosition < 0) {
+        directoryPaths.add("");
+      } else {
+        directoryPaths.add(changedPath.slice(0, separatorPosition));
+      }
+
+      const descendantPrefix = `${changedPath}/`;
+      for (const knownDirectoryPath of knownDirectoryPaths) {
+        if (
+          knownDirectoryPath === changedPath ||
+          knownDirectoryPath.startsWith(descendantPrefix)
+        ) {
+          directoryPaths.add(knownDirectoryPath);
+        }
+      }
+    }
+  }
+
+  for (const directoryPath of directoryPaths) {
+    const listElement = projectTree.loadedDirectoryLists.get(directoryPath);
+    if (listElement === undefined) {
+      if (projectTree.directoryRequestGenerations.has(directoryPath)) {
+        projectTree.pendingDirectoryRefreshes.add(directoryPath);
+      }
+      continue;
+    }
+    await refreshProjectTreeDirectory({
+      projectTree,
+      workspaceRelativeDirectoryPath: directoryPath,
+      listElement,
+    });
+  }
+}
+
+export function setProjectTreeGitDecorations({
+  projectTree,
+  decorations,
+}: SetProjectTreeGitDecorationsOptions): void {
+  if (projectTree === undefined) {
+    return;
+  }
+  projectTree.gitDecorations.clear();
+  projectTree.propagatedGitDecorations.clear();
+  for (const decoration of decorations) {
+    projectTree.gitDecorations.set(decoration.path, decoration.status);
+    if (!gitDecorationPropagates(decoration.status)) {
+      continue;
+    }
+    let separatorPosition = decoration.path.lastIndexOf("/");
+    while (separatorPosition >= 0) {
+      const directoryPath = decoration.path.slice(0, separatorPosition);
+      if (!projectTree.propagatedGitDecorations.has(directoryPath)) {
+        projectTree.propagatedGitDecorations.set(
+          directoryPath,
+          decoration.status,
+        );
+      }
+      separatorPosition = directoryPath.lastIndexOf("/");
+    }
+  }
+
+  const rowElements =
+    projectTree.treeElement.querySelectorAll<HTMLElement>(
+      ".project-tree-row",
+    );
+  for (const rowElement of rowElements) {
+    const nameElement = rowElement.querySelector(".project-tree-name");
+    if (!(nameElement instanceof HTMLElement)) {
+      continue;
+    }
+    let name = nameElement.textContent;
+    if (name === null) {
+      name = "";
+    }
+    applyProjectTreeRowDecoration({
+      projectTree,
+      rowElement,
+      name,
+    });
   }
 }
 

@@ -7,15 +7,23 @@ import {
   loadMonaco,
 } from "./code.ts";
 import type { Monaco } from "./code.ts";
-import { saveNewFileResultSchema } from "../ipc/bridge.ts";
+import {
+  projectTreeChangeMessageSchema,
+  readProjectTreeGitDecorationsResultSchema,
+  saveNewFileResultSchema,
+  watchProjectTreeResultSchema,
+} from "../ipc/bridge.ts";
 import type {
+  ReadProjectTreeGitDecorationsResult,
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
+  WatchProjectTreeResult,
 } from "../ipc/bridge.ts";
 import {
   focusProjectTree,
   mountProjectTree,
-  setProjectTreeDirty,
+  refreshProjectTreePaths,
+  setProjectTreeGitDecorations,
 } from "./project-tree.ts";
 import type { ProjectTree } from "./project-tree.ts";
 import { executeCommand } from "./tabs.ts";
@@ -65,6 +73,10 @@ export type ProjectTab = {
   draggedFileKey: string | undefined;
   latestFileRequest: number;
   latestTreeRequest: number;
+  latestGitRequest: number;
+  projectTreeWatcherId: number | undefined;
+  projectTreeWatcherRetryCount: number;
+  projectTreeWatcherRetryTimer: number | undefined;
 };
 
 type ProjectPane = {
@@ -135,6 +147,25 @@ let nextUntitledId = 1;
 function fileNameForPath(filePath: string): string {
   const separatorPosition = filePath.lastIndexOf("/");
   return filePath.slice(separatorPosition + 1);
+}
+
+type WorkspaceRelativePathOptions = {
+  workspaceRootPath: string;
+  filePath: string;
+};
+
+function workspaceRelativePath({
+  workspaceRootPath,
+  filePath,
+}: WorkspaceRelativePathOptions): string | undefined {
+  let workspacePrefix = workspaceRootPath;
+  if (!workspacePrefix.endsWith("/")) {
+    workspacePrefix += "/";
+  }
+  if (!filePath.startsWith(workspacePrefix)) {
+    return undefined;
+  }
+  return filePath.slice(workspacePrefix.length);
 }
 
 type BuildFileTabOptions = {
@@ -325,19 +356,209 @@ function updateFileTab(buffer: ProjectFileBuffer): void {
   buffer.tabElement.setAttribute("aria-selected", "false");
 }
 
-function updateTreeDirtyState(tab: ProjectTab): void {
-  const dirtyFilePaths: string[] = [];
-  for (const buffer of tab.files.values()) {
-    if (!buffer.dirty || buffer.filePath === undefined) {
-      continue;
-    }
-    dirtyFilePaths.push(buffer.filePath);
+const PROJECT_TREE_WATCH_RETRY_LIMIT = 3;
+const PROJECT_TREE_WATCH_RETRY_DELAY_MS = 500;
+
+const projectTabsByTreeWatcherId = new Map<number, ProjectTab>();
+
+type StartProjectTreeWatcherOptions = {
+  tab: ProjectTab;
+  treeRequest: number;
+};
+
+type HandleProjectTreeChangeOptions = {
+  tab: ProjectTab;
+  paths: string[] | null;
+};
+
+type ScheduleProjectTreeWatcherRetryOptions = {
+  tab: ProjectTab;
+  projectTree: ProjectTree;
+};
+
+function stopProjectTreeWatcher(tab: ProjectTab): void {
+  if (tab.projectTreeWatcherRetryTimer !== undefined) {
+    window.clearTimeout(tab.projectTreeWatcherRetryTimer);
+    tab.projectTreeWatcherRetryTimer = undefined;
   }
-  setProjectTreeDirty({
-    projectTree: tab.projectTree,
-    dirtyFilePaths,
+  tab.projectTreeWatcherRetryCount = 0;
+
+  const watcherId = tab.projectTreeWatcherId;
+  if (watcherId === undefined) {
+    return;
+  }
+  tab.projectTreeWatcherId = undefined;
+  projectTabsByTreeWatcherId.delete(watcherId);
+  bridge.unwatchProjectTree({ watcherId });
+}
+
+async function refreshProjectTreeGitDecorations(
+  tab: ProjectTab,
+): Promise<void> {
+  const projectTree = tab.projectTree;
+  if (projectTree === undefined) {
+    return;
+  }
+  tab.latestGitRequest += 1;
+  const gitRequest = tab.latestGitRequest;
+
+  let result: ReadProjectTreeGitDecorationsResult;
+  try {
+    result = readProjectTreeGitDecorationsResultSchema.parse(
+      await bridge.readProjectTreeGitDecorations({
+        workspaceRootPath: projectTree.workspaceRootPath,
+      }),
+    );
+  } catch {
+    return;
+  }
+  if (
+    gitRequest !== tab.latestGitRequest ||
+    tab.projectTree !== projectTree ||
+    result.workspaceRootPath !== projectTree.workspaceRootPath
+  ) {
+    return;
+  }
+  setProjectTreeGitDecorations({
+    projectTree,
+    decorations: result.decorations,
   });
 }
+
+async function startProjectTreeWatcher({
+  tab,
+  treeRequest,
+}: StartProjectTreeWatcherOptions): Promise<void> {
+  const projectTree = tab.projectTree;
+  if (projectTree === undefined) {
+    return;
+  }
+
+  let result: WatchProjectTreeResult;
+  try {
+    result = watchProjectTreeResultSchema.parse(
+      await bridge.watchProjectTree({
+        workspaceRootPath: projectTree.workspaceRootPath,
+      }),
+    );
+  } catch {
+    return;
+  }
+  if ("error" in result) {
+    return;
+  }
+  if (
+    treeRequest !== tab.latestTreeRequest ||
+    tab.projectTree !== projectTree
+  ) {
+    bridge.unwatchProjectTree({ watcherId: result.watcherId });
+    return;
+  }
+  tab.projectTreeWatcherId = result.watcherId;
+  projectTabsByTreeWatcherId.set(result.watcherId, tab);
+}
+
+async function handleProjectTreeChange({
+  tab,
+  paths,
+}: HandleProjectTreeChangeOptions): Promise<void> {
+  const projectTree = tab.projectTree;
+  if (projectTree === undefined) {
+    return;
+  }
+  await refreshProjectTreePaths({
+    projectTree,
+    paths,
+  });
+  if (tab.projectTree !== projectTree) {
+    return;
+  }
+  await refreshProjectTreeGitDecorations(tab);
+}
+
+function scheduleProjectTreeWatcherRetry({
+  tab,
+  projectTree,
+}: ScheduleProjectTreeWatcherRetryOptions): void {
+  if (
+    tab.projectTreeWatcherRetryCount >= PROJECT_TREE_WATCH_RETRY_LIMIT ||
+    tab.projectTreeWatcherRetryTimer !== undefined
+  ) {
+    return;
+  }
+  tab.projectTreeWatcherRetryCount += 1;
+  const retryDelay =
+    PROJECT_TREE_WATCH_RETRY_DELAY_MS * tab.projectTreeWatcherRetryCount;
+  tab.projectTreeWatcherRetryTimer = window.setTimeout(async () => {
+    tab.projectTreeWatcherRetryTimer = undefined;
+    if (
+      tab.projectTree !== projectTree ||
+      tab.projectTreeWatcherId !== undefined
+    ) {
+      return;
+    }
+    const treeRequest = tab.latestTreeRequest;
+    await startProjectTreeWatcher({
+      tab,
+      treeRequest,
+    });
+    if (
+      tab.projectTree !== projectTree ||
+      treeRequest !== tab.latestTreeRequest
+    ) {
+      return;
+    }
+    if (tab.projectTreeWatcherId === undefined) {
+      scheduleProjectTreeWatcherRetry({
+        tab,
+        projectTree,
+      });
+      return;
+    }
+    await handleProjectTreeChange({
+      tab,
+      paths: null,
+    });
+  }, retryDelay);
+}
+
+bridge.onProjectTreeChanged(async (unvalidatedMessage) => {
+  const messageResult = projectTreeChangeMessageSchema.safeParse(
+    unvalidatedMessage,
+  );
+  if (!messageResult.success) {
+    return;
+  }
+  const tab = projectTabsByTreeWatcherId.get(
+    messageResult.data.watcherId,
+  );
+  if (
+    tab === undefined ||
+    tab.projectTreeWatcherId !== messageResult.data.watcherId
+  ) {
+    return;
+  }
+  if (messageResult.data.stopped === true) {
+    const projectTree = tab.projectTree;
+    projectTabsByTreeWatcherId.delete(messageResult.data.watcherId);
+    tab.projectTreeWatcherId = undefined;
+    await handleProjectTreeChange({
+      tab,
+      paths: null,
+    });
+    if (projectTree !== undefined && tab.projectTree === projectTree) {
+      scheduleProjectTreeWatcherRetry({
+        tab,
+        projectTree,
+      });
+    }
+    return;
+  }
+  await handleProjectTreeChange({
+    tab,
+    paths: messageResult.data.paths,
+  });
+});
 
 function showEmptyEditor(tab: ProjectTab): void {
   tab.activeFileKey = undefined;
@@ -513,7 +734,6 @@ export function closeProjectFile({
     }
   }
 
-  updateTreeDirtyState(tab);
   let eventPath: string | null = null;
   if (closedPath !== undefined) {
     eventPath = closedPath;
@@ -861,7 +1081,17 @@ export async function saveProjectFile({
     }
     tab.statusElement.classList.remove("visible");
     updateFileTab(buffer);
-    updateTreeDirtyState(tab);
+    const relativePath = workspaceRelativePath({
+      workspaceRootPath: tab.workspaceRootPath,
+      filePath: result.resolvedPath,
+    });
+    if (tab.projectTree !== undefined && relativePath !== undefined) {
+      await refreshProjectTreePaths({
+        projectTree: tab.projectTree,
+        paths: [relativePath],
+      });
+    }
+    await refreshProjectTreeGitDecorations(tab);
     bridge.emitEvent({
       type: "file-saved",
       id,
@@ -896,7 +1126,7 @@ export async function saveProjectFile({
   buffer.mtimeMs = result.mtimeMs;
   buffer.dirty = false;
   updateFileTab(buffer);
-  updateTreeDirtyState(tab);
+  await refreshProjectTreeGitDecorations(tab);
   bridge.emitEvent({
     type: "file-saved",
     id,
@@ -967,7 +1197,9 @@ async function loadProjectTreeRoot({
   emitWorkspaceRootChanged,
 }: LoadProjectTreeRootOptions): Promise<void> {
   tab.latestTreeRequest += 1;
+  tab.latestGitRequest += 1;
   const treeRequest = tab.latestTreeRequest;
+  stopProjectTreeWatcher(tab);
   tab.projectTree = undefined;
   tab.treeElement.textContent = "Loading workspace…";
 
@@ -1017,7 +1249,20 @@ async function loadProjectTreeRoot({
   });
   tab.titleElement.textContent = result.name;
   tab.panel.setTitle(result.name);
-  updateTreeDirtyState(tab);
+  await startProjectTreeWatcher({
+    tab,
+    treeRequest,
+  });
+  if (treeRequest !== tab.latestTreeRequest) {
+    return;
+  }
+  await handleProjectTreeChange({
+    tab,
+    paths: null,
+  });
+  if (treeRequest !== tab.latestTreeRequest) {
+    return;
+  }
   if (!emitWorkspaceRootChanged) {
     return;
   }
@@ -1085,6 +1330,10 @@ export async function openProjectTab({
     draggedFileKey: undefined,
     latestFileRequest: 0,
     latestTreeRequest: 0,
+    latestGitRequest: 0,
+    projectTreeWatcherId: undefined,
+    projectTreeWatcherRetryCount: 0,
+    projectTreeWatcherRetryTimer: undefined,
   };
   showEmptyEditor(tab);
 
@@ -1216,7 +1465,6 @@ export async function openProjectTab({
       });
     }
     updateFileTab(buffer);
-    updateTreeDirtyState(tab);
     let eventPath: string | null = null;
     if (buffer.filePath !== undefined) {
       eventPath = buffer.filePath;
@@ -1283,6 +1531,8 @@ export function focusProjectTab(tab: ProjectTab): void {
 
 export function disposeProjectTab(tab: ProjectTab): void {
   tab.latestTreeRequest += 1;
+  tab.latestGitRequest += 1;
+  stopProjectTreeWatcher(tab);
   for (const buffer of tab.files.values()) {
     buffer.model?.dispose();
   }

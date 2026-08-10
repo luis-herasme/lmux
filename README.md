@@ -116,8 +116,11 @@ the other end echoes it back.
 | `src/renderer/sidebar-resize.ts`| The sidebar's drag handle; a drag ends as one Command       |
 | `src/renderer/markdown.ts`     | GitHub-look Markdown rendering (markdown-it + DOMPurify)     |
 | `src/renderer/markdown-tab.ts` | A document's pane: toolbar, rendered/raw, reload, its links  |
-| `src/renderer/markdown-links.ts`| Terminal link provider: Cmd+click a `*.md` path opens it    |
-| `src/main/files.ts`            | `file:read` for the markdown view (resolves via shell cwd)   |
+| `src/renderer/file-links.ts`   | Terminal link provider: Cmd+click a source path opens it     |
+| `src/main/files.ts`            | File reads, guarded writes and Save As                       |
+| `src/main/project-tree.ts`     | Lazy directory reads, Git status and filesystem watchers     |
+| `src/renderer/project-tab.ts`  | One workspace's file buffers, tabs, editor and tree lifecycle|
+| `src/renderer/project-tree.ts` | Lazy tree rows, reconciliation and Git decorations           |
 | `src/renderer/dom.ts`          | `requireElement`: strict, typed lookups of the page's fixed elements |
 | `src/test/harness.ts`          | Boots the real app for the suite, waits for Events, tallies failures |
 | `src/test/suite.ts`            | The cases: Commands in, state snapshots asserted on           |

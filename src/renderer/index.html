@@ -2,13 +2,12 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <!-- style-src 'unsafe-inline': dockview and xterm inject <style> blocks
-         at runtime, with no way to carry a nonce. Electron warns at boot
-         that this policy is missing or unsafe; it is neither, it just reads
-         response headers and a file:// page has none (ARCHITECTURE.md). -->
+    <!-- Dockview and xterm inject styles; Monaco embeds the Codicon font.
+         Electron warns because a file:// page has no response CSP header;
+         the equivalent meta policy below is enforced (ARCHITECTURE.md). -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     />
     <title>lmux</title>
     <link
@@ -78,7 +77,12 @@
       </label>
       <label class="settings-row">
         Font size
-        <input id="settings-markdown-font-size" type="number" min="8" max="32" />
+        <input
+          id="settings-markdown-font-size"
+          type="number"
+          min="8"
+          max="32"
+        />
       </label>
       <div class="dialog-buttons">
         <button id="settings-done" class="default">Done</button>

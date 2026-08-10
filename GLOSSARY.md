@@ -407,8 +407,34 @@ same item in the renderer, the public state and main's filesystem reads.
 **Lazy loading** means work waits until its result is needed. The file tree
 reads the root first, then reads a directory's immediate children only when a
 person expands it. Collapsed subtrees therefore cost no filesystem work, IPC
-payload or DOM rows. A loaded directory remains cached for the project tab's
-lifetime.
+payload or DOM rows. Filesystem events reconcile directories that have already
+loaded while preserving their expanded descendants.
+
+## Git state / file decoration
+
+A **Git repository** is a directory tree whose history and current state Git
+tracks. **HEAD** names the checked-out commit, the snapshot currently treated
+as the baseline. This is not necessarily the branch named `main`.
+
+The **working tree** is the files on disk. The **index**, also called the
+**staging area**, is the snapshot being prepared for the next commit. A file
+can therefore have both a staged change in the index and a later unstaged
+change in the working tree. Like VS Code, lmux shows the working-tree status
+when both exist.
+
+A **tracked file** already belongs to Git history. An **untracked file** exists
+on disk but has not been added to the index. An **ignored file** matches a Git
+ignore rule and is deliberately kept out of normal Git work. A **merge
+conflict** means Git could not combine competing changes automatically. A
+**submodule** is one Git repository recorded as an entry inside another.
+
+A **file decoration** is the color and trailing badge Git state adds to a file
+row. `M`, `A`, `D`, `R`, `C`, `T`, `U`, `!` and `S` mean modified, added,
+deleted, renamed, copied, type-changed, untracked, conflicting and submodule.
+Ignored paths have only a muted color. Both the filename and badge use VS
+Code's corresponding `gitDecoration.*` color. A folder whose descendants have
+a propagating change gets a generic colored bubble instead of borrowing one
+child's letter.
 
 ## Project tab / file tab
 
@@ -451,12 +477,12 @@ the disk: edit a document in one tab, click Reload in the tab showing it.
 A file buffer is *dirty* when its model holds text the file on disk does not.
 It becomes dirty on the first edit after opening or saving, which also pins a
 preview file. A blank untitled buffer starts clean, becomes dirty when it has
-content and becomes clean again when emptied. The ● in the file tab and the
-modified mark in the tree say so,
+content and becomes clean again when emptied. The ● in the file tab says so,
 and `dirty` rides on the project's file state so main can guard every kind of
-close. A save refuses to overwrite a file whose mtime changed since it was
-read, because the alternative is burying work the disk has and the editor does
-not.
+close. Tree badges are separate Git state, so an unsaved edit alone does not
+create `M`, while saving a change normally does. A save refuses to overwrite a
+file whose mtime changed since it was read, because the alternative is burying
+work the disk has and the editor does not.
 
 ## Drag-and-drop interception (the one-door rule)
 

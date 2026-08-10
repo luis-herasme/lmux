@@ -39,6 +39,16 @@ const bridge: Bridge = {
   saveNewFile: (request) => ipcRenderer.invoke("file:save-new", request),
   readProjectTree: (request) =>
     ipcRenderer.invoke("project-tree:read", request),
+  readProjectTreeGitDecorations: (request) =>
+    ipcRenderer.invoke("project-tree:read-git-decorations", request),
+  watchProjectTree: (request) =>
+    ipcRenderer.invoke("project-tree:watch", request),
+  unwatchProjectTree: (request) =>
+    ipcRenderer.send("project-tree:unwatch", request),
+  onProjectTreeChanged: (callback) =>
+    ipcRenderer.on("project-tree:changed", (_event, message: unknown) =>
+      callback(message),
+    ),
   readSession: () => ipcRenderer.invoke("session:read"),
 };
 

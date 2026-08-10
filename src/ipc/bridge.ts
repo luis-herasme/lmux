@@ -87,6 +87,78 @@ export type ReadProjectTreeResult =
     }
   | { error: string };
 
+export const gitDecorationStatusSchema = z.enum([
+  "added",
+  "conflicting",
+  "copied",
+  "deleted",
+  "ignored",
+  "intent-to-add",
+  "intent-to-rename",
+  "modified",
+  "renamed",
+  "staged-deleted",
+  "staged-modified",
+  "submodule",
+  "type-changed",
+  "untracked",
+]);
+export type GitDecorationStatus = z.infer<typeof gitDecorationStatusSchema>;
+
+export const projectTreeGitDecorationSchema = z.object({
+  path: z.string(),
+  status: gitDecorationStatusSchema,
+});
+export type ProjectTreeGitDecoration = z.infer<
+  typeof projectTreeGitDecorationSchema
+>;
+
+export const readProjectTreeGitDecorationsRequestSchema = z.object({
+  workspaceRootPath: z.string(),
+});
+export type ReadProjectTreeGitDecorationsRequest = z.infer<
+  typeof readProjectTreeGitDecorationsRequestSchema
+>;
+
+export const readProjectTreeGitDecorationsResultSchema = z.object({
+  workspaceRootPath: z.string(),
+  decorations: z.array(projectTreeGitDecorationSchema),
+});
+export type ReadProjectTreeGitDecorationsResult = z.infer<
+  typeof readProjectTreeGitDecorationsResultSchema
+>;
+
+export const watchProjectTreeRequestSchema = z.object({
+  workspaceRootPath: z.string(),
+});
+export type WatchProjectTreeRequest = z.infer<
+  typeof watchProjectTreeRequestSchema
+>;
+
+export const watchProjectTreeResultSchema = z.union([
+  z.object({ watcherId: z.number().int() }),
+  z.object({ error: z.string() }),
+]);
+export type WatchProjectTreeResult = z.infer<
+  typeof watchProjectTreeResultSchema
+>;
+
+export const unwatchProjectTreeRequestSchema = z.object({
+  watcherId: z.number().int(),
+});
+export type UnwatchProjectTreeRequest = z.infer<
+  typeof unwatchProjectTreeRequestSchema
+>;
+
+export const projectTreeChangeMessageSchema = z.object({
+  watcherId: z.number().int(),
+  paths: z.array(z.string()).nullable(),
+  stopped: z.boolean().optional(),
+});
+export type ProjectTreeChangeMessage = z.infer<
+  typeof projectTreeChangeMessageSchema
+>;
+
 export type CloseFileRequest = {
   projectTabId: number;
   filePath?: string;
@@ -135,6 +207,12 @@ export type Bridge = {
   readProjectTree: (
     request: ReadProjectTreeRequest,
   ) => Promise<ReadProjectTreeResult>;
+  readProjectTreeGitDecorations: (
+    request: ReadProjectTreeGitDecorationsRequest,
+  ) => Promise<unknown>;
+  watchProjectTree: (request: WatchProjectTreeRequest) => Promise<unknown>;
+  unwatchProjectTree: (request: UnwatchProjectTreeRequest) => void;
+  onProjectTreeChanged: (callback: (message: unknown) => void) => void;
   // the session the last run left behind, if there is one to rebuild
   readSession: () => Promise<Session | null>;
 };

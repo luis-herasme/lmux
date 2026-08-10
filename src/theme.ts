@@ -25,6 +25,16 @@ export type Theme = {
   // and double-darkens where two overlap
   separator: string;
   accent: string;
+  gitAddedForeground: string;
+  gitModifiedForeground: string;
+  gitDeletedForeground: string;
+  gitRenamedForeground: string;
+  gitUntrackedForeground: string;
+  gitIgnoredForeground: string;
+  gitStageModifiedForeground: string;
+  gitStageDeletedForeground: string;
+  gitConflictingForeground: string;
+  gitSubmoduleForeground: string;
   // markdown links; VS Code's textLink.foreground values, softer than the
   // accent
   linkForeground: string;
@@ -45,6 +55,17 @@ export const THEMES = {
     tabActiveForeground: "#e6e6e6",
     separator: "#323232",
     accent: "#007aff", // macOS system blue
+    // https://github.com/microsoft/vscode/blob/main/extensions/git/package.json
+    gitAddedForeground: "#81b88b",
+    gitModifiedForeground: "#e2c08d",
+    gitDeletedForeground: "#c74e39",
+    gitRenamedForeground: "#73c991",
+    gitUntrackedForeground: "#73c991",
+    gitIgnoredForeground: "#8c8c8c",
+    gitStageModifiedForeground: "#e2c08d",
+    gitStageDeletedForeground: "#c74e39",
+    gitConflictingForeground: "#e4676b",
+    gitSubmoduleForeground: "#8db9e2",
     linkForeground: "#4daafc", // VS Code Dark Modern
   },
   light: {
@@ -61,6 +82,17 @@ export const THEMES = {
     tabActiveForeground: "#1a1a1a",
     separator: "#d0d0d0",
     accent: "#007aff",
+    // https://github.com/microsoft/vscode/blob/main/extensions/git/package.json
+    gitAddedForeground: "#587c0c",
+    gitModifiedForeground: "#895503",
+    gitDeletedForeground: "#ad0707",
+    gitRenamedForeground: "#007100",
+    gitUntrackedForeground: "#007100",
+    gitIgnoredForeground: "#8e8e90",
+    gitStageModifiedForeground: "#895503",
+    gitStageDeletedForeground: "#ad0707",
+    gitConflictingForeground: "#ad0707",
+    gitSubmoduleForeground: "#1258a7",
     linkForeground: "#005fb8", // VS Code Light Modern
   },
   // https://ethanschoonover.com/solarized
@@ -78,6 +110,18 @@ export const THEMES = {
     tabActiveForeground: "#93a1a1",
     separator: "#073642", // solarized base02, its own highlight tone
     accent: "#268bd2",
+    // VS Code's Solarized Dark leaves the Git extension defaults unchanged.
+    // https://github.com/microsoft/vscode/blob/main/extensions/git/package.json
+    gitAddedForeground: "#81b88b",
+    gitModifiedForeground: "#e2c08d",
+    gitDeletedForeground: "#c74e39",
+    gitRenamedForeground: "#73c991",
+    gitUntrackedForeground: "#73c991",
+    gitIgnoredForeground: "#8c8c8c",
+    gitStageModifiedForeground: "#e2c08d",
+    gitStageDeletedForeground: "#c74e39",
+    gitConflictingForeground: "#e4676b",
+    gitSubmoduleForeground: "#8db9e2",
     linkForeground: "#268bd2", // solarized blue
   },
 } satisfies Record<string, Theme>;
