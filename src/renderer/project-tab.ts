@@ -246,7 +246,6 @@ function updateTreeDirtyState(tab: ProjectTab): void {
   }
   setProjectTreeDirty({
     projectTree: tab.projectTree,
-    workspaceRootPath: tab.workspaceRootPath,
     dirtyFilePaths,
   });
 }
@@ -639,7 +638,6 @@ type LoadProjectTreeRootOptions = {
   tab: ProjectTab;
   workspace: Workspace;
   request: ReadProjectTreeRequest;
-  errorMessage: string;
   emitWorkspaceRootChanged: boolean;
 };
 
@@ -648,15 +646,11 @@ async function loadProjectTreeRoot({
   tab,
   workspace,
   request,
-  errorMessage,
   emitWorkspaceRootChanged,
 }: LoadProjectTreeRootOptions): Promise<void> {
   tab.latestTreeRequest += 1;
   const treeRequest = tab.latestTreeRequest;
-  if (tab.projectTree !== undefined) {
-    tab.projectTree.mounted = false;
-    tab.projectTree = undefined;
-  }
+  tab.projectTree = undefined;
   tab.treeElement.textContent = "Loading workspace…";
 
   let result: ReadProjectTreeResult;
@@ -671,7 +665,7 @@ async function loadProjectTreeRoot({
   if ("error" in result) {
     const messageElement = document.createElement("div");
     messageElement.className = "project-tree-root-error";
-    messageElement.textContent = `${errorMessage}: ${result.error}`;
+    messageElement.textContent = `Could not load workspace: ${result.error}`;
 
     const retryElement = document.createElement("button");
     retryElement.className = "project-tree-retry";
@@ -683,7 +677,6 @@ async function loadProjectTreeRoot({
         tab,
         workspace,
         request,
-        errorMessage,
         emitWorkspaceRootChanged: true,
       });
     });
@@ -812,7 +805,6 @@ export async function openProjectTab({
       workspaceRootPath,
       filePath: initialFilePath,
     },
-    errorMessage: "Could not open workspace tree",
     emitWorkspaceRootChanged: false,
   });
   return tab;
@@ -836,7 +828,6 @@ export async function changeProjectWorkspaceRoot({
     tab,
     workspace,
     request: { workspaceRootPath },
-    errorMessage: "Could not change workspace root",
     emitWorkspaceRootChanged: true,
   });
 }
@@ -858,9 +849,6 @@ export function focusProjectTab(tab: ProjectTab): void {
 
 export function disposeProjectTab(tab: ProjectTab): void {
   tab.latestTreeRequest += 1;
-  if (tab.projectTree !== undefined) {
-    tab.projectTree.mounted = false;
-  }
   for (const buffer of tab.files.values()) {
     buffer.model?.dispose();
   }

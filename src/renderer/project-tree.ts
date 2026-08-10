@@ -4,7 +4,7 @@ import type {
   ReadProjectTreeResult,
 } from "../ipc/bridge.ts";
 
-export type OpenTreeFileOptions = {
+type OpenTreeFileOptions = {
   filePath: string;
   preview: boolean;
 };
@@ -15,10 +15,8 @@ export type ProjectTree = {
   treeElement: HTMLElement;
   workspaceRootPath: string;
   openFile: OpenTreeFile;
-  fileElementsByTreePath: Map<string, HTMLButtonElement>;
   dirtyTreePaths: Set<string>;
   focusedElement: HTMLElement | undefined;
-  mounted: boolean;
 };
 
 type MountProjectTreeOptions = {
@@ -49,7 +47,6 @@ type LoadProjectTreeDirectoryOptions = {
 
 type SetProjectTreeDirtyOptions = {
   projectTree: ProjectTree | undefined;
-  workspaceRootPath: string;
   dirtyFilePaths: string[];
 };
 
@@ -81,7 +78,6 @@ async function loadProjectTreeDirectory({
   childrenElement,
   workspaceRelativeDirectoryPath,
 }: LoadProjectTreeDirectoryOptions): Promise<void> {
-  detailsElement.dataset.loadState = "loading";
   const loadingElement = document.createElement("li");
   loadingElement.className = "project-tree-message";
   loadingElement.textContent = "Loading…";
@@ -96,12 +92,8 @@ async function loadProjectTreeDirectory({
   } catch (error) {
     result = { error: String(error) };
   }
-  if (!projectTree.mounted) {
-    return;
-  }
 
   if ("error" in result) {
-    detailsElement.dataset.loadState = "error";
     const errorElement = document.createElement("li");
     errorElement.className = "project-tree-message project-tree-error";
 
@@ -128,7 +120,6 @@ async function loadProjectTreeDirectory({
     return;
   }
 
-  detailsElement.dataset.loadState = "loaded";
   childrenElement.replaceChildren();
   if (result.entries.length === 0) {
     const emptyElement = document.createElement("li");
@@ -156,7 +147,7 @@ function appendProjectTreeEntry({
   if (entry.kind === "directory") {
     const detailsElement = document.createElement("details");
     detailsElement.className = "project-tree-directory";
-    detailsElement.dataset.loadState = "unloaded";
+    let directoryReadStarted = false;
 
     const summaryElement = document.createElement("summary");
     summaryElement.className = "project-tree-row";
@@ -175,9 +166,10 @@ function appendProjectTreeEntry({
       if (!detailsElement.open) {
         return;
       }
-      if (detailsElement.dataset.loadState !== "unloaded") {
+      if (directoryReadStarted) {
         return;
       }
+      directoryReadStarted = true;
       loadProjectTreeDirectory({
         projectTree,
         detailsElement,
@@ -215,7 +207,6 @@ function appendProjectTreeEntry({
     });
   });
 
-  projectTree.fileElementsByTreePath.set(entry.path, fileElement);
   itemElement.append(fileElement);
   listElement.append(itemElement);
 }
@@ -230,10 +221,8 @@ export function mountProjectTree({
     treeElement,
     workspaceRootPath,
     openFile,
-    fileElementsByTreePath: new Map(),
     dirtyTreePaths: new Set(),
     focusedElement: undefined,
-    mounted: true,
   };
   const listElement = document.createElement("ul");
   listElement.className = "project-tree-list project-tree-root";
@@ -255,14 +244,13 @@ export function mountProjectTree({
 
 export function setProjectTreeDirty({
   projectTree,
-  workspaceRootPath,
   dirtyFilePaths,
 }: SetProjectTreeDirtyOptions): void {
   if (projectTree === undefined) {
     return;
   }
   projectTree.dirtyTreePaths.clear();
-  let prefix = workspaceRootPath;
+  let prefix = projectTree.workspaceRootPath;
   if (!prefix.endsWith("/")) {
     prefix += "/";
   }
@@ -273,7 +261,15 @@ export function setProjectTreeDirty({
     projectTree.dirtyTreePaths.add(dirtyFilePath.slice(prefix.length));
   }
 
-  for (const [treePath, fileElement] of projectTree.fileElementsByTreePath) {
+  const fileElements =
+    projectTree.treeElement.querySelectorAll<HTMLButtonElement>(
+      ".project-tree-file",
+    );
+  for (const fileElement of fileElements) {
+    const treePath = fileElement.dataset.projectTreePath;
+    if (treePath === undefined) {
+      continue;
+    }
     const dirty = projectTree.dirtyTreePaths.has(treePath);
     fileElement.classList.toggle("dirty", dirty);
     let label = fileElement.dataset.fileName;
