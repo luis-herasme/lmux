@@ -8,6 +8,7 @@ import type {
   ScreenResult,
 } from "../api.ts";
 import type { Session } from "../session.ts";
+import { z } from "../../node_modules/zod/index.js";
 
 export type ShellSizeMessage = {
   id: number;
@@ -45,6 +46,25 @@ export type WriteFileResult =
   | { mtimeMs: number }
   | { error: string };
 
+export const saveNewFileRequestSchema = z.object({
+  directoryPath: z.string(),
+  suggestedName: z.string(),
+  content: z.string(),
+  destinationPath: z.string().optional(),
+  excludedPaths: z.array(z.string()),
+});
+export type SaveNewFileRequest = z.infer<typeof saveNewFileRequestSchema>;
+
+export const saveNewFileResultSchema = z.union([
+  z.object({
+    resolvedPath: z.string(),
+    mtimeMs: z.number(),
+  }),
+  z.object({ canceled: z.literal(true) }),
+  z.object({ error: z.string() }),
+]);
+export type SaveNewFileResult = z.infer<typeof saveNewFileResultSchema>;
+
 // A live project can derive its workspace root from a terminal or its first
 // file. A restored project already knows the root and asks for it directly.
 export type ReadProjectTreeRequest = {
@@ -69,7 +89,8 @@ export type ReadProjectTreeResult =
 
 export type CloseFileRequest = {
   projectTabId: number;
-  filePath: string;
+  filePath?: string;
+  untitledId?: number;
 };
 
 // Electron has no invoke in this direction, so main asks with an id and the
@@ -110,6 +131,7 @@ export type Bridge = {
   // request/response pairs on the cable (ipcRenderer.invoke)
   readFile: (request: ReadFileRequest) => Promise<ReadFileResult>;
   writeFile: (request: WriteFileRequest) => Promise<WriteFileResult>;
+  saveNewFile: (request: SaveNewFileRequest) => Promise<unknown>;
   readProjectTree: (
     request: ReadProjectTreeRequest,
   ) => Promise<ReadProjectTreeResult>;

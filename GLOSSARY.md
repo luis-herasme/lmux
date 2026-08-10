@@ -421,8 +421,15 @@ tree.
 A **file tab** names one in-memory file buffer inside the project tab. A
 single tree click opens a replaceable **preview file tab**. Editing it or
 double-clicking its tree item makes it a **pinned file tab**, which remains
-until explicitly closed. The file-tab strip, not Dockview, switches the one
-Monaco editor between those buffers.
+until explicitly closed. File tabs can be dragged to reorder them. The
+file-tab strip, not Dockview, switches the one Monaco editor between those
+buffers.
+
+An **untitled file** is a blank buffer that has not been given a disk path.
+Double-clicking empty file-tab-strip space creates one named `Untitled`. Its
+hidden id distinguishes it from other untitled buffers without changing the
+visible title. Its first save is **Save As**, which asks for a disk path and
+turns the same buffer into a regular file tab.
 
 A **buffer** is a file's in-memory model: its text, dirty state, undo history,
 cursor and scroll position. Switching files keeps each buffer alive. A restart
@@ -443,7 +450,9 @@ the disk: edit a document in one tab, click Reload in the tab showing it.
 
 A file buffer is *dirty* when its model holds text the file on disk does not.
 It becomes dirty on the first edit after opening or saving, which also pins a
-preview file. The ● in the file tab and the modified mark in the tree say so,
+preview file. A blank untitled buffer starts clean, becomes dirty when it has
+content and becomes clean again when emptied. The ● in the file tab and the
+modified mark in the tree say so,
 and `dirty` rides on the project's file state so main can guard every kind of
 close. A save refuses to overwrite a file whose mtime changed since it was
 read, because the alternative is burying work the disk has and the editor does
@@ -461,7 +470,9 @@ and pane-center drops, `split-tab` for pane-edge drops), and dispatch that
 through `executeCommand`, which performs the identical move
 via Dockview's programmatic API (`panel.api.moveTo`). The gesture becomes
 just another Command source, the same door as the menus, the devtools console,
-and the future agent. The one exception is clicking a tab to activate it:
+and the future agent. The hand-built file-tab strip follows the same rule: a
+browser drop issues `move-file`, then that Command reorders the buffers. The
+one exception is clicking a Dockview tab to activate it:
 that's focus, not layout, and the mousedown that activates is the same one
 that begins a drag, so activation is applied by Dockview and announced on
 the bus afterwards as a `tab-activated` Event.

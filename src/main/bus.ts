@@ -62,26 +62,34 @@ export function runCommand(command: Command): Promise<LmuxState> {
 type RunCommandUntilOptions = {
   command: Command;
   predicate: (event: LmuxEvent) => boolean;
+  timeoutMs: number | undefined;
 };
 
 // Native close dialogs need the final save result before they may close.
 export function runCommandUntil({
   command,
   predicate,
+  timeoutMs,
 }: RunCommandUntilOptions): Promise<LmuxEvent | undefined> {
   return new Promise((resolve) => {
+    let timer: NodeJS.Timeout | undefined;
+
     function finished(_event: IpcMainEvent, lmuxEvent: LmuxEvent): void {
       if (!predicate(lmuxEvent)) {
         return;
       }
-      clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
       ipcMain.off("event", finished);
       resolve(lmuxEvent);
     }
-    const timer = setTimeout(() => {
-      ipcMain.off("event", finished);
-      resolve(undefined);
-    }, 5000); // file writes are local; five seconds is a failed operation
+    if (timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        ipcMain.off("event", finished);
+        resolve(undefined);
+      }, timeoutMs);
+    }
     ipcMain.on("event", finished);
     dispatch(command);
   });

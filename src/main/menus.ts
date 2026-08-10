@@ -6,6 +6,8 @@ import { chooseDirtyClose, confirmKilling } from "./dialogs.ts";
 import type { CloseFileRequest } from "../ipc/bridge.ts";
 import type { TabInfo, WorkspaceInfo } from "../api.ts";
 
+const FILE_WRITE_TIMEOUT_MS = 5000; // 5 seconds
+
 type CloseWorkspaceOptions = {
   // the question below needs a window to be asked in, and a click in the page
   // knows which one better than OS focus does.
@@ -53,6 +55,16 @@ function tabInfo(projectTabId: number | undefined): TabInfo | undefined {
 }
 
 async function saveProjectFiles(projectTabId: number): Promise<boolean> {
+  let timeoutMs: number | undefined = FILE_WRITE_TIMEOUT_MS;
+  const tab = tabInfo(projectTabId);
+  if (tab?.kind === "project") {
+    for (const file of tab.files) {
+      if (file.dirty && file.path === null) {
+        timeoutMs = undefined;
+        break;
+      }
+    }
+  }
   const result = await runCommandUntil({
     command: {
       type: "save-all-files",
@@ -60,34 +72,78 @@ async function saveProjectFiles(projectTabId: number): Promise<boolean> {
     },
     predicate: (event) =>
       event.type === "files-save-finished" && event.id === projectTabId,
+    timeoutMs,
   });
   if (result === undefined || result.type !== "files-save-finished") {
     return false;
   }
-  return result.failedPaths.length === 0;
+  return (
+    result.failedPaths.length === 0 && result.failedUntitledIds.length === 0
+  );
 }
 
 type SaveOneFileOptions = {
   projectTabId: number;
-  filePath: string;
+  filePath: string | undefined;
+  untitledId: number | undefined;
 };
+
+type SaveOneFileResult =
+  | { saved: true; filePath: string }
+  | { saved: false };
 
 async function saveOneFile({
   projectTabId,
   filePath,
-}: SaveOneFileOptions): Promise<boolean> {
+  untitledId,
+}: SaveOneFileOptions): Promise<SaveOneFileResult> {
+  let timeoutMs: number | undefined = FILE_WRITE_TIMEOUT_MS;
+  if (untitledId !== undefined) {
+    timeoutMs = undefined;
+  }
   const result = await runCommandUntil({
     command: {
       type: "save-file",
       projectTabId,
       path: filePath,
+      untitledId,
     },
-    predicate: (event) =>
-      (event.type === "file-saved" || event.type === "file-save-failed") &&
-      event.id === projectTabId &&
-      event.path === filePath,
+    predicate: (event) => {
+      if (filePath !== undefined) {
+        if (
+          event.type !== "file-saved" &&
+          event.type !== "file-save-failed"
+        ) {
+          return false;
+        }
+        return event.id === projectTabId && event.path === filePath;
+      }
+      if (untitledId === undefined) {
+        return false;
+      }
+      if (event.type === "file-saved") {
+        return (
+          event.id === projectTabId &&
+          event.previousUntitledId === untitledId
+        );
+      }
+      if (
+        event.type === "file-save-failed" ||
+        event.type === "file-save-canceled"
+      ) {
+        return event.id === projectTabId && event.untitledId === untitledId;
+      }
+      return false;
+    },
+    timeoutMs,
   });
-  return result !== undefined && result.type === "file-saved";
+  if (result === undefined || result.type !== "file-saved") {
+    return { saved: false };
+  }
+  return {
+    saved: true,
+    filePath: result.path,
+  };
 }
 
 export async function saveDirtyTabs(tabs: TabInfo[]): Promise<boolean> {
@@ -238,41 +294,58 @@ async function closeFile({
     tabs: [tab],
     action: "Closing the file",
     onlyFilePath: request.filePath,
+    onlyUntitledId: request.untitledId,
   });
   if (dirtyChoice === "cancel") {
     return;
   }
   if (dirtyChoice === "save") {
-    const saved = await saveOneFile({
+    const result = await saveOneFile({
       projectTabId: request.projectTabId,
       filePath: request.filePath,
+      untitledId: request.untitledId,
     });
-    if (!saved) {
+    if (!result.saved) {
       return;
     }
+    dispatch({
+      type: "close-file",
+      projectTabId: request.projectTabId,
+      path: result.filePath,
+    });
+    return;
   }
   dispatch({
     type: "close-file",
     projectTabId: request.projectTabId,
     path: request.filePath,
+    untitledId: request.untitledId,
   });
 }
 
 function closeActiveFileOrTab(window: BrowserWindow | null): void {
   const tab = tabInfo(undefined);
-  if (
-    tab !== undefined &&
-    tab.kind === "project" &&
-    tab.activeFilePath !== null
-  ) {
-    closeFile({
-      window,
-      request: {
-        projectTabId: tab.id,
-        filePath: tab.activeFilePath,
-      },
-    });
-    return;
+  if (tab !== undefined && tab.kind === "project") {
+    if (tab.activeFilePath !== null) {
+      closeFile({
+        window,
+        request: {
+          projectTabId: tab.id,
+          filePath: tab.activeFilePath,
+        },
+      });
+      return;
+    }
+    if (tab.activeUntitledId !== undefined) {
+      closeFile({
+        window,
+        request: {
+          projectTabId: tab.id,
+          untitledId: tab.activeUntitledId,
+        },
+      });
+      return;
+    }
   }
   closeTab({ window });
 }

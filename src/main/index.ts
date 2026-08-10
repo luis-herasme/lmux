@@ -10,7 +10,7 @@ import { chooseDirtyClose, confirmKilling } from "./dialogs.ts";
 import { lmuxState } from "./bus.ts";
 import type { TabInfo } from "../api.ts";
 import { installAppMenu, saveDirtyTabs } from "./menus.ts";
-import "./files.js"; // registers file:read and file:write
+import "./files.js"; // registers file reads and writes
 import "./project-tree.js"; // registers project-tree:read
 import "./mcp.js"; // listens on the API socket
 

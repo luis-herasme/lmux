@@ -65,9 +65,10 @@ showWorkspaceMenu(id)        renderer → main   "right-click on workspace `id`:
 onWorkspaceRenameRequest((id)) main → renderer "the user picked Rename in workspace `id`'s menu"
 closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: guard its shells and dirty files"
 closeTab(id)                 renderer → main   "the outer ×: guard every dirty file in that tab"
-closeFile({projectTabId, filePath}) renderer → main "the inner ×: guard that one buffer"
+closeFile({projectTabId, filePath/untitledId}) renderer → main "the inner ×: guard that one buffer"
 readFile({path, baseTabId})  renderer → main   "read a document or project buffer" (request/response)
 writeFile({...})             renderer → main   "save one buffer with its expected mtime" (request/response)
+saveNewFile({...})           renderer → main   "pick a path and write an untitled buffer" (request/response)
 readProjectTree({...})       renderer → main   "resolve a root and list one directory" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
 onScreenRead({readId, ...})  main → renderer   "what is tab `id` showing?" (request/response, the only one this way)
@@ -258,7 +259,10 @@ change it and update this list.
   tab; inside it, a stable workspace-root tree sits beside an inner file-tab
   strip and one Monaco editor. `open-file` creates or reuses that project tab.
   A tree single-click replaces one clean preview file, while editing or
-  double-clicking pins it. Each file owns a Monaco model, so dirty text, undo,
+  double-clicking pins it. File tabs drag to reorder through a `move-file`
+  Command, so their visual, public-state and restored-session orders agree.
+  Double-clicking empty strip space issues `new-file` and opens a clean,
+  pinned `Untitled` buffer. Each file owns a Monaco model, so dirty text, undo,
   cursor and scroll state survive file switches without multiplying Dockview
   panels. Files outside the workspace root are ordinary file tabs and leave
   the tree unchanged. The outer title is the root folder name; changing the
@@ -267,10 +271,13 @@ change it and update this list.
   same bridge `read` uses. Each buffer carries the mtime from its last read or
   write, and a stale save is refused rather than burying a disk change. ⌘S
   saves the visible buffer; Save All and close guards can save every dirty
-  buffer. Closing a dirty file offers Save, Don't Save and Cancel; bulk closes
-  offer Save All. Dirty state is a ● in the file tab and a modified mark in
-  the tree, and it rides in `TabInfo` for main and agents. Sessions restore
-  pinned paths from disk, never unsaved model contents or the preview file.
+  buffer. An untitled buffer has a hidden identity because its visible title
+  stays `Untitled`; its first save opens the native Save As dialog and turns
+  that same buffer into a guarded disk file. Closing a dirty file offers Save,
+  Don't Save and Cancel; bulk closes offer Save All. Dirty state is a ● in the
+  file tab and a modified mark in the tree, and it rides in `TabInfo` for main
+  and agents. Sessions restore pinned paths from disk, never unsaved model
+  contents, untitled buffers or the preview file.
 - **The workspace tree loads one directory at a time.** (Replaces the eager
   Pierre Trees implementation.) Main resolves the root from the first file or
   named terminal, then returns only one directory's immediate children. Native
@@ -279,7 +286,8 @@ change it and update this list.
   stop with a visible error above 10,000 immediate entries; and expose Retry
   after filesystem failures. Root changes show one loading state and commit the
   root, title and tree together. Row virtualization and paged reads remain in
-  #44; file mutations, refresh and filesystem watching remain out of scope.
+  #44; tree mutation controls, refresh and filesystem watching remain out of
+  scope.
 - **The IPC contract is a type.** `src/ipc/bridge.ts` declares `Bridge`;
   preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.

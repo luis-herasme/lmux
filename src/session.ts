@@ -72,7 +72,7 @@ export function sessionFromState(state: LmuxState): Session {
       if (tab.kind === "project") {
         const files: string[] = [];
         for (const file of tab.files) {
-          if (!file.pinned) {
+          if (!file.pinned || file.path === null) {
             continue;
           }
           files.push(file.path);

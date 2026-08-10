@@ -506,24 +506,46 @@ function buildLayout({
       if (tab.kind === "project") {
         const files: ProjectFileInfo[] = [];
         for (const file of tab.files.values()) {
-          files.push({
-            path: file.filePath,
-            dirty: file.dirty,
-            pinned: file.pinned,
-          });
+          if (file.filePath !== undefined) {
+            files.push({
+              path: file.filePath,
+              dirty: file.dirty,
+              pinned: file.pinned,
+            });
+            continue;
+          }
+          if (file.untitledId !== undefined) {
+            files.push({
+              path: null,
+              title: "Untitled",
+              untitledId: file.untitledId,
+              dirty: file.dirty,
+              pinned: true,
+            });
+          }
         }
         let activeFilePath: string | null = null;
-        if (tab.activeFilePath !== undefined) {
-          activeFilePath = tab.activeFilePath;
+        let activeUntitledId: number | undefined;
+        if (tab.activeFileKey !== undefined) {
+          const activeFile = tab.files.get(tab.activeFileKey);
+          if (activeFile?.filePath !== undefined) {
+            activeFilePath = activeFile.filePath;
+          } else {
+            activeUntitledId = activeFile?.untitledId;
+          }
         }
-        tabList.push({
+        const projectInfo: TabInfo = {
           id: Number(panelId),
           title,
           kind: "project",
           workspaceRootPath: tab.workspaceRootPath,
           activeFilePath,
           files,
-        });
+        };
+        if (activeUntitledId !== undefined) {
+          projectInfo.activeUntitledId = activeUntitledId;
+        }
+        tabList.push(projectInfo);
         continue;
       }
       tabList.push({

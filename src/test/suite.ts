@@ -1063,6 +1063,9 @@ const suite = describe("the command bus", () => {
         assert.equal(changedProject.files.length, 2);
 
         for (const openFile of changedProject.files) {
+          if (openFile.path === null) {
+            throw new Error("the disk fixture became an untitled file");
+          }
           const closing = waitForEvent(
             (event) =>
               event.type === "file-closed" && event.path === openFile.path,
@@ -1085,6 +1088,299 @@ const suite = describe("the command bus", () => {
         assert.equal(emptiedProject.activeFilePath, null);
         assert.equal(emptiedProject.files.length, 0);
         assert.equal(countTabs(lmuxState), tabCount + 1);
+      } finally {
+        const workspaceClosed = waitForEvent(
+          (event) =>
+            event.type === "workspace-closed" &&
+            event.id === projectWorkspace.id,
+        );
+        sendCommand({
+          type: "close-workspace",
+          id: projectWorkspace.id,
+        });
+        try {
+          await workspaceClosed;
+        } finally {
+          rmSync(rootPath, {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
+    },
+  });
+
+  busTest({
+    name: "file tabs can be dragged to reorder them",
+    body: async () => {
+      const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-file-order-"));
+      const firstPath = path.join(rootPath, "first.ts");
+      const secondPath = path.join(rootPath, "second.ts");
+      writeFileSync(firstPath, "export const first = true;\n");
+      writeFileSync(secondPath, "export const second = true;\n");
+      const canonicalFirstPath = realpathSync(firstPath);
+      const canonicalSecondPath = realpathSync(secondPath);
+      const projectWorkspace = await openWorkspace();
+
+      try {
+        sendCommand({ type: "open-file", path: firstPath });
+        const firstOpened = await waitForEvent(
+          (event) =>
+            event.type === "file-opened" &&
+            event.path === canonicalFirstPath,
+        );
+        if (firstOpened.type !== "file-opened") {
+          throw new Error(`the first file arrived as a ${firstOpened.type}`);
+        }
+        sendCommand({ type: "open-file", path: secondPath });
+        await waitForEvent(
+          (event) =>
+            event.type === "file-opened" &&
+            event.path === canonicalSecondPath,
+        );
+
+        const moving = waitForEvent(
+          (event) =>
+            event.type === "file-moved" &&
+            event.path === canonicalFirstPath,
+        );
+        const dragged = z.boolean().parse(
+          await lmuxWindow.webContents.executeJavaScript(`(() => {
+            let visiblePane = null;
+            for (const pane of document.querySelectorAll(".project-pane")) {
+              if (pane.offsetParent !== null) {
+                visiblePane = pane;
+                break;
+              }
+            }
+            if (!(visiblePane instanceof HTMLElement)) {
+              return false;
+            }
+            const source = visiblePane.querySelector(
+              ${JSON.stringify(`[data-resource-key="${canonicalFirstPath}"]`)},
+            );
+            const target = visiblePane.querySelector(
+              ${JSON.stringify(`[data-resource-key="${canonicalSecondPath}"]`)},
+            );
+            if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement)) {
+              return false;
+            }
+            if (!source.draggable) {
+              return false;
+            }
+            const transfer = new DataTransfer();
+            source.dispatchEvent(new DragEvent("dragstart", {
+              bubbles: true,
+              dataTransfer: transfer,
+            }));
+            const bounds = target.getBoundingClientRect();
+            target.dispatchEvent(new DragEvent("dragover", {
+              bubbles: true,
+              clientX: bounds.right - 1,
+              dataTransfer: transfer,
+            }));
+            target.dispatchEvent(new DragEvent("drop", {
+              bubbles: true,
+              clientX: bounds.right - 1,
+              dataTransfer: transfer,
+            }));
+            source.dispatchEvent(new DragEvent("dragend", {
+              bubbles: true,
+              dataTransfer: transfer,
+            }));
+            return true;
+          })()`),
+        );
+        assert.equal(dragged, true, "the visible file tabs were not found");
+        const moved = await moving;
+        const project = findTabInfo({
+          state: moved.state,
+          id: firstOpened.id,
+        });
+        assert.equal(project?.kind, "project");
+        if (project?.kind !== "project") {
+          throw new Error("dragging lost the project tab");
+        }
+        const orderedPaths: string[] = [];
+        for (const file of project.files) {
+          if (file.path === null) {
+            throw new Error("dragging a disk file made it untitled");
+          }
+          orderedPaths.push(file.path);
+        }
+        assert.deepEqual(orderedPaths, [
+          canonicalSecondPath,
+          canonicalFirstPath,
+        ]);
+        const visibleOrder = z.array(z.string()).parse(
+          await lmuxWindow.webContents.executeJavaScript(`(() => {
+            for (const pane of document.querySelectorAll(".project-pane")) {
+              if (pane.offsetParent === null) {
+                continue;
+              }
+              const order = [];
+              for (const tab of pane.querySelectorAll(".file-tab")) {
+                order.push(tab.getAttribute("data-resource-key"));
+              }
+              return order;
+            }
+            return [];
+          })()`),
+        );
+        assert.deepEqual(visibleOrder, [
+          canonicalSecondPath,
+          canonicalFirstPath,
+        ]);
+        const savedProject = sessionFromState(moved.state)
+          .workspaces.at(-1)
+          ?.tabs.at(-1);
+        assert.deepEqual(savedProject, {
+          kind: "project",
+          workspaceRootPath: realpathSync(rootPath),
+          files: [canonicalSecondPath, canonicalFirstPath],
+          activeFilePath: canonicalSecondPath,
+        });
+      } finally {
+        const workspaceClosed = waitForEvent(
+          (event) =>
+            event.type === "workspace-closed" &&
+            event.id === projectWorkspace.id,
+        );
+        sendCommand({
+          type: "close-workspace",
+          id: projectWorkspace.id,
+        });
+        try {
+          await workspaceClosed;
+        } finally {
+          rmSync(rootPath, {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
+    },
+  });
+
+  busTest({
+    name: "a double click on empty file-tab space creates an untitled file",
+    body: async () => {
+      const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-untitled-"));
+      const seedPath = path.join(rootPath, "seed.ts");
+      const destinationPath = path.join(rootPath, "created.ts");
+      writeFileSync(seedPath, "export const seed = true;\n");
+      const canonicalSeedPath = realpathSync(seedPath);
+      const projectWorkspace = await openWorkspace();
+
+      try {
+        sendCommand({ type: "open-file", path: seedPath });
+        const seedOpened = await waitForEvent(
+          (event) =>
+            event.type === "file-opened" && event.path === canonicalSeedPath,
+        );
+        if (seedOpened.type !== "file-opened") {
+          throw new Error(`the seed file arrived as a ${seedOpened.type}`);
+        }
+
+        const creating = waitForEvent((event) => event.type === "file-created");
+        const doubleClicked = z.boolean().parse(
+          await lmuxWindow.webContents.executeJavaScript(`(() => {
+            for (const pane of document.querySelectorAll(".project-pane")) {
+              if (pane.offsetParent === null) {
+                continue;
+              }
+              const strip = pane.querySelector(".file-tabs");
+              if (!(strip instanceof HTMLElement)) {
+                return false;
+              }
+              strip.dispatchEvent(new MouseEvent("dblclick", {
+                bubbles: true,
+                detail: 2,
+              }));
+              return true;
+            }
+            return false;
+          })()`),
+        );
+        assert.equal(doubleClicked, true, "the file-tab strip was not found");
+        const created = await creating;
+        if (created.type !== "file-created") {
+          throw new Error(`the untitled file arrived as a ${created.type}`);
+        }
+        const untitledId = created.untitledId;
+        const project = findTabInfo({
+          state: created.state,
+          id: seedOpened.id,
+        });
+        assert.equal(project?.kind, "project");
+        if (project?.kind !== "project") {
+          throw new Error("creating a file lost the project tab");
+        }
+        assert.deepEqual(project.files.at(-1), {
+          path: null,
+          title: "Untitled",
+          untitledId,
+          dirty: false,
+          pinned: true,
+        });
+        assert.equal(project.activeFilePath, null);
+        assert.equal(project.activeUntitledId, untitledId);
+        const untitledTitle = z.string().parse(
+          await lmuxWindow.webContents.executeJavaScript(`(() => {
+            for (const pane of document.querySelectorAll(".project-pane")) {
+              if (pane.offsetParent === null) {
+                continue;
+              }
+              return pane.querySelector(".file-tab.active .file-tab-title")?.textContent;
+            }
+            return null;
+          })()`),
+        );
+        assert.equal(untitledTitle, "Untitled");
+
+        const dirtying = waitForEvent(
+          (event) =>
+            event.type === "dirty-changed" &&
+            event.untitledId === untitledId,
+        );
+        const edit = await editOpenEditor({
+          expectedContent: "",
+          addedContent: "export const created = true;\n",
+        });
+        assert.equal(edit.edited, true, "the untitled editor was not editable");
+        await dirtying;
+
+        sendCommand({
+          type: "save-file",
+          projectTabId: seedOpened.id,
+          destinationPath,
+        });
+        const saved = await waitForEvent(
+          (event) =>
+            event.type === "file-saved" &&
+            event.previousUntitledId === untitledId,
+        );
+        const canonicalDestinationPath = realpathSync(destinationPath);
+        if (saved.type !== "file-saved") {
+          throw new Error(`the untitled save arrived as a ${saved.type}`);
+        }
+        assert.equal(saved.path, canonicalDestinationPath);
+        assert.match(readFileSync(destinationPath, "utf8"), /created = true/);
+        const savedProject = findTabInfo({
+          state: saved.state,
+          id: seedOpened.id,
+        });
+        assert.equal(savedProject?.kind, "project");
+        if (savedProject?.kind !== "project") {
+          throw new Error("saving lost the project tab");
+        }
+        assert.deepEqual(savedProject.files.at(-1), {
+          path: canonicalDestinationPath,
+          dirty: false,
+          pinned: true,
+        });
+        assert.equal(savedProject.activeFilePath, canonicalDestinationPath);
+        assert.equal(savedProject.activeUntitledId, undefined);
       } finally {
         const workspaceClosed = waitForEvent(
           (event) =>

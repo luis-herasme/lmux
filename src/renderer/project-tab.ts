@@ -7,6 +7,7 @@ import {
   loadMonaco,
 } from "./code.ts";
 import type { Monaco } from "./code.ts";
+import { saveNewFileResultSchema } from "../ipc/bridge.ts";
 import type {
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
@@ -29,7 +30,9 @@ import type { editor as monacoEditor } from "monaco-editor";
 import type { IDockviewPanel, DockviewGroupPanel } from "dockview";
 
 export type ProjectFileBuffer = {
-  filePath: string;
+  resourceKey: string;
+  filePath: string | undefined;
+  untitledId: number | undefined;
   model: monacoEditor.ITextModel | undefined;
   mtimeMs: number | undefined;
   dirty: boolean;
@@ -37,6 +40,7 @@ export type ProjectFileBuffer = {
   error: string | undefined;
   tabElement: HTMLElement;
   titleElement: HTMLElement;
+  closeElement: HTMLButtonElement;
   viewState: monacoEditor.ICodeEditorViewState | null;
 };
 
@@ -56,8 +60,9 @@ export type ProjectTab = {
   monaco: Monaco;
   editor: monacoEditor.IStandaloneCodeEditor;
   files: Map<string, ProjectFileBuffer>;
-  activeFilePath: string | undefined;
-  previewFilePath: string | undefined;
+  activeFileKey: string | undefined;
+  previewFileKey: string | undefined;
+  draggedFileKey: string | undefined;
   latestFileRequest: number;
   latestTreeRequest: number;
 };
@@ -125,83 +130,192 @@ function buildProjectPane(): ProjectPane {
   };
 }
 
+let nextUntitledId = 1;
+
 function fileNameForPath(filePath: string): string {
   const separatorPosition = filePath.lastIndexOf("/");
   return filePath.slice(separatorPosition + 1);
 }
 
 type BuildFileTabOptions = {
-  projectTabId: number;
-  filePath: string;
+  title: string;
 };
 
 type FileTabElements = {
   tabElement: HTMLElement;
   titleElement: HTMLElement;
+  closeElement: HTMLButtonElement;
 };
 
-function buildFileTab({
-  projectTabId,
-  filePath,
-}: BuildFileTabOptions): FileTabElements {
+function buildFileTab({ title }: BuildFileTabOptions): FileTabElements {
   const titleElement = document.createElement("span");
   titleElement.className = "file-tab-title";
-  titleElement.textContent = fileNameForPath(filePath);
+  titleElement.textContent = title;
 
   const closeElement = document.createElement("button");
   closeElement.className = "file-tab-close";
   closeElement.textContent = "×";
   closeElement.title = "Close File";
-  closeElement.ariaLabel = `Close ${fileNameForPath(filePath)}`;
-  closeElement.addEventListener("click", (event) => {
-    event.stopPropagation();
-    bridge.closeFile({
-      projectTabId,
-      filePath,
-    });
-  });
+  closeElement.ariaLabel = `Close ${title}`;
 
   const tabElement = document.createElement("div");
   tabElement.className = "file-tab";
-  tabElement.dataset.filePath = filePath;
-  tabElement.title = filePath;
   tabElement.tabIndex = -1;
+  tabElement.draggable = true;
   tabElement.setAttribute("role", "tab");
   tabElement.append(titleElement, closeElement);
-  tabElement.addEventListener("click", () => {
-    executeCommand({
-      type: "activate-file",
-      projectTabId,
-      path: filePath,
-    });
-  });
-  tabElement.addEventListener("dblclick", () => {
-    executeCommand({
-      type: "open-file",
-      path: filePath,
-      preview: false,
-    });
-  });
-  tabElement.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    executeCommand({
-      type: "activate-file",
-      projectTabId,
-      path: filePath,
-    });
-  });
 
   return {
     tabElement,
     titleElement,
+    closeElement,
   };
 }
 
+function clearFileTabDropIndicators(tab: ProjectTab): void {
+  for (const buffer of tab.files.values()) {
+    buffer.tabElement.classList.remove("file-drop-before");
+    buffer.tabElement.classList.remove("file-drop-after");
+  }
+}
+
+type AddProjectFileBufferOptions = {
+  id: number;
+  tab: ProjectTab;
+  resourceKey: string;
+  filePath: string | undefined;
+  untitledId: number | undefined;
+  model: monacoEditor.ITextModel | undefined;
+  mtimeMs: number | undefined;
+  dirty: boolean;
+  pinned: boolean;
+  error: string | undefined;
+};
+
+function addProjectFileBuffer({
+  id,
+  tab,
+  resourceKey,
+  filePath,
+  untitledId,
+  model,
+  mtimeMs,
+  dirty,
+  pinned,
+  error,
+}: AddProjectFileBufferOptions): ProjectFileBuffer {
+  let title = "Untitled";
+  if (filePath !== undefined) {
+    title = fileNameForPath(filePath);
+  }
+  const fileTab = buildFileTab({ title });
+  const buffer: ProjectFileBuffer = {
+    resourceKey,
+    filePath,
+    untitledId,
+    model,
+    mtimeMs,
+    dirty,
+    pinned,
+    error,
+    tabElement: fileTab.tabElement,
+    titleElement: fileTab.titleElement,
+    closeElement: fileTab.closeElement,
+    viewState: null,
+  };
+  fileTab.tabElement.dataset.resourceKey = resourceKey;
+
+  fileTab.closeElement.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (buffer.filePath !== undefined) {
+      bridge.closeFile({
+        projectTabId: id,
+        filePath: buffer.filePath,
+      });
+      return;
+    }
+    if (buffer.untitledId !== undefined) {
+      bridge.closeFile({
+        projectTabId: id,
+        untitledId: buffer.untitledId,
+      });
+    }
+  });
+  fileTab.tabElement.addEventListener("click", () => {
+    if (buffer.filePath !== undefined) {
+      executeCommand({
+        type: "activate-file",
+        projectTabId: id,
+        path: buffer.filePath,
+      });
+      return;
+    }
+    executeCommand({
+      type: "activate-file",
+      projectTabId: id,
+      untitledId: buffer.untitledId,
+    });
+  });
+  fileTab.tabElement.addEventListener("dblclick", () => {
+    if (buffer.filePath !== undefined) {
+      executeCommand({
+        type: "open-file",
+        path: buffer.filePath,
+        preview: false,
+      });
+      return;
+    }
+    executeCommand({
+      type: "activate-file",
+      projectTabId: id,
+      untitledId: buffer.untitledId,
+    });
+  });
+  fileTab.tabElement.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    if (buffer.filePath !== undefined) {
+      executeCommand({
+        type: "activate-file",
+        projectTabId: id,
+        path: buffer.filePath,
+      });
+      return;
+    }
+    executeCommand({
+      type: "activate-file",
+      projectTabId: id,
+      untitledId: buffer.untitledId,
+    });
+  });
+  fileTab.tabElement.addEventListener("dragstart", (event) => {
+    tab.draggedFileKey = buffer.resourceKey;
+    if (event.dataTransfer !== null) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", buffer.resourceKey);
+    }
+  });
+  fileTab.tabElement.addEventListener("dragend", () => {
+    tab.draggedFileKey = undefined;
+    clearFileTabDropIndicators(tab);
+  });
+
+  tab.files.set(resourceKey, buffer);
+  tab.fileTabsElement.append(fileTab.tabElement);
+  return buffer;
+}
+
 function updateFileTab(buffer: ProjectFileBuffer): void {
-  let title = fileNameForPath(buffer.filePath);
+  let title = "Untitled";
+  if (buffer.filePath !== undefined) {
+    title = fileNameForPath(buffer.filePath);
+    buffer.tabElement.title = buffer.filePath;
+  } else {
+    buffer.tabElement.title = "Untitled";
+  }
+  buffer.closeElement.ariaLabel = `Close ${title}`;
   if (buffer.dirty) {
     title = `● ${title}`;
   }
@@ -214,9 +328,10 @@ function updateFileTab(buffer: ProjectFileBuffer): void {
 function updateTreeDirtyState(tab: ProjectTab): void {
   const dirtyFilePaths: string[] = [];
   for (const buffer of tab.files.values()) {
-    if (buffer.dirty) {
-      dirtyFilePaths.push(buffer.filePath);
+    if (!buffer.dirty || buffer.filePath === undefined) {
+      continue;
     }
+    dirtyFilePaths.push(buffer.filePath);
   }
   setProjectTreeDirty({
     projectTree: tab.projectTree,
@@ -225,7 +340,7 @@ function updateTreeDirtyState(tab: ProjectTab): void {
 }
 
 function showEmptyEditor(tab: ProjectTab): void {
-  tab.activeFilePath = undefined;
+  tab.activeFileKey = undefined;
   tab.editor.setModel(null);
   tab.emptyElement.classList.add("visible");
   tab.errorElement.classList.remove("visible");
@@ -246,14 +361,14 @@ function activateBuffer({
   tab,
   buffer,
 }: ActivateBufferOptions): void {
-  if (tab.activeFilePath !== undefined) {
-    const activeBuffer = tab.files.get(tab.activeFilePath);
+  if (tab.activeFileKey !== undefined) {
+    const activeBuffer = tab.files.get(tab.activeFileKey);
     if (activeBuffer !== undefined && activeBuffer.model !== undefined) {
       activeBuffer.viewState = tab.editor.saveViewState();
     }
   }
 
-  tab.activeFilePath = buffer.filePath;
+  tab.activeFileKey = buffer.resourceKey;
   tab.emptyElement.classList.remove("visible");
   tab.statusElement.classList.remove("visible");
   for (const candidate of tab.files.values()) {
@@ -302,8 +417,8 @@ function pinProjectFile({
     return;
   }
   buffer.pinned = true;
-  if (tab.previewFilePath === filePath) {
-    tab.previewFilePath = undefined;
+  if (tab.previewFileKey === filePath) {
+    tab.previewFileKey = undefined;
   }
   updateFileTab(buffer);
 }
@@ -314,47 +429,81 @@ type DisposeBufferOptions = {
 };
 
 function disposeBuffer({ tab, buffer }: DisposeBufferOptions): void {
-  if (tab.previewFilePath === buffer.filePath) {
-    tab.previewFilePath = undefined;
+  if (tab.previewFileKey === buffer.resourceKey) {
+    tab.previewFileKey = undefined;
   }
-  tab.files.delete(buffer.filePath);
+  tab.files.delete(buffer.resourceKey);
   buffer.tabElement.remove();
   buffer.model?.dispose();
+}
+
+type FindProjectFileBufferOptions = {
+  tab: ProjectTab;
+  filePath: string | undefined;
+  untitledId: number | undefined;
+};
+
+function findProjectFileBuffer({
+  tab,
+  filePath,
+  untitledId,
+}: FindProjectFileBufferOptions): ProjectFileBuffer | undefined {
+  if (filePath !== undefined) {
+    return tab.files.get(filePath);
+  }
+  if (untitledId === undefined) {
+    return undefined;
+  }
+  for (const buffer of tab.files.values()) {
+    if (buffer.untitledId === untitledId) {
+      return buffer;
+    }
+  }
+  return undefined;
 }
 
 type CloseProjectFileOptions = {
   id: number;
   tab: ProjectTab;
-  filePath: string;
+  filePath: string | undefined;
+  untitledId: number | undefined;
 };
 
 export function closeProjectFile({
   id,
   tab,
   filePath,
+  untitledId,
 }: CloseProjectFileOptions): void {
-  const buffer = tab.files.get(filePath);
+  const buffer = findProjectFileBuffer({
+    tab,
+    filePath,
+    untitledId,
+  });
   if (buffer === undefined) {
     return;
   }
-  const paths = Array.from(tab.files.keys());
-  const closingPosition = paths.indexOf(filePath);
+  const resourceKeys = Array.from(tab.files.keys());
+  const closingPosition = resourceKeys.indexOf(buffer.resourceKey);
+  const wasActive = tab.activeFileKey === buffer.resourceKey;
+  const closedPath = buffer.filePath;
+  const closedUntitledId = buffer.untitledId;
   disposeBuffer({
     tab,
     buffer,
   });
 
-  if (tab.activeFilePath === filePath) {
-    const remainingPaths = Array.from(tab.files.keys());
+  if (wasActive) {
+    const remainingKeys = Array.from(tab.files.keys());
     let nextPosition = closingPosition;
-    if (nextPosition >= remainingPaths.length) {
-      nextPosition = remainingPaths.length - 1;
+    if (nextPosition >= remainingKeys.length) {
+      nextPosition = remainingKeys.length - 1;
     }
-    const nextPath = remainingPaths.at(nextPosition);
-    if (nextPath === undefined) {
+    const nextKey = remainingKeys.at(nextPosition);
+    if (nextKey === undefined) {
       showEmptyEditor(tab);
     } else {
-      const nextBuffer = tab.files.get(nextPath);
+      const nextBuffer = tab.files.get(nextKey);
       if (nextBuffer !== undefined) {
         activateBuffer({
           tab,
@@ -365,10 +514,15 @@ export function closeProjectFile({
   }
 
   updateTreeDirtyState(tab);
+  let eventPath: string | null = null;
+  if (closedPath !== undefined) {
+    eventPath = closedPath;
+  }
   bridge.emitEvent({
     type: "file-closed",
     id,
-    path: filePath,
+    path: eventPath,
+    untitledId: closedUntitledId,
     state: snapshot(),
   });
 }
@@ -376,15 +530,21 @@ export function closeProjectFile({
 type ActivateProjectFileOptions = {
   id: number;
   tab: ProjectTab;
-  filePath: string;
+  filePath: string | undefined;
+  untitledId: number | undefined;
 };
 
 export function activateProjectFile({
   id,
   tab,
   filePath,
+  untitledId,
 }: ActivateProjectFileOptions): void {
-  const buffer = tab.files.get(filePath);
+  const buffer = findProjectFileBuffer({
+    tab,
+    filePath,
+    untitledId,
+  });
   if (buffer === undefined) {
     return;
   }
@@ -392,10 +552,108 @@ export function activateProjectFile({
     tab,
     buffer,
   });
+  let eventPath: string | null = null;
+  if (buffer.filePath !== undefined) {
+    eventPath = buffer.filePath;
+  }
   bridge.emitEvent({
     type: "file-activated",
     id,
-    path: filePath,
+    path: eventPath,
+    untitledId: buffer.untitledId,
+    state: snapshot(),
+  });
+}
+
+type CreateUntitledProjectFileOptions = {
+  id: number;
+  tab: ProjectTab;
+};
+
+export function createUntitledProjectFile({
+  id,
+  tab,
+}: CreateUntitledProjectFileOptions): void {
+  const untitledId = nextUntitledId++;
+  const resourceKey = `untitled:${untitledId}`;
+  const buffer = addProjectFileBuffer({
+    id,
+    tab,
+    resourceKey,
+    filePath: undefined,
+    untitledId,
+    model: tab.monaco.editor.createModel("", "plaintext"),
+    mtimeMs: undefined,
+    dirty: false,
+    pinned: true,
+    error: undefined,
+  });
+  updateFileTab(buffer);
+  activateBuffer({
+    tab,
+    buffer,
+  });
+  bridge.emitEvent({
+    type: "file-created",
+    id,
+    untitledId,
+    state: snapshot(),
+  });
+}
+
+type MoveProjectFileOptions = {
+  id: number;
+  tab: ProjectTab;
+  filePath: string | undefined;
+  untitledId: number | undefined;
+  index: number;
+};
+
+export function moveProjectFile({
+  id,
+  tab,
+  filePath,
+  untitledId,
+  index,
+}: MoveProjectFileOptions): void {
+  const buffer = findProjectFileBuffer({
+    tab,
+    filePath,
+    untitledId,
+  });
+  if (buffer === undefined) {
+    return;
+  }
+  const orderedBuffers = Array.from(tab.files.values());
+  const currentIndex = orderedBuffers.indexOf(buffer);
+  orderedBuffers.splice(currentIndex, 1);
+  let targetIndex = index;
+  if (targetIndex < 0) {
+    targetIndex = 0;
+  }
+  if (targetIndex > orderedBuffers.length) {
+    targetIndex = orderedBuffers.length;
+  }
+  if (targetIndex === currentIndex) {
+    return;
+  }
+  orderedBuffers.splice(targetIndex, 0, buffer);
+  tab.files.clear();
+  const tabElements: HTMLElement[] = [];
+  for (const orderedBuffer of orderedBuffers) {
+    tab.files.set(orderedBuffer.resourceKey, orderedBuffer);
+    tabElements.push(orderedBuffer.tabElement);
+  }
+  tab.fileTabsElement.replaceChildren(...tabElements);
+  let eventPath: string | null = null;
+  if (buffer.filePath !== undefined) {
+    eventPath = buffer.filePath;
+  }
+  bridge.emitEvent({
+    type: "file-moved",
+    id,
+    path: eventPath,
+    untitledId: buffer.untitledId,
     state: snapshot(),
   });
 }
@@ -452,8 +710,8 @@ export async function openProjectFile({
     return;
   }
 
-  if (preview && tab.previewFilePath !== undefined) {
-    const previousPreview = tab.files.get(tab.previewFilePath);
+  if (preview && tab.previewFileKey !== undefined) {
+    const previousPreview = tab.files.get(tab.previewFileKey);
     if (previousPreview !== undefined) {
       disposeBuffer({
         tab,
@@ -462,37 +720,35 @@ export async function openProjectFile({
     }
   }
 
-  const fileTab = buildFileTab({
-    projectTabId: id,
-    filePath: resolvedPath,
-  });
-  const buffer: ProjectFileBuffer = {
-    filePath: resolvedPath,
-    model: undefined,
-    mtimeMs: undefined,
-    dirty: false,
-    pinned: !preview,
-    error: undefined,
-    tabElement: fileTab.tabElement,
-    titleElement: fileTab.titleElement,
-    viewState: null,
-  };
+  let model: monacoEditor.ITextModel | undefined;
+  let mtimeMs: number | undefined;
+  let error: string | undefined;
   if ("error" in result) {
-    buffer.error = result.error;
+    error = result.error;
   } else {
-    buffer.model = tab.monaco.editor.createModel(
+    model = tab.monaco.editor.createModel(
       result.content,
       languageForPath({
         monaco: tab.monaco,
         filePath: resolvedPath,
       }),
     );
-    buffer.mtimeMs = result.mtimeMs;
+    mtimeMs = result.mtimeMs;
   }
-  tab.files.set(resolvedPath, buffer);
-  tab.fileTabsElement.append(fileTab.tabElement);
+  const buffer = addProjectFileBuffer({
+    id,
+    tab,
+    resourceKey: resolvedPath,
+    filePath: resolvedPath,
+    untitledId: undefined,
+    model,
+    mtimeMs,
+    dirty: false,
+    pinned: !preview,
+    error,
+  });
   if (preview) {
-    tab.previewFilePath = resolvedPath;
+    tab.previewFileKey = resolvedPath;
   }
   updateFileTab(buffer);
   activateBuffer({
@@ -511,26 +767,112 @@ type SaveProjectFileOptions = {
   id: number;
   tab: ProjectTab;
   filePath: string | undefined;
+  untitledId: number | undefined;
+  destinationPath: string | undefined;
 };
 
 export async function saveProjectFile({
   id,
   tab,
   filePath,
+  untitledId,
+  destinationPath,
 }: SaveProjectFileOptions): Promise<boolean> {
-  let resolvedPath = filePath;
-  if (resolvedPath === undefined) {
-    resolvedPath = tab.activeFilePath;
+  let buffer = findProjectFileBuffer({
+    tab,
+    filePath,
+    untitledId,
+  });
+  if (
+    filePath === undefined &&
+    untitledId === undefined &&
+    tab.activeFileKey !== undefined
+  ) {
+    buffer = tab.files.get(tab.activeFileKey);
   }
-  if (resolvedPath === undefined) {
+  if (buffer === undefined || buffer.model === undefined) {
     return false;
   }
-  const buffer = tab.files.get(resolvedPath);
-  if (
-    buffer === undefined ||
-    buffer.model === undefined ||
-    buffer.mtimeMs === undefined
-  ) {
+
+  if (buffer.filePath === undefined) {
+    if (buffer.untitledId === undefined) {
+      return false;
+    }
+    const excludedPaths: string[] = [];
+    for (const openBuffer of tab.files.values()) {
+      if (openBuffer.filePath !== undefined) {
+        excludedPaths.push(openBuffer.filePath);
+      }
+    }
+    const result = saveNewFileResultSchema.parse(
+      await bridge.saveNewFile({
+        directoryPath: tab.workspaceRootPath,
+        suggestedName: "Untitled",
+        content: buffer.model.getValue(),
+        destinationPath,
+        excludedPaths,
+      }),
+    );
+    if ("canceled" in result) {
+      bridge.emitEvent({
+        type: "file-save-canceled",
+        id,
+        untitledId: buffer.untitledId,
+        state: snapshot(),
+      });
+      return false;
+    }
+    if ("error" in result) {
+      tab.statusElement.textContent = result.error;
+      tab.statusElement.classList.add("visible");
+      bridge.emitEvent({
+        type: "file-save-failed",
+        id,
+        path: null,
+        untitledId: buffer.untitledId,
+        error: result.error,
+        state: snapshot(),
+      });
+      return false;
+    }
+
+    const previousResourceKey = buffer.resourceKey;
+    const previousUntitledId = buffer.untitledId;
+    const orderedBuffers = Array.from(tab.files.values());
+    buffer.resourceKey = result.resolvedPath;
+    buffer.filePath = result.resolvedPath;
+    buffer.untitledId = undefined;
+    buffer.mtimeMs = result.mtimeMs;
+    buffer.dirty = false;
+    buffer.tabElement.dataset.resourceKey = result.resolvedPath;
+    tab.monaco.editor.setModelLanguage(
+      buffer.model,
+      languageForPath({
+        monaco: tab.monaco,
+        filePath: result.resolvedPath,
+      }),
+    );
+    tab.files.clear();
+    for (const orderedBuffer of orderedBuffers) {
+      tab.files.set(orderedBuffer.resourceKey, orderedBuffer);
+    }
+    if (tab.activeFileKey === previousResourceKey) {
+      tab.activeFileKey = result.resolvedPath;
+    }
+    tab.statusElement.classList.remove("visible");
+    updateFileTab(buffer);
+    updateTreeDirtyState(tab);
+    bridge.emitEvent({
+      type: "file-saved",
+      id,
+      path: result.resolvedPath,
+      previousUntitledId,
+      state: snapshot(),
+    });
+    return true;
+  }
+
+  if (buffer.mtimeMs === undefined) {
     return false;
   }
   const result = await bridge.writeFile({
@@ -574,23 +916,37 @@ export async function saveAllProjectFiles({
   tab,
 }: SaveAllProjectFilesOptions): Promise<void> {
   const failedPaths: string[] = [];
-  for (const buffer of tab.files.values()) {
+  const failedUntitledIds: number[] = [];
+  const buffers = Array.from(tab.files.values());
+  for (const buffer of buffers) {
     if (!buffer.dirty) {
       continue;
     }
+    const filePath = buffer.filePath;
+    const untitledId = buffer.untitledId;
     const saved = await saveProjectFile({
       id,
       tab,
-      filePath: buffer.filePath,
+      filePath,
+      untitledId,
+      destinationPath: undefined,
     });
-    if (!saved) {
-      failedPaths.push(buffer.filePath);
+    if (saved) {
+      continue;
+    }
+    if (filePath !== undefined) {
+      failedPaths.push(filePath);
+      continue;
+    }
+    if (untitledId !== undefined) {
+      failedUntitledIds.push(untitledId);
     }
   }
   bridge.emitEvent({
     type: "files-save-finished",
     id,
     failedPaths,
+    failedUntitledIds,
     state: snapshot(),
   });
 }
@@ -724,35 +1080,152 @@ export async function openProjectTab({
     monaco,
     editor,
     files: new Map(),
-    activeFilePath: undefined,
-    previewFilePath: undefined,
+    activeFileKey: undefined,
+    previewFileKey: undefined,
+    draggedFileKey: undefined,
     latestFileRequest: 0,
     latestTreeRequest: 0,
   };
   showEmptyEditor(tab);
 
-  editor.onDidChangeModelContent(() => {
-    if (tab.activeFilePath === undefined) {
+  pane.fileTabsElement.addEventListener("dblclick", (event) => {
+    if (event.target !== pane.fileTabsElement) {
       return;
     }
-    const buffer = tab.files.get(tab.activeFilePath);
+    executeCommand({
+      type: "new-file",
+      projectTabId: id,
+    });
+  });
+  pane.fileTabsElement.addEventListener("dragover", (event) => {
+    if (tab.draggedFileKey === undefined) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer !== null) {
+      event.dataTransfer.dropEffect = "move";
+    }
+    clearFileTabDropIndicators(tab);
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const targetTabElement = target.closest(".file-tab");
+    if (
+      !(targetTabElement instanceof HTMLElement) ||
+      targetTabElement.parentElement !== pane.fileTabsElement ||
+      targetTabElement.dataset.resourceKey === tab.draggedFileKey
+    ) {
+      return;
+    }
+    const bounds = targetTabElement.getBoundingClientRect();
+    if (event.clientX < bounds.left + bounds.width / 2) {
+      targetTabElement.classList.add("file-drop-before");
+      return;
+    }
+    targetTabElement.classList.add("file-drop-after");
+  });
+  pane.fileTabsElement.addEventListener("dragleave", (event) => {
+    const relatedTarget = event.relatedTarget;
+    if (
+      relatedTarget instanceof Node &&
+      pane.fileTabsElement.contains(relatedTarget)
+    ) {
+      return;
+    }
+    clearFileTabDropIndicators(tab);
+  });
+  pane.fileTabsElement.addEventListener("drop", (event) => {
+    const draggedFileKey = tab.draggedFileKey;
+    if (draggedFileKey === undefined) {
+      return;
+    }
+    event.preventDefault();
+    const draggedBuffer = tab.files.get(draggedFileKey);
+    const target = event.target;
+    let targetTabElement: HTMLElement | undefined;
+    if (target instanceof Element) {
+      const closestTabElement = target.closest(".file-tab");
+      if (
+        closestTabElement instanceof HTMLElement &&
+        closestTabElement.parentElement === pane.fileTabsElement
+      ) {
+        targetTabElement = closestTabElement;
+      }
+    }
+    if (targetTabElement?.dataset.resourceKey === draggedFileKey) {
+      tab.draggedFileKey = undefined;
+      clearFileTabDropIndicators(tab);
+      return;
+    }
+
+    const candidateBuffers: ProjectFileBuffer[] = [];
+    for (const candidateBuffer of tab.files.values()) {
+      if (candidateBuffer.resourceKey !== draggedFileKey) {
+        candidateBuffers.push(candidateBuffer);
+      }
+    }
+    let targetIndex = candidateBuffers.length;
+    if (targetTabElement !== undefined) {
+      const targetResourceKey = targetTabElement.dataset.resourceKey;
+      for (let position = 0; position < candidateBuffers.length; position++) {
+        if (candidateBuffers[position].resourceKey !== targetResourceKey) {
+          continue;
+        }
+        targetIndex = position;
+        if (targetTabElement.classList.contains("file-drop-after")) {
+          targetIndex += 1;
+        }
+        break;
+      }
+    }
+    tab.draggedFileKey = undefined;
+    clearFileTabDropIndicators(tab);
+    if (draggedBuffer === undefined) {
+      return;
+    }
+    executeCommand({
+      type: "move-file",
+      projectTabId: id,
+      path: draggedBuffer.filePath,
+      untitledId: draggedBuffer.untitledId,
+      index: targetIndex,
+    });
+  });
+
+  editor.onDidChangeModelContent(() => {
+    if (tab.activeFileKey === undefined) {
+      return;
+    }
+    const buffer = tab.files.get(tab.activeFileKey);
     if (buffer === undefined || buffer.model !== editor.getModel()) {
       return;
     }
-    if (buffer.dirty) {
+    let dirty = true;
+    if (buffer.filePath === undefined && buffer.model.getValue() === "") {
+      dirty = false;
+    }
+    if (buffer.dirty === dirty) {
       return;
     }
-    buffer.dirty = true;
-    pinProjectFile({
-      tab,
-      filePath: buffer.filePath,
-    });
+    buffer.dirty = dirty;
+    if (buffer.filePath !== undefined) {
+      pinProjectFile({
+        tab,
+        filePath: buffer.filePath,
+      });
+    }
     updateFileTab(buffer);
     updateTreeDirtyState(tab);
+    let eventPath: string | null = null;
+    if (buffer.filePath !== undefined) {
+      eventPath = buffer.filePath;
+    }
     bridge.emitEvent({
       type: "dirty-changed",
       id,
-      path: buffer.filePath,
+      path: eventPath,
+      untitledId: buffer.untitledId,
       state: snapshot(),
     });
   });
@@ -794,8 +1267,8 @@ export async function changeProjectWorkspaceRoot({
 }
 
 export function focusProjectTab(tab: ProjectTab): void {
-  if (tab.activeFilePath !== undefined) {
-    const buffer = tab.files.get(tab.activeFilePath);
+  if (tab.activeFileKey !== undefined) {
+    const buffer = tab.files.get(tab.activeFileKey);
     if (buffer !== undefined && buffer.model !== undefined) {
       tab.editor.focus();
       return;

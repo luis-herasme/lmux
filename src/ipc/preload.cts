@@ -36,6 +36,7 @@ const bridge: Bridge = {
   closeFile: (request) => ipcRenderer.send("file:close", request),
   readFile: (request) => ipcRenderer.invoke("file:read", request),
   writeFile: (request) => ipcRenderer.invoke("file:write", request),
+  saveNewFile: (request) => ipcRenderer.invoke("file:save-new", request),
   readProjectTree: (request) =>
     ipcRenderer.invoke("project-tree:read", request),
   readSession: () => ipcRenderer.invoke("session:read"),

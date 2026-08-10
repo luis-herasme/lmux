@@ -32,6 +32,25 @@ export const settingsSchema = z.object({
 
 export type Settings = z.infer<typeof settingsSchema>;
 
+type FileIdentity = {
+  path?: string;
+  untitledId?: number;
+};
+
+function hasExactlyOneFileIdentity(identity: FileIdentity): boolean {
+  if (identity.path !== undefined) {
+    return identity.untitledId === undefined;
+  }
+  return identity.untitledId !== undefined;
+}
+
+function hasAtMostOneFileIdentity(identity: FileIdentity): boolean {
+  if (identity.path !== undefined && identity.untitledId !== undefined) {
+    return false;
+  }
+  return true;
+}
+
 // `id` defaults to the active tab where optional. Tab ids are unique across
 // workspaces; group ids are resolved inside the tab's own workspace.
 export const commandSchema = z.discriminatedUnion("type", [
@@ -87,21 +106,44 @@ export const commandSchema = z.discriminatedUnion("type", [
     preview: z.boolean().optional(),
   }),
   z.object({
+    type: z.literal("new-file"),
+    projectTabId: z.number().optional(),
+  }),
+  z.object({
+    type: z.literal("move-file"),
+    projectTabId: z.number().optional(),
+    path: z.string().optional(),
+    untitledId: z.number().optional(),
+    index: z.number(),
+  }).refine(hasExactlyOneFileIdentity, {
+    error: "move-file needs exactly one file identity",
+  }),
+  z.object({
     type: z.literal("activate-file"),
     projectTabId: z.number().optional(),
-    path: z.string(),
+    path: z.string().optional(),
+    untitledId: z.number().optional(),
+  }).refine(hasExactlyOneFileIdentity, {
+    error: "activate-file needs exactly one file identity",
   }),
   z.object({
     type: z.literal("close-file"),
     projectTabId: z.number().optional(),
-    path: z.string(),
+    path: z.string().optional(),
+    untitledId: z.number().optional(),
+  }).refine(hasExactlyOneFileIdentity, {
+    error: "close-file needs exactly one file identity",
   }),
-  // Save guards on the mtime captured at read. Omitting path means the
-  // visible file; Save All covers every dirty buffer in one project tab.
+  // Save guards on the mtime captured at read. Omitting a file identity means
+  // the visible file. destinationPath saves an untitled buffer without UI.
   z.object({
     type: z.literal("save-file"),
     projectTabId: z.number().optional(),
     path: z.string().optional(),
+    untitledId: z.number().optional(),
+    destinationPath: z.string().optional(),
+  }).refine(hasAtMostOneFileIdentity, {
+    error: "save-file accepts at most one file identity",
   }),
   z.object({
     type: z.literal("save-all-files"),
@@ -191,14 +233,53 @@ export type LmuxEvent =
   // the file was re-read; its text is in the view, not in the state
   | { type: "markdown-reloaded"; id: number; state: LmuxState }
   | { type: "file-opened"; id: number; path: string; state: LmuxState }
-  | { type: "file-activated"; id: number; path: string; state: LmuxState }
-  | { type: "file-closed"; id: number; path: string; state: LmuxState }
-  | { type: "dirty-changed"; id: number; path: string; state: LmuxState }
-  | { type: "file-saved"; id: number; path: string; state: LmuxState }
+  | { type: "file-created"; id: number; untitledId: number; state: LmuxState }
+  | {
+      type: "file-moved";
+      id: number;
+      path: string | null;
+      untitledId?: number;
+      state: LmuxState;
+    }
+  | {
+      type: "file-activated";
+      id: number;
+      path: string | null;
+      untitledId?: number;
+      state: LmuxState;
+    }
+  | {
+      type: "file-closed";
+      id: number;
+      path: string | null;
+      untitledId?: number;
+      state: LmuxState;
+    }
+  | {
+      type: "dirty-changed";
+      id: number;
+      path: string | null;
+      untitledId?: number;
+      state: LmuxState;
+    }
+  | {
+      type: "file-saved";
+      id: number;
+      path: string;
+      previousUntitledId?: number;
+      state: LmuxState;
+    }
+  | {
+      type: "file-save-canceled";
+      id: number;
+      untitledId: number;
+      state: LmuxState;
+    }
   | {
       type: "file-save-failed";
       id: number;
-      path: string;
+      path: string | null;
+      untitledId?: number;
       error: string;
       state: LmuxState;
     }
@@ -206,6 +287,7 @@ export type LmuxEvent =
       type: "files-save-finished";
       id: number;
       failedPaths: string[];
+      failedUntitledIds: number[];
       state: LmuxState;
     }
   | {
@@ -215,11 +297,19 @@ export type LmuxEvent =
       state: LmuxState;
     };
 
-export type ProjectFileInfo = {
-  path: string;
-  dirty: boolean;
-  pinned: boolean;
-};
+export type ProjectFileInfo =
+  | {
+      path: string;
+      dirty: boolean;
+      pinned: boolean;
+    }
+  | {
+      path: null;
+      title: "Untitled";
+      untitledId: number;
+      dirty: boolean;
+      pinned: true;
+    };
 
 export type TabInfo =
   | { id: number; title: string; kind: "terminal" }
@@ -231,6 +321,7 @@ export type TabInfo =
       kind: "project";
       workspaceRootPath: string;
       activeFilePath: string | null;
+      activeUntitledId?: number;
       files: ProjectFileInfo[];
     };
 

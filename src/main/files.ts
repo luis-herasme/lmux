@@ -1,11 +1,13 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain } from "electron";
 import { readFile, realpath, stat, writeFile } from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { getShellCwd } from "./shells.ts";
+import { saveNewFileRequestSchema } from "../ipc/bridge.ts";
 import type {
   ReadFileRequest,
   ReadFileResult,
+  SaveNewFileResult,
   WriteFileRequest,
   WriteFileResult,
 } from "../ipc/bridge.ts";
@@ -92,6 +94,63 @@ ipcMain.handle(
       // the write set a new mtime, which the next save guards against
       const afterWriteStats = await stat(request.path);
       return { mtimeMs: afterWriteStats.mtimeMs };
+    } catch (error) {
+      return { error: String(error) };
+    }
+  },
+);
+
+ipcMain.handle(
+  "file:save-new",
+  async (event, untrustedRequest: unknown): Promise<SaveNewFileResult> => {
+    const parsedRequest = saveNewFileRequestSchema.safeParse(untrustedRequest);
+    if (!parsedRequest.success) {
+      return { error: `Invalid Save As request: ${parsedRequest.error.message}` };
+    }
+    const request = parsedRequest.data;
+    let selectedPath = request.destinationPath;
+    if (selectedPath === undefined) {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (window === null) {
+        return { error: "The file has no window for its Save dialog" };
+      }
+      const result = await dialog.showSaveDialog(window, {
+        title: "Save As",
+        defaultPath: path.join(request.directoryPath, request.suggestedName),
+      });
+      if (result.canceled || result.filePath === "") {
+        return { canceled: true };
+      }
+      selectedPath = result.filePath;
+    } else if (!path.isAbsolute(selectedPath)) {
+      return { error: "A destination path must be absolute" };
+    }
+
+    let comparisonPath = path.resolve(selectedPath);
+    try {
+      comparisonPath = await realpath(comparisonPath);
+    } catch {
+      // A new path has no canonical form until it has been written.
+    }
+    if (request.excludedPaths.includes(comparisonPath)) {
+      return { error: `${comparisonPath} is already open in this project tab` };
+    }
+
+    try {
+      if (request.destinationPath === undefined) {
+        await writeFile(selectedPath, request.content, "utf8");
+      } else {
+        await writeFile(selectedPath, request.content, {
+          encoding: "utf8",
+          flag: "wx",
+        });
+      }
+      const resolvedPath = await realpath(selectedPath);
+      const fileStats = await stat(resolvedPath);
+      return {
+        resolvedPath,
+        mtimeMs: fileStats.mtimeMs,
+      };
     } catch (error) {
       return { error: String(error) };
     }

@@ -6,8 +6,10 @@ import {
   activateProjectFile,
   changeProjectWorkspaceRoot,
   closeProjectFile,
+  createUntitledProjectFile,
   disposeProjectTab,
   focusProjectTab,
+  moveProjectFile,
   openProjectFile,
   openProjectTab,
   saveAllProjectFiles,
@@ -811,6 +813,31 @@ export function executeCommand(command: Command): void {
       });
       return;
     }
+    case "new-file": {
+      const resolved = resolveProjectTab(command.projectTabId);
+      if (resolved === undefined) {
+        return;
+      }
+      createUntitledProjectFile({
+        id: resolved.id,
+        tab: resolved.tab,
+      });
+      return;
+    }
+    case "move-file": {
+      const resolved = resolveProjectTab(command.projectTabId);
+      if (resolved === undefined) {
+        return;
+      }
+      moveProjectFile({
+        id: resolved.id,
+        tab: resolved.tab,
+        filePath: command.path,
+        untitledId: command.untitledId,
+        index: command.index,
+      });
+      return;
+    }
     case "activate-file": {
       const resolved = resolveProjectTab(command.projectTabId);
       if (resolved === undefined) {
@@ -820,6 +847,7 @@ export function executeCommand(command: Command): void {
         id: resolved.id,
         tab: resolved.tab,
         filePath: command.path,
+        untitledId: command.untitledId,
       });
       return;
     }
@@ -832,6 +860,7 @@ export function executeCommand(command: Command): void {
         id: resolved.id,
         tab: resolved.tab,
         filePath: command.path,
+        untitledId: command.untitledId,
       });
       return;
     }
@@ -867,6 +896,8 @@ export function executeCommand(command: Command): void {
         id: resolved.id,
         tab: resolved.tab,
         filePath: command.path,
+        untitledId: command.untitledId,
+        destinationPath: command.destinationPath,
       });
       return;
     }
@@ -995,8 +1026,11 @@ export function readScreen(request: ScreenRequest): ScreenResult {
   if (found.tab.kind === "project") {
     let path: string | null = null;
     let language: string | null = null;
-    if (found.tab.activeFilePath !== undefined) {
-      path = found.tab.activeFilePath;
+    if (found.tab.activeFileKey !== undefined) {
+      const buffer = found.tab.files.get(found.tab.activeFileKey);
+      if (buffer?.filePath !== undefined) {
+        path = buffer.filePath;
+      }
       const model = found.tab.editor.getModel();
       if (model !== null) {
         language = model.getLanguageId();
@@ -1120,6 +1154,7 @@ export async function restoreSession(session: Session): Promise<void> {
             id: project.id,
             tab: project.tab,
             filePath: tab.activeFilePath,
+            untitledId: undefined,
           });
         }
         continue;

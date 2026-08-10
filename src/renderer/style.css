@@ -548,7 +548,19 @@ dialog select:focus {
   border-right: 1px solid var(--separator);
   font-family: var(--ui-font-family);
   font-size: 12px;
-  cursor: default;
+  cursor: grab;
+}
+
+.file-tab:active {
+  cursor: grabbing;
+}
+
+.file-tab.file-drop-before {
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+.file-tab.file-drop-after {
+  box-shadow: inset -2px 0 var(--accent);
 }
 
 .file-tab.active {

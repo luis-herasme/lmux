@@ -38,15 +38,23 @@ export function confirmKilling({
 
 export type DirtyCloseChoice = "save" | "discard" | "cancel";
 
+type DirtyFile = {
+  path: string | null;
+  untitledId: number | undefined;
+  title: string;
+  detail: string;
+};
+
 type ChooseDirtyCloseOptions = {
   window: BrowserWindow;
   tabs: TabInfo[];
   action: string;
   onlyFilePath?: string;
+  onlyUntitledId?: number;
 };
 
-export function dirtyPathsForTabs(tabs: TabInfo[]): string[] {
-  const dirtyPaths: string[] = [];
+function dirtyFilesForTabs(tabs: TabInfo[]): DirtyFile[] {
+  const dirtyFiles: DirtyFile[] = [];
   for (const tab of tabs) {
     if (tab.kind !== "project") {
       continue;
@@ -55,10 +63,24 @@ export function dirtyPathsForTabs(tabs: TabInfo[]): string[] {
       if (!file.dirty) {
         continue;
       }
-      dirtyPaths.push(file.path);
+      if (file.path === null) {
+        dirtyFiles.push({
+          path: null,
+          untitledId: file.untitledId,
+          title: file.title,
+          detail: file.title,
+        });
+        continue;
+      }
+      dirtyFiles.push({
+        path: file.path,
+        untitledId: undefined,
+        title: path.basename(file.path),
+        detail: file.path,
+      });
     }
   }
-  return dirtyPaths;
+  return dirtyFiles;
 }
 
 export function chooseDirtyClose({
@@ -66,31 +88,46 @@ export function chooseDirtyClose({
   tabs,
   action,
   onlyFilePath,
+  onlyUntitledId,
 }: ChooseDirtyCloseOptions): DirtyCloseChoice {
-  let dirtyPaths = dirtyPathsForTabs(tabs);
-  if (onlyFilePath !== undefined) {
-    const matchingPaths: string[] = [];
-    for (const dirtyPath of dirtyPaths) {
-      if (dirtyPath === onlyFilePath) {
-        matchingPaths.push(dirtyPath);
+  let dirtyFiles = dirtyFilesForTabs(tabs);
+  if (onlyFilePath !== undefined || onlyUntitledId !== undefined) {
+    const matchingFiles: DirtyFile[] = [];
+    for (const dirtyFile of dirtyFiles) {
+      let matches = false;
+      if (onlyFilePath !== undefined && dirtyFile.path === onlyFilePath) {
+        matches = true;
+      }
+      if (
+        onlyUntitledId !== undefined &&
+        dirtyFile.untitledId === onlyUntitledId
+      ) {
+        matches = true;
+      }
+      if (matches) {
+        matchingFiles.push(dirtyFile);
       }
     }
-    dirtyPaths = matchingPaths;
+    dirtyFiles = matchingFiles;
   }
-  if (dirtyPaths.length === 0) {
+  if (dirtyFiles.length === 0) {
     return "discard";
   }
 
-  let message = `${dirtyPaths.length} files have unsaved changes.`;
+  const dirtyDetails: string[] = [];
+  for (const dirtyFile of dirtyFiles) {
+    dirtyDetails.push(dirtyFile.detail);
+  }
+  let message = `${dirtyFiles.length} files have unsaved changes.`;
   let saveLabel = "Save All";
-  if (dirtyPaths.length === 1) {
-    message = `"${path.basename(dirtyPaths[0])}" has unsaved changes.`;
+  if (dirtyFiles.length === 1) {
+    message = `"${dirtyFiles[0].title}" has unsaved changes.`;
     saveLabel = "Save";
   }
   const choice = dialog.showMessageBoxSync(window, {
     type: "warning",
     message,
-    detail: `${action} affects ${dirtyPaths.join(", ")}.`,
+    detail: `${action} affects ${dirtyDetails.join(", ")}.`,
     buttons: ["Cancel", "Don't Save", saveLabel],
     defaultId: 0,
     cancelId: 0,
