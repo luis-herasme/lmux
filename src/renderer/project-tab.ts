@@ -7,11 +7,16 @@ import {
   loadMonaco,
 } from "./code.ts";
 import type { Monaco } from "./code.ts";
+import type {
+  ReadProjectTreeRequest,
+  ReadProjectTreeResult,
+} from "../ipc/bridge.ts";
 import {
-  loadProjectTreeLibrary,
+  focusProjectTree,
   mountProjectTree,
   setProjectTreeDirty,
 } from "./project-tree.ts";
+import type { ProjectTree } from "./project-tree.ts";
 import { executeCommand } from "./tabs.ts";
 import type { TabElements } from "./tabs.ts";
 import {
@@ -21,7 +26,6 @@ import {
 } from "./workspaces.ts";
 import type { Workspace } from "./workspaces.ts";
 import type { editor as monacoEditor } from "monaco-editor";
-import type { FileTree as PierreFileTree } from "@pierre/trees";
 import type { IDockviewPanel, DockviewGroupPanel } from "dockview";
 
 export type ProjectFileBuffer = {
@@ -49,13 +53,14 @@ export type ProjectTab = {
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
   workspaceRootPath: string;
-  fileTree: PierreFileTree | undefined;
+  projectTree: ProjectTree | undefined;
   monaco: Monaco;
   editor: monacoEditor.IStandaloneCodeEditor;
   files: Map<string, ProjectFileBuffer>;
   activeFilePath: string | undefined;
   previewFilePath: string | undefined;
   latestFileRequest: number;
+  latestTreeRequest: number;
 };
 
 type ProjectPane = {
@@ -240,8 +245,7 @@ function updateTreeDirtyState(tab: ProjectTab): void {
     }
   }
   setProjectTreeDirty({
-    fileTree: tab.fileTree,
-    workspaceRootPath: tab.workspaceRootPath,
+    projectTree: tab.projectTree,
     dirtyFilePaths,
   });
 }
@@ -629,6 +633,85 @@ export async function saveAllProjectFiles({
   });
 }
 
+type LoadProjectTreeRootOptions = {
+  id: number;
+  tab: ProjectTab;
+  workspace: Workspace;
+  request: ReadProjectTreeRequest;
+  emitWorkspaceRootChanged: boolean;
+};
+
+async function loadProjectTreeRoot({
+  id,
+  tab,
+  workspace,
+  request,
+  emitWorkspaceRootChanged,
+}: LoadProjectTreeRootOptions): Promise<void> {
+  tab.latestTreeRequest += 1;
+  const treeRequest = tab.latestTreeRequest;
+  tab.projectTree = undefined;
+  tab.treeElement.textContent = "Loading workspace…";
+
+  let result: ReadProjectTreeResult;
+  try {
+    result = await bridge.readProjectTree(request);
+  } catch (error) {
+    result = { error: String(error) };
+  }
+  if (treeRequest !== tab.latestTreeRequest) {
+    return;
+  }
+  if ("error" in result) {
+    const messageElement = document.createElement("div");
+    messageElement.className = "project-tree-root-error";
+    messageElement.textContent = `Could not load workspace: ${result.error}`;
+
+    const retryElement = document.createElement("button");
+    retryElement.className = "project-tree-retry";
+    retryElement.type = "button";
+    retryElement.textContent = "Retry";
+    retryElement.addEventListener("click", () => {
+      loadProjectTreeRoot({
+        id,
+        tab,
+        workspace,
+        request,
+        emitWorkspaceRootChanged: true,
+      });
+    });
+    tab.treeElement.replaceChildren(messageElement, retryElement);
+    return;
+  }
+
+  tab.workspaceRootPath = result.workspaceRootPath;
+  tab.projectTree = mountProjectTree({
+    treeElement: tab.treeElement,
+    workspaceRootPath: result.workspaceRootPath,
+    entries: result.entries,
+    openFile: ({ filePath, preview }) => {
+      executeCommand({
+        type: "open-file",
+        path: filePath,
+        preview,
+      });
+    },
+  });
+  tab.titleElement.textContent = result.name;
+  tab.panel.setTitle(result.name);
+  updateTreeDirtyState(tab);
+  if (!emitWorkspaceRootChanged) {
+    return;
+  }
+  refreshWorkspaceName(workspace);
+  bridge.emitEvent({
+    type: "workspace-root-changed",
+    id,
+    path: result.workspaceRootPath,
+    state: snapshot(),
+  });
+}
+
 type OpenProjectTabOptions = {
   id: number;
   workspace: Workspace;
@@ -658,26 +741,7 @@ export async function openProjectTab({
     tabElement: tabElements.tabElement,
     group,
   });
-
-  const [treeResult, treeLibrary, monaco] = await Promise.all([
-    bridge.readProjectTree({
-      baseTabId,
-      workspaceRootPath,
-      filePath: initialFilePath,
-    }),
-    loadProjectTreeLibrary(),
-    loadMonaco(),
-  ]);
-
-  let resolvedWorkspaceRootPath = "";
-  let title = "Workspace";
-  if (!("error" in treeResult)) {
-    resolvedWorkspaceRootPath = treeResult.workspaceRootPath;
-    title = treeResult.name;
-  }
-  tabElements.titleElement.textContent = title;
-  panel.setTitle(title);
-
+  const monaco = await loadMonaco();
   const editor = createCodeEditor({
     monaco,
     container: pane.editorElement,
@@ -694,32 +758,16 @@ export async function openProjectTab({
     statusElement: pane.statusElement,
     emptyElement: pane.emptyElement,
     errorElement: pane.errorElement,
-    workspaceRootPath: resolvedWorkspaceRootPath,
-    fileTree: undefined,
+    workspaceRootPath: "",
+    projectTree: undefined,
     monaco,
     editor,
     files: new Map(),
     activeFilePath: undefined,
     previewFilePath: undefined,
     latestFileRequest: 0,
+    latestTreeRequest: 0,
   };
-
-  if ("error" in treeResult) {
-    pane.treeElement.textContent = `Could not open workspace tree: ${treeResult.error}`;
-  } else {
-    tab.fileTree = mountProjectTree({
-      treeElement: tab.treeElement,
-      entries: treeResult.entries,
-      treeLibrary,
-      openFile: ({ filePath, preview }) => {
-        executeCommand({
-          type: "open-file",
-          path: filePath,
-          preview,
-        });
-      },
-    });
-  }
   showEmptyEditor(tab);
 
   editor.onDidChangeModelContent(() => {
@@ -748,6 +796,17 @@ export async function openProjectTab({
     });
   });
 
+  await loadProjectTreeRoot({
+    id,
+    tab,
+    workspace,
+    request: {
+      baseTabId,
+      workspaceRootPath,
+      filePath: initialFilePath,
+    },
+    emitWorkspaceRootChanged: false,
+  });
   return tab;
 }
 
@@ -764,38 +823,12 @@ export async function changeProjectWorkspaceRoot({
   workspace,
   workspaceRootPath,
 }: ChangeWorkspaceRootOptions): Promise<void> {
-  tab.treeElement.textContent = "Loading workspace…";
-  const [result, treeLibrary] = await Promise.all([
-    bridge.readProjectTree({ workspaceRootPath }),
-    loadProjectTreeLibrary(),
-  ]);
-  if ("error" in result) {
-    tab.treeElement.textContent = `Could not change workspace root: ${result.error}`;
-    return;
-  }
-  tab.fileTree?.cleanUp();
-  tab.workspaceRootPath = result.workspaceRootPath;
-  tab.fileTree = mountProjectTree({
-    treeElement: tab.treeElement,
-    entries: result.entries,
-    treeLibrary,
-    openFile: ({ filePath, preview }) => {
-      executeCommand({
-        type: "open-file",
-        path: filePath,
-        preview,
-      });
-    },
-  });
-  tab.titleElement.textContent = result.name;
-  tab.panel.setTitle(result.name);
-  updateTreeDirtyState(tab);
-  refreshWorkspaceName(workspace);
-  bridge.emitEvent({
-    type: "workspace-root-changed",
+  await loadProjectTreeRoot({
     id,
-    path: result.workspaceRootPath,
-    state: snapshot(),
+    tab,
+    workspace,
+    request: { workspaceRootPath },
+    emitWorkspaceRootChanged: true,
   });
 }
 
@@ -807,20 +840,15 @@ export function focusProjectTab(tab: ProjectTab): void {
       return;
     }
   }
-  if (tab.fileTree === undefined) {
+  if (tab.projectTree === undefined) {
     tab.treeElement.focus();
     return;
   }
-  const focusedItem = tab.fileTree.getFocusedItem();
-  if (focusedItem !== null) {
-    focusedItem.focus();
-    return;
-  }
-  tab.fileTree.focusFirstItem();
+  focusProjectTree(tab.projectTree);
 }
 
 export function disposeProjectTab(tab: ProjectTab): void {
-  tab.fileTree?.cleanUp();
+  tab.latestTreeRequest += 1;
   for (const buffer of tab.files.values()) {
     buffer.model?.dispose();
   }

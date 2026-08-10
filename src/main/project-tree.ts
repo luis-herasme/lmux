@@ -1,7 +1,6 @@
 import { execFile } from "child_process";
 import { ipcMain } from "electron";
-import type { Dirent } from "fs";
-import { readdir, realpath } from "fs/promises";
+import { opendir, realpath } from "fs/promises";
 import * as path from "path";
 import { resolveFilePath } from "./files.ts";
 import { getShellCwd } from "./shells.ts";
@@ -11,8 +10,23 @@ import type {
   ReadProjectTreeResult,
 } from "../ipc/bridge.ts";
 
+const MAX_DIRECTORY_ENTRY_COUNT = 10_000;
+
 type ResolveWorkspaceRootResult =
   | { workspaceRootPath: string }
+  | { error: string };
+
+type ResolveWorkspaceDirectoryResult =
+  | { directoryPath: string }
+  | { error: string };
+
+type ReadWorkspaceDirectoryOptions = {
+  workspaceRootPath: string;
+  directoryPath: string;
+};
+
+type ReadWorkspaceDirectoryResult =
+  | { entries: ProjectTreeEntry[] }
   | { error: string };
 
 // Git failure leaves the candidate directory as the workspace root.
@@ -68,8 +82,13 @@ async function resolveWorkspaceRoot(
   if (workspaceRootPath === undefined) {
     const fromFile = await workspaceRootForFile(request);
     if (fromFile !== undefined) {
-      return fromFile;
+      if ("error" in fromFile) {
+        return fromFile;
+      }
+      workspaceRootPath = fromFile.workspaceRootPath;
     }
+  }
+  if (workspaceRootPath === undefined) {
     if (request.baseTabId === undefined) {
       return { error: "Can't find a workspace root without a terminal tab" };
     }
@@ -94,55 +113,104 @@ async function resolveWorkspaceRoot(
   }
 }
 
-type WalkWorkspaceDirectoryOptions = {
-  workspaceRootPath: string;
-  directoryPath: string;
-  entries: ProjectTreeEntry[];
-};
+async function resolveWorkspaceDirectory(
+  request: ReadProjectTreeRequest,
+  workspaceRootPath: string,
+): Promise<ResolveWorkspaceDirectoryResult> {
+  let requestedDirectoryPath = workspaceRootPath;
+  if (request.workspaceRelativeDirectoryPath !== undefined) {
+    requestedDirectoryPath = path.resolve(
+      workspaceRootPath,
+      request.workspaceRelativeDirectoryPath,
+    );
+    const relativePath = path.relative(
+      workspaceRootPath,
+      requestedDirectoryPath,
+    );
+    if (
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
+      return { error: "Can't read outside the workspace root" };
+    }
+  }
 
-async function walkWorkspaceDirectory({
+  try {
+    const canonicalDirectoryPath = await realpath(requestedDirectoryPath);
+    if (canonicalDirectoryPath !== requestedDirectoryPath) {
+      return { error: "Can't read a directory through a symbolic link" };
+    }
+    const relativePath = path.relative(
+      workspaceRootPath,
+      canonicalDirectoryPath,
+    );
+    if (
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
+      return { error: "Can't read outside the workspace root" };
+    }
+    return { directoryPath: canonicalDirectoryPath };
+  } catch (error) {
+    return { error: String(error) };
+  }
+}
+
+async function readWorkspaceDirectory({
   workspaceRootPath,
   directoryPath,
-  entries,
-}: WalkWorkspaceDirectoryOptions): Promise<void> {
-  let directoryEntries: Dirent[];
+}: ReadWorkspaceDirectoryOptions): Promise<ReadWorkspaceDirectoryResult> {
+  const entries: ProjectTreeEntry[] = [];
+  let entryCount = 0;
+
   try {
-    directoryEntries = await readdir(directoryPath, { withFileTypes: true });
-  } catch (error) {
-    if (directoryPath === workspaceRootPath) {
-      throw error;
-    }
-    // One protected child should not hide the rest of a readable workspace.
-    return;
-  }
-  for (const directoryEntry of directoryEntries) {
-    if (directoryEntry.name === ".git" || directoryEntry.isSymbolicLink()) {
-      continue;
-    }
-    const entryPath = path.join(directoryPath, directoryEntry.name);
-    let relativePath = path.relative(workspaceRootPath, entryPath);
-    relativePath = relativePath.split(path.sep).join("/");
-    if (directoryEntry.isDirectory()) {
+    const directory = await opendir(directoryPath);
+    for await (const directoryEntry of directory) {
+      entryCount += 1;
+      if (entryCount > MAX_DIRECTORY_ENTRY_COUNT) {
+        return {
+          error: `Directory contains more than ${MAX_DIRECTORY_ENTRY_COUNT.toLocaleString()} entries`,
+        };
+      }
+      if (directoryEntry.name === ".git" || directoryEntry.isSymbolicLink()) {
+        continue;
+      }
+      if (!directoryEntry.isDirectory() && !directoryEntry.isFile()) {
+        continue;
+      }
+
+      const entryPath = path.join(directoryPath, directoryEntry.name);
+      let relativePath = path.relative(workspaceRootPath, entryPath);
+      relativePath = relativePath.split(path.sep).join("/");
+      if (directoryEntry.isDirectory()) {
+        entries.push({
+          kind: "directory",
+          path: relativePath,
+        });
+        continue;
+      }
       entries.push({
-        kind: "directory",
+        kind: "file",
         path: relativePath,
+        absolutePath: entryPath,
       });
-      await walkWorkspaceDirectory({
-        workspaceRootPath,
-        directoryPath: entryPath,
-        entries,
-      });
-      continue;
     }
-    if (!directoryEntry.isFile()) {
-      continue;
-    }
-    entries.push({
-      kind: "file",
-      path: relativePath,
-      absolutePath: entryPath,
-    });
+  } catch (error) {
+    return { error: String(error) };
   }
+
+  entries.sort((leftEntry, rightEntry) => {
+    if (leftEntry.kind !== rightEntry.kind) {
+      if (leftEntry.kind === "directory") {
+        return -1;
+      }
+      return 1;
+    }
+    return leftEntry.path.localeCompare(rightEntry.path);
+  });
+  return { entries };
 }
 
 ipcMain.handle(
@@ -155,24 +223,29 @@ ipcMain.handle(
     if ("error" in resolvedRoot) {
       return resolvedRoot;
     }
-    const entries: ProjectTreeEntry[] = [];
-    try {
-      await walkWorkspaceDirectory({
-        workspaceRootPath: resolvedRoot.workspaceRootPath,
-        directoryPath: resolvedRoot.workspaceRootPath,
-        entries,
-      });
-      let name = path.basename(resolvedRoot.workspaceRootPath);
-      if (name.length === 0) {
-        name = resolvedRoot.workspaceRootPath;
-      }
-      return {
-        workspaceRootPath: resolvedRoot.workspaceRootPath,
-        name,
-        entries,
-      };
-    } catch (error) {
-      return { error: String(error) };
+    const resolvedDirectory = await resolveWorkspaceDirectory(
+      request,
+      resolvedRoot.workspaceRootPath,
+    );
+    if ("error" in resolvedDirectory) {
+      return resolvedDirectory;
     }
+    const directoryResult = await readWorkspaceDirectory({
+      workspaceRootPath: resolvedRoot.workspaceRootPath,
+      directoryPath: resolvedDirectory.directoryPath,
+    });
+    if ("error" in directoryResult) {
+      return directoryResult;
+    }
+
+    let name = path.basename(resolvedRoot.workspaceRootPath);
+    if (name.length === 0) {
+      name = resolvedRoot.workspaceRootPath;
+    }
+    return {
+      workspaceRootPath: resolvedRoot.workspaceRootPath,
+      name,
+      entries: directoryResult.entries,
+    };
   },
 );

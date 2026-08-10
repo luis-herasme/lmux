@@ -206,10 +206,10 @@ A **bundler** does it ahead of time: it follows every import from an entry
 file, resolves each specifier to a real file, and writes the result out as
 one file with no imports left to resolve. lmux avoids needing one by loading
 libraries that ship browser builds from a relative `node_modules` path, with
-two exceptions: Monaco and Pierre Trees both import dependencies by bare
-specifier. `scripts/bundle-vendor.mjs` bundles those two with **esbuild**;
-everything else, including all of our own code, is still `tsc` output the
-browser resolves itself.
+one exception: Monaco imports dependencies by bare specifier.
+`scripts/bundle-vendor.mjs` bundles Monaco with **esbuild**; everything else,
+including all of our own code, is still `tsc` output the browser resolves
+itself.
 
 ## Web Worker
 
@@ -398,13 +398,17 @@ A **workspace root** is the stable top directory shown by one workspace's file
 tree. The first project tab derives it from a file's Git repository, or from a
 terminal's Git repository or current directory. Changing it is explicit and
 does not close file tabs. Resolving it to its real path and refusing to follow
-symbolic links keeps a walk from escaping that boundary.
+symbolic links keeps directory reads inside that boundary.
 
 A **file tree** is the hierarchical view of every directory and file below the
 workspace root. The paths are its identities: `src/main/index.ts` names the
-same item in the renderer, the public state and the main-process directory
-walk. Pierre Trees virtualizes the rows, so only the visible portion enters
-the DOM.
+same item in the renderer, the public state and main's filesystem reads.
+
+**Lazy loading** means work waits until its result is needed. The file tree
+reads the root first, then reads a directory's immediate children only when a
+person expands it. Collapsed subtrees therefore cost no filesystem work, IPC
+payload or DOM rows. A loaded directory remains cached for the project tab's
+lifetime.
 
 ## Project tab / file tab
 
