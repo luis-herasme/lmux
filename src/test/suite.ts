@@ -421,18 +421,17 @@ async function clickVisibleTreeFile({
       if (treeElement.offsetParent === null) {
         continue;
       }
-      const host = treeElement.querySelector("file-tree-container");
-      if (host === null || host.shadowRoot === null) {
-        return { clicked: false, gitVisible: false };
-      }
       let target = null;
       let gitVisible = false;
-      for (const item of host.shadowRoot.querySelectorAll("[data-item-path]")) {
-        const itemPath = item.getAttribute("data-item-path");
+      for (const item of treeElement.querySelectorAll("[data-project-tree-path]")) {
+        const itemPath = item.getAttribute("data-project-tree-path");
         if (itemPath === ".git") {
           gitVisible = true;
         }
-        if (itemPath === ${JSON.stringify(relativePath)}) {
+        if (
+          itemPath === ${JSON.stringify(relativePath)} &&
+          item.getAttribute("data-project-tree-kind") === "file"
+        ) {
           target = item;
         }
       }
@@ -441,7 +440,6 @@ async function clickVisibleTreeFile({
       }
       target.dispatchEvent(new MouseEvent("click", {
         bubbles: true,
-        composed: true,
         detail: ${resolvedClickCount},
       }));
       return { clicked: true, gitVisible };
@@ -449,6 +447,45 @@ async function clickVisibleTreeFile({
     return { clicked: false, gitVisible: false };
   })()`);
   return treeClickSchema.parse(probed);
+}
+
+async function visibleTreeItemExists(relativePath: string): Promise<boolean> {
+  const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    for (const treeElement of document.querySelectorAll(".project-tree")) {
+      if (treeElement.offsetParent === null) {
+        continue;
+      }
+      for (const item of treeElement.querySelectorAll("[data-project-tree-path]")) {
+        if (item.getAttribute("data-project-tree-path") === ${JSON.stringify(relativePath)}) {
+          return true;
+        }
+      }
+    }
+    return false;
+  })()`);
+  return z.boolean().parse(result);
+}
+
+async function expandVisibleTreeDirectory(relativePath: string): Promise<boolean> {
+  const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    for (const treeElement of document.querySelectorAll(".project-tree")) {
+      if (treeElement.offsetParent === null) {
+        continue;
+      }
+      for (const item of treeElement.querySelectorAll("[data-project-tree-path]")) {
+        if (
+          item.getAttribute("data-project-tree-path") === ${JSON.stringify(relativePath)} &&
+          item.getAttribute("data-project-tree-kind") === "directory" &&
+          item instanceof HTMLElement
+        ) {
+          item.click();
+          return true;
+        }
+      }
+    }
+    return false;
+  })()`);
+  return z.boolean().parse(result);
 }
 
 const suite = describe("the command bus", () => {
@@ -787,9 +824,11 @@ const suite = describe("the command bus", () => {
     body: async () => {
       const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-tree-"));
       const nestedPath = path.join(rootPath, "nested");
+      const nestedFilePath = path.join(nestedPath, "nested.ts");
       const filePath = path.join(rootPath, "project.ts");
       const otherFilePath = path.join(rootPath, "other.ts");
       mkdirSync(nestedPath);
+      writeFileSync(nestedFilePath, "export const nested = true;\n");
       writeFileSync(filePath, "export const project = true;\n");
       writeFileSync(otherFilePath, "export const other = true;\n");
       execFileSync("git", ["init", "--quiet", rootPath]);
@@ -870,6 +909,13 @@ const suite = describe("the command bus", () => {
         assert.equal(projectScreen.kind, "project");
         assert.equal(projectScreen.workspaceRootPath, canonicalRootPath);
         assert.equal(projectScreen.path, null);
+
+        assert.equal(await visibleTreeItemExists("nested/nested.ts"), false);
+        assert.equal(await expandVisibleTreeDirectory("nested"), true);
+        await pollUntil({
+          check: () => visibleTreeItemExists("nested/nested.ts"),
+          description: "the expanded directory to load its immediate children",
+        });
 
         const firstOpening = waitForEvent(
           (event) =>
@@ -965,15 +1011,21 @@ const suite = describe("the command bus", () => {
         );
         const tabDoubleClicked = z.boolean().parse(
           await lmuxWindow.webContents.executeJavaScript(`(() => {
-            const element = document.querySelector(".file-tab.active");
-            if (!(element instanceof HTMLElement)) {
-              return false;
+            for (const paneElement of document.querySelectorAll(".project-pane")) {
+              if (paneElement.offsetParent === null) {
+                continue;
+              }
+              const element = paneElement.querySelector(".file-tab.active");
+              if (!(element instanceof HTMLElement)) {
+                return false;
+              }
+              element.dispatchEvent(new MouseEvent("dblclick", {
+                bubbles: true,
+                detail: 2,
+              }));
+              return true;
             }
-            element.dispatchEvent(new MouseEvent("dblclick", {
-              bubbles: true,
-              detail: 2,
-            }));
-            return true;
+            return false;
           })()`),
         );
         assert.equal(tabDoubleClicked, true);

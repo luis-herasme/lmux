@@ -437,25 +437,88 @@ dialog select:focus {
   background: var(--background);
 }
 
-/* Pierre Trees is themed through public custom properties on its host. */
 .project-tree {
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
+  padding: 6px 0;
   border-right: 1px solid var(--separator);
   background: var(--background);
   color: var(--tab-foreground);
   font-family: var(--ui-font-family);
   font-size: 13px;
-  --trees-bg-override: var(--background);
-  --trees-fg-override: var(--foreground);
-  --trees-fg-muted-override: var(--tab-foreground);
-  --trees-selected-bg-override: var(--selection-background);
-  --trees-selected-fg-override: var(--foreground);
-  --trees-border-color-override: var(--separator);
-  --trees-focus-ring-color-override: var(--accent);
-  --trees-font-family-override: var(--ui-font-family);
-  --trees-font-size-override: 13px;
-  --trees-scrollbar-thumb-override: var(--scrollbar-thumb);
+}
+
+.project-tree-list {
+  margin: 0;
+  padding-left: 16px;
+  list-style: none;
+}
+
+.project-tree-root {
+  padding-left: 0;
+}
+
+.project-tree-row {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  overflow: hidden;
+  padding: 3px 8px;
+  color: inherit;
+  font: inherit;
+  line-height: 18px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.project-tree-directory > summary {
+  display: list-item;
+  padding-left: 2px;
+}
+
+.project-tree-file {
+  border: 0;
+  background: transparent;
+}
+
+.project-tree-row:hover,
+.project-tree-row:focus-visible {
+  color: var(--foreground);
+  background: var(--selection-background);
+  outline: none;
+}
+
+.project-tree-file.dirty::after {
+  content: "M";
+  float: right;
+  margin-left: 8px;
+  color: var(--accent);
+}
+
+.project-tree-message,
+.project-tree-root-error {
+  padding: 3px 8px;
+  color: var(--tab-foreground);
+  line-height: 18px;
+}
+
+.project-tree-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.project-tree-retry {
+  padding: 2px 8px;
+  color: inherit;
+  background: var(--separator);
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
 }
 
 .project-editor-region {

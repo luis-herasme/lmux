@@ -68,7 +68,7 @@ closeTab(id)                 renderer → main   "the outer ×: guard every dirt
 closeFile({projectTabId, filePath}) renderer → main "the inner ×: guard that one buffer"
 readFile({path, baseTabId})  renderer → main   "read a document or project buffer" (request/response)
 writeFile({...})             renderer → main   "save one buffer with its expected mtime" (request/response)
-readProjectTree({...})       renderer → main   "resolve and walk one workspace root" (request/response)
+readProjectTree({...})       renderer → main   "resolve a root and list one directory" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
 onScreenRead({readId, ...})  main → renderer   "what is tab `id` showing?" (request/response, the only one this way)
 answerScreenRead({readId, result}) renderer → main "here is what it shows"
@@ -185,7 +185,7 @@ src/
     bus.ts             dispatch() into the renderer; Event intake (the read model); the screen query
     mcp.ts             the API socket: MCP over a unix socket, tools generated from commandSchema
     files.ts           file:read and file:write for project buffers; both resolve against a shell's cwd
-    project-tree.ts    workspace-root resolution and the guarded directory walk
+    project-tree.ts    workspace-root resolution and bounded directory reads
     session-state.ts   the last session on disk: written while closing, read before the page exists
   renderer/
     index.html         the page: title bar, sidebar, the layout root, the modals
@@ -201,7 +201,7 @@ src/
     sidebar-resize.ts  the sidebar's drag handle; a drag ends as one Command
     markdown.ts        GitHub-look rendering (markdown-it + DOMPurify)
     project-tab.ts     one workspace's file tabs, buffers and Monaco editor
-    project-tree.ts    Pierre Trees: bundle loading, path translation and file activation
+    project-tree.ts    native lazy directories, dirty marks and file activation
     code.ts            Monaco: loaded on demand, themed from THEMES, language by filename
     file-links.ts      the terminal link provider: Cmd+click a *.md or source path
     dom.ts             requireElement: strict lookups of index.html's fixed elements
@@ -234,8 +234,8 @@ change it and update this list.
   dependency — see the bundler entry below.)
 - **Only browser-incompatible dependencies are bundled.** (Narrows "no
   bundler", which held until Monaco.) Most libraries expose files the page can
-  load directly. Monaco and Pierre Trees instead use bare specifiers, so
-  `scripts/bundle-vendor.mjs` writes their browser bundles to `dist/vendor/`.
+  load directly. Monaco instead uses bare specifiers, so
+  `scripts/bundle-vendor.mjs` writes its browser bundle to `dist/vendor/`.
   The app's own modules remain one-to-one `tsc` output, and another dependency
   joins the bundle only when a feature demonstrates the same need.
 - **Monaco is loaded when the first project tab opens, not at boot.** It is
@@ -271,13 +271,15 @@ change it and update this list.
   offer Save All. Dirty state is a ● in the file tab and a modified mark in
   the tree, and it rides in `TabInfo` for main and agents. Sessions restore
   pinned paths from disk, never unsaved model contents or the preview file.
-- **The workspace tree is backed by Pierre Trees.** Main resolves the root
-  from the first file or named terminal, omits `.git` and symlinks, and skips
-  unreadable children. Pierre receives relative paths and virtualizes visible
-  rows. `@pierre/trees` remains pinned at `1.0.0-beta.6` because it and Preact
-  are prereleases. Click activation listens inside Pierre's shadow root because
-  selection changes omit repeat clicks. File mutations and filesystem watching
-  remain out of scope.
+- **The workspace tree loads one directory at a time.** (Replaces the eager
+  Pierre Trees implementation.) Main resolves the root from the first file or
+  named terminal, then returns only one directory's immediate children. Native
+  `<details>` elements request children on first expansion and retain them for
+  the project tab's lifetime. Reads omit `.git`, symlinks and special entries;
+  stop with a visible error above 10,000 immediate entries; and expose Retry
+  after filesystem failures. Root changes show one loading state and commit the
+  root, title and tree together. Row virtualization and paged reads remain in
+  #44; file mutations, refresh and filesystem watching remain out of scope.
 - **The IPC contract is a type.** `src/ipc/bridge.ts` declares `Bridge`;
   preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.
@@ -988,10 +990,10 @@ change it and update this list.
   "send these Commands, assert on the state that comes back", using the
   snapshot main already keeps as its read model, which is the same thing the
   future server will answer from. Three facts are read out of the page instead:
-  a terminal's fitted rows, a document's scroll position and a click inside
-  Pierre's shadow root. Those go through `executeJavaScript`, the one place the
-  project accepts an unverified code string, because nothing typed can express
-  a DOM read across processes.
+  a terminal's fitted rows, a document's scroll position and file-tree clicks.
+  Those go through `executeJavaScript`, the one place the project accepts an
+  unverified code string, because nothing typed can express a DOM read across
+  processes.
   Four properties of the host had to be discovered rather than assumed, and
   all four are load-bearing: Electron holds the `ready` event until its ESM
   entry has finished evaluating, so a top-level `await app.whenReady()`

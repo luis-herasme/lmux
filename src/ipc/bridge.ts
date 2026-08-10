@@ -51,6 +51,8 @@ export type ReadProjectTreeRequest = {
   baseTabId?: number;
   workspaceRootPath?: string;
   filePath?: string;
+  // Absent reads the root. Present reads only this directory's children.
+  workspaceRelativeDirectoryPath?: string;
 };
 
 export type ProjectTreeEntry =
