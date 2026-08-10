@@ -471,7 +471,7 @@ dialog select:focus {
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
 }
 
 .project-tree-directory > summary {
@@ -581,19 +581,6 @@ dialog select:focus {
 
 .file-tab-close:hover {
   background: var(--selection-background);
-}
-
-.file-header {
-  flex: none;
-  min-height: 24px;
-  padding: 5px 10px;
-  overflow: hidden;
-  color: var(--tab-foreground);
-  border-bottom: 1px solid var(--separator);
-  font-family: var(--ui-font-family);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .project-editor-body {

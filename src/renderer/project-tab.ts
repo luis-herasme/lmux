@@ -48,7 +48,6 @@ export type ProjectTab = {
   treeElement: HTMLElement;
   editorElement: HTMLElement;
   fileTabsElement: HTMLElement;
-  fileHeaderElement: HTMLElement;
   statusElement: HTMLElement;
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
@@ -68,7 +67,6 @@ type ProjectPane = {
   treeElement: HTMLElement;
   editorElement: HTMLElement;
   fileTabsElement: HTMLElement;
-  fileHeaderElement: HTMLElement;
   statusElement: HTMLElement;
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
@@ -84,9 +82,6 @@ function buildProjectPane(): ProjectPane {
   fileTabsElement.className = "file-tabs";
   fileTabsElement.setAttribute("role", "tablist");
   fileTabsElement.setAttribute("aria-label", "Open files");
-
-  const fileHeaderElement = document.createElement("div");
-  fileHeaderElement.className = "file-header";
 
   const statusElement = document.createElement("div");
   statusElement.className = "code-status";
@@ -111,7 +106,6 @@ function buildProjectPane(): ProjectPane {
   editorRegionElement.className = "project-editor-region";
   editorRegionElement.append(
     fileTabsElement,
-    fileHeaderElement,
     statusElement,
     editorBodyElement,
   );
@@ -125,7 +119,6 @@ function buildProjectPane(): ProjectPane {
     treeElement,
     editorElement,
     fileTabsElement,
-    fileHeaderElement,
     statusElement,
     emptyElement,
     errorElement,
@@ -135,25 +128,6 @@ function buildProjectPane(): ProjectPane {
 function fileNameForPath(filePath: string): string {
   const separatorPosition = filePath.lastIndexOf("/");
   return filePath.slice(separatorPosition + 1);
-}
-
-type PathInsideWorkspaceOptions = {
-  tab: ProjectTab;
-  filePath: string;
-};
-
-function pathInsideWorkspace({
-  tab,
-  filePath,
-}: PathInsideWorkspaceOptions): string | undefined {
-  let prefix = tab.workspaceRootPath;
-  if (!prefix.endsWith("/")) {
-    prefix += "/";
-  }
-  if (!filePath.startsWith(prefix)) {
-    return undefined;
-  }
-  return filePath.slice(prefix.length);
 }
 
 type BuildFileTabOptions = {
@@ -256,7 +230,6 @@ function showEmptyEditor(tab: ProjectTab): void {
   tab.emptyElement.classList.add("visible");
   tab.errorElement.classList.remove("visible");
   tab.editorElement.classList.remove("visible");
-  tab.fileHeaderElement.textContent = "";
   tab.statusElement.classList.remove("visible");
   for (const buffer of tab.files.values()) {
     buffer.tabElement.classList.remove("active");
@@ -292,17 +265,6 @@ function activateBuffer({
       candidate.tabElement.tabIndex = 0;
     }
   }
-
-  let headerPath = buffer.filePath;
-  const workspacePath = pathInsideWorkspace({
-    tab,
-    filePath: buffer.filePath,
-  });
-  if (workspacePath !== undefined) {
-    headerPath = workspacePath;
-  }
-  tab.fileHeaderElement.textContent = headerPath;
-  tab.fileHeaderElement.title = buffer.filePath;
 
   if (buffer.model === undefined) {
     tab.editor.setModel(null);
@@ -754,7 +716,6 @@ export async function openProjectTab({
     treeElement: pane.treeElement,
     editorElement: pane.editorElement,
     fileTabsElement: pane.fileTabsElement,
-    fileHeaderElement: pane.fileHeaderElement,
     statusElement: pane.statusElement,
     emptyElement: pane.emptyElement,
     errorElement: pane.errorElement,
