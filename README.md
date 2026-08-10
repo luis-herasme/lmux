@@ -114,7 +114,7 @@ the other end echoes it back.
 | `src/renderer/tabs/markdown-tab.ts` | A document's pane: toolbar, rendered/raw, reload, its links |
 | `src/renderer/tabs/markdown.ts` | GitHub-look Markdown rendering (markdown-it + DOMPurify)    |
 | `src/renderer/tabs/file-links.ts` | Terminal link provider: Cmd+click a source path opens it   |
-| `src/renderer/tabs/project-tab.ts` | One workspace's file buffers, tabs, editor and tree lifecycle |
+| `src/renderer/tabs/project-tab.ts` | Resizable tree, file buffers, tabs and editor lifecycle       |
 | `src/renderer/tabs/project-tree.ts` | Lazy tree rows, reconciliation and Git decorations        |
 | `src/renderer/tabs/code.ts`    | Monaco loading, theming and language selection               |
 | `src/renderer/rename-dialog.ts`| The rename modal (tabs and workspaces)                       |

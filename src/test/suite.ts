@@ -491,6 +491,15 @@ async function expandVisibleTreeDirectory(relativePath: string): Promise<boolean
   return z.boolean().parse(result);
 }
 
+const projectTreeResizeResultSchema = z.object({
+  found: z.boolean(),
+  initialWidth: z.number(),
+  pointerWidth: z.number(),
+  keyboardWidth: z.number(),
+  role: z.string().nullable(),
+  orientation: z.string().nullable(),
+});
+
 const projectTreeAppearanceSchema = z.object({
   rootPaddingLeft: z.number(),
   disclosureUsesCodicon: z.boolean(),
@@ -1049,6 +1058,94 @@ const suite = describe("the command bus", () => {
       assert.equal(screen.kind, "project");
       assert.equal(screen.path, SOURCE_FILE_PATH);
       assert.equal(screen.language, "typescript");
+    },
+  });
+
+  busTest({
+    name: "the project file tree can be resized",
+    body: async () => {
+      const projectWorkspace = await openWorkspace();
+      const terminalTab = projectWorkspace.tabs.at(0);
+      if (terminalTab === undefined || terminalTab.kind !== "terminal") {
+        throw new Error("the project workspace has no terminal");
+      }
+      sendCommand({
+        type: "open-file",
+        path: SOURCE_FILE_PATH,
+        baseTabId: terminalTab.id,
+      });
+      await waitForEvent(
+        (event) =>
+          event.type === "file-opened" && event.path === SOURCE_FILE_PATH,
+      );
+
+      const resizeResult = projectTreeResizeResultSchema.parse(
+        await lmuxWindow.webContents.executeJavaScript(`(() => {
+          for (const paneElement of document.querySelectorAll(".project-pane")) {
+            if (paneElement.offsetParent === null) {
+              continue;
+            }
+            const treeElement = paneElement.querySelector(".project-tree");
+            const resizeHandleElement = paneElement.querySelector(
+              ".project-tree-resizer",
+            );
+            if (
+              !(treeElement instanceof HTMLElement) ||
+              !(resizeHandleElement instanceof HTMLElement)
+            ) {
+              continue;
+            }
+            const paneBounds = paneElement.getBoundingClientRect();
+            const initialWidth = treeElement.getBoundingClientRect().width;
+            const targetClientX = paneBounds.left + initialWidth + 48;
+            resizeHandleElement.dispatchEvent(new MouseEvent("mousedown", {
+              bubbles: true,
+              button: 0,
+              clientX: paneBounds.left + initialWidth,
+            }));
+            document.dispatchEvent(new MouseEvent("mousemove", {
+              bubbles: true,
+              clientX: targetClientX,
+            }));
+            document.dispatchEvent(new MouseEvent("mouseup", {
+              bubbles: true,
+              clientX: targetClientX,
+            }));
+            const pointerWidth = treeElement.getBoundingClientRect().width;
+            resizeHandleElement.dispatchEvent(new KeyboardEvent("keydown", {
+              bubbles: true,
+              key: "ArrowLeft",
+            }));
+            return {
+              found: true,
+              initialWidth,
+              pointerWidth,
+              keyboardWidth: treeElement.getBoundingClientRect().width,
+              role: resizeHandleElement.getAttribute("role"),
+              orientation: resizeHandleElement.getAttribute("aria-orientation"),
+            };
+          }
+          return {
+            found: false,
+            initialWidth: 0,
+            pointerWidth: 0,
+            keyboardWidth: 0,
+            role: null,
+            orientation: null,
+          };
+        })()`),
+      );
+      assert.equal(resizeResult.found, true);
+      assert.ok(
+        resizeResult.pointerWidth > resizeResult.initialWidth + 40,
+        "dragging the handle did not widen the file tree",
+      );
+      assert.ok(
+        resizeResult.keyboardWidth < resizeResult.pointerWidth,
+        "ArrowLeft did not narrow the file tree",
+      );
+      assert.equal(resizeResult.role, "separator");
+      assert.equal(resizeResult.orientation, "vertical");
     },
   });
 

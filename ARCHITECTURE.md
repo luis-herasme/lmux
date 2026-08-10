@@ -200,7 +200,7 @@ src/
       file-links.ts    terminal link provider: Cmd+click a *.md or source path
       markdown-tab.ts  a document's pane: the toolbar, the two modes, reload, its links
       markdown.ts      GitHub-look rendering (markdown-it + DOMPurify)
-      project-tab.ts   one workspace's file tabs, buffers and Monaco editor
+      project-tab.ts   resizable file tree, file tabs, buffers and Monaco editor
       project-tree.ts  native lazy directories, Git decorations and file activation
       code.ts          Monaco: loaded on demand, themed from THEMES, language by filename
     rename-dialog.ts   the rename modal
@@ -522,6 +522,13 @@ change it and update this list.
   tab components (the strip scrolls instead). Double-clicking a tab
   issues `toggle-maximize` (2026-08, the tmux-zoom gesture): the tab's
   group fills the window and `LmuxState.maximizedGroupId` records it.
+- **The project tree's resize handle is tab-local layout.** Dragging it, or
+  using Left and Right Arrow while it is focused, changes only the pixels
+  inside that project tab. Like a Dockview divider size, it issues no Command
+  or Event because observers do not need layout measurements. The width is
+  clamped so the tree and editor both remain usable, lasts for the life of the
+  project tab, and resets when that tab is recreated. Cost we accept: it does
+  not survive a relaunch.
 - **The title bar is painted, not native.** (Decided 2026-08.) macOS
   offers no way to recolor the standard title bar, so the window is
   created with `titleBarStyle: "hiddenInset"`: the traffic lights stay

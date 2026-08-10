@@ -315,6 +315,13 @@ use it for the rename modal; Electron has no *native* text-input dialog,
 so an in-window modal is the standard Electron pattern (VS Code's input
 boxes are the same idea).
 
+## Resize handle
+
+A narrow draggable separator between two regions. The project tab's handle
+changes how much horizontal space belongs to the file tree; Left and Right
+Arrow provide the same control from the keyboard. This is local pane layout,
+so the width lasts for that project tab rather than becoming public state.
+
 ## ResizeObserver
 
 A browser API that calls you back whenever an element's box changes size,
