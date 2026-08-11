@@ -989,6 +989,12 @@ dialog select:focus {
 
 .terminal-pane {
   height: 100%;
+}
+
+/* The inset lives on .xterm, not the pane: the fit addon subtracts .xterm's
+   padding but reads the pane's computed height, which in Chromium includes
+   the pane's own padding — pane padding would make the grid a row too tall,
+   cropping the terminal's last line. */
+.terminal-pane .xterm {
   padding: 4px;
-  box-sizing: border-box;
 }

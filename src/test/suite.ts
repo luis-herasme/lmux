@@ -69,6 +69,26 @@ const VISIBLE_TERMINAL_ROWS = `(() => {
   return counts;
 })()`;
 
+// style.css keeps the terminal's 4px inset on .xterm, where the fit addon
+// subtracts it; on the pane it would inflate the height the addon reads
+// (Chromium reports a border-box height) and the grid could gain a row that
+// hangs past the pane's bottom edge, cropping the terminal's last line.
+const TERMINAL_INSET_PX = 4;
+
+const VISIBLE_TERMINAL_BOTTOM_GAP = `(() => {
+  for (const pane of document.querySelectorAll(".terminal-pane")) {
+    if (pane.offsetParent === null) {
+      continue;
+    }
+    const screen = pane.querySelector(".xterm-screen");
+    return (
+      pane.getBoundingClientRect().bottom -
+      screen.getBoundingClientRect().bottom
+    );
+  }
+  return null;
+})()`;
+
 const VISIBLE_DOCUMENT = `(() => {
   for (const element of document.querySelectorAll(".markdown-scroll")) {
     if (element.offsetParent === null) {
@@ -112,6 +132,7 @@ const DOUBLE_CLICK_SIDEBAR = `document
   .dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`;
 
 const rowCountsSchema = z.array(z.number().int());
+const bottomGapSchema = z.number();
 const scrollTopSchema = z.number();
 const refusedSchema = z.boolean();
 const documentSchema = z.object({
@@ -731,6 +752,22 @@ async function projectTreeGitDecorationStatuses(
 }
 
 const suite = describe("the command bus", () => {
+  // first, before any case has resized the window or split a pane: the gap
+  // is a property of the boot layout the harness settled
+  busTest({
+    name: "the terminal grid keeps its inset from the pane's bottom edge",
+    body: async () => {
+      const probed = await lmuxWindow.webContents.executeJavaScript(
+        VISIBLE_TERMINAL_BOTTOM_GAP,
+      );
+      const gap = bottomGapSchema.parse(probed);
+      assert.ok(
+        gap >= TERMINAL_INSET_PX,
+        `the grid's last row ends ${gap}px above the pane's edge, inside the ${TERMINAL_INSET_PX}px inset`,
+      );
+    },
+  });
+
   busTest({
     name: "tab ids stay unique across workspaces",
     body: async () => {
