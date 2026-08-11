@@ -40,9 +40,9 @@ click does nothing, matching file links.
 
 **Structure.** Matching is a pure function, `matchTerminalLinks(text)`, so
 the committed suite can test it without a mouse; the buffer-coordinate math
-(match index → 1-based x/y range) moves to a pure `bufferRange` helper for
-the same reason. Since the module now recognizes more than file paths, it is
-renamed `file-links.ts` → `links.ts` and `registerFileLinks` →
+(match index → 1-based x/y range) moves to a `bufferRange` helper to keep
+`provideLinks` flat. Since the module now recognizes more than file paths,
+it is renamed `file-links.ts` → `links.ts` and `registerFileLinks` →
 `registerTerminalLinks`.
 
 ## Out of scope
@@ -53,6 +53,8 @@ renamed `file-links.ts` → `links.ts` and `registerFileLinks` →
   already assumes single-width cells; URLs inherit that known limitation
 - Detecting URLs by any means other than the scheme prefix (`example.com`
   without a scheme stays plain text)
+- IPv6 literal hosts (`http://[::1]:5173/`), since `[` ends a URL the same
+  way it ends a path
 - Trimming `:line:col` suffixes off URLs in stack traces
   (`http://host/app.js:12:5` links whole; a rule that distinguishes them
   from `host:port` is more machinery than the link is worth)

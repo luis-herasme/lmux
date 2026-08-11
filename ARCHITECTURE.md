@@ -660,6 +660,11 @@ change it and update this list.
   against the directory of the document holding it, so a doc tree is
   browsable in place, while anything carrying a scheme is left to main and
   every other relative path is ignored rather than followed.
+- **Terminal URLs open through the existing window-open interception, not a
+  new IPC channel.** (Decided 2026-08-11.) Cmd+clicking a URL link calls
+  `window.open(url)`; main's `setWindowOpenHandler` already denies the
+  popup and hands the URL to `openExternally`, so the protocol allowlist
+  keeps living in the one place it always has.
 - **A markdown tab can show the file instead of the document, and can
   re-read it.** (Decided 2026-08.) Two buttons in a toolbar at the top of
   the pane: one swaps between the rendering and the file's own text, the
@@ -1053,11 +1058,6 @@ change it and update this list.
   above: native HTML5 drags and pointer capture. The menu path is a third,
   since it depends on OS focus. CI does not run this yet: `check.yml` runs on
   Linux, where Electron needs a window server.
-- **Terminal URLs open through the existing window-open interception, not a
-  new IPC channel.** (Decided 2026-08-11.) Cmd+clicking a URL link calls
-  `window.open(url)`; main's `setWindowOpenHandler` already denies the
-  popup and hands the URL to `openExternally`, so the protocol allowlist
-  keeps living in the one place it always has.
 
 ## Where future features will live
 
