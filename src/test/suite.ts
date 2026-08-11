@@ -2818,6 +2818,62 @@ const linkMatching = describe("terminal link matching", () => {
       ]);
     },
   });
+
+  busTest({
+    name: "a URL is a url match",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("https://github.com/owner/repo"), [
+        { kind: "url", index: 0, text: "https://github.com/owner/repo" },
+      ]);
+    },
+  });
+
+  busTest({
+    name: "a URL ending in a linked extension is a url match, not a file match",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("https://example.com/app.js"), [
+        { kind: "url", index: 0, text: "https://example.com/app.js" },
+      ]);
+    },
+  });
+
+  busTest({
+    name: "a URL with a port links whole",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("http://localhost:3000/app.js"), [
+        { kind: "url", index: 0, text: "http://localhost:3000/app.js" },
+      ]);
+    },
+  });
+
+  busTest({
+    name: "sentence punctuation after a URL stays outside the match",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("visit https://example.com."), [
+        { kind: "url", index: 6, text: "https://example.com" },
+      ]);
+    },
+  });
+
+  busTest({
+    name: "a scheme with nothing usable behind it matches nothing",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("https://."), []);
+    },
+  });
+
+  busTest({
+    name: "URLs and file paths link side by side",
+    body: async () => {
+      assert.deepEqual(
+        matchTerminalLinks("open https://a.com/x.ts or src/b.ts"),
+        [
+          { kind: "url", index: 5, text: "https://a.com/x.ts" },
+          { kind: "file", index: 27, text: "src/b.ts" },
+        ],
+      );
+    },
+  });
 });
 
 await suite;

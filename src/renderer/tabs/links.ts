@@ -51,6 +51,15 @@ const PATH_PATTERN = new RegExp(
   "g",
 );
 
+// A URL is recognized by its scheme alone, so it links no matter what it
+// ends in; the same characters are excluded as for paths, so quoting and
+// brackets end a URL the same way they end a path.
+const URL_PATTERN = /https?:\/\/[^\s"'`()[\]{}<>]+/g;
+
+// Punctuation that ends the sentence around a URL far more often than it
+// ends the URL itself.
+const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
+
 const MAX_LINE_LENGTH = 4096;
 
 // Which kind of tab a path should open. Decided here, where the extensions
@@ -65,13 +74,34 @@ export type TerminalLinkMatch = {
 
 export function matchTerminalLinks(text: string): TerminalLinkMatch[] {
   const matches: TerminalLinkMatch[] = [];
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const url = match[0].replace(TRAILING_PUNCTUATION, "");
+    if (!URL.canParse(url)) {
+      continue;
+    }
+    matches.push({
+      kind: "url",
+      index: match.index,
+      text: url,
+    });
+  }
   for (const match of text.matchAll(PATH_PATTERN)) {
+    // a path that starts inside a URL is the URL's tail, not a file
+    const claimedByUrl = matches.some(
+      (url) =>
+        match.index >= url.index && match.index < url.index + url.text.length,
+    );
+    if (claimedByUrl) {
+      continue;
+    }
     matches.push({
       kind: "file",
       index: match.index,
       text: match[0],
     });
   }
+  // in the order they appear on the line, whatever their kind
+  matches.sort((a, b) => a.index - b.index);
   return matches;
 }
 
@@ -152,16 +182,22 @@ export function registerTerminalLinks({
             if (!event.metaKey) {
               return;
             }
+            if (match.kind === "url") {
+              // main denies the popup this asks for and hands the URL to
+              // the default browser instead, through its protocol allowlist
+              window.open(linkText);
+              return;
+            }
             const extension = linkText
               .slice(linkText.lastIndexOf(".") + 1)
               .toLowerCase();
-            let kind: LinkedFileKind = "code";
+            let fileKind: LinkedFileKind = "code";
             if (MARKDOWN_EXTENSIONS.includes(extension)) {
-              kind = "markdown";
+              fileKind = "markdown";
             }
             openPath({
               path: linkText,
-              kind,
+              kind: fileKind,
             });
           },
         });

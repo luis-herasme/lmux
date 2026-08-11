@@ -197,7 +197,7 @@ src/
     tabs/
       index.ts         Tab store + executeCommand (the consumer), kept behind the bus
       terminal-tab.ts  terminal pane, xterm lifecycle and terminal screen reads
-      file-links.ts    terminal link provider: Cmd+click a *.md or source path
+      links.ts         terminal link provider: Cmd+click a *.md or source path, or a URL
       markdown-tab.ts  a document's pane: the toolbar, the two modes, reload, its links
       markdown.ts      GitHub-look rendering (markdown-it + DOMPurify)
       project-tab.ts   resizable file tree, file tabs, buffers and Monaco editor
