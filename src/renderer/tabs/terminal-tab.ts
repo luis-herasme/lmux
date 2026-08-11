@@ -1,7 +1,7 @@
 import { currentTheme, getSettings } from "../settings.ts";
 import { bridge } from "../bridge.ts";
 import { executeCommand } from "./index.ts";
-import { registerFileLinks } from "./file-links.ts";
+import { registerTerminalLinks } from "./links.ts";
 import {
   activeWorkspace,
   addPanel,
@@ -173,7 +173,7 @@ export function openTerminalTab({
     });
   });
 
-  registerFileLinks({
+  registerTerminalLinks({
     terminal,
     openPath: ({ path, kind }) => {
       if (kind === "markdown") {

@@ -36,6 +36,7 @@ import { lmuxState } from "../main/bus.ts";
 import { sessionFromState } from "../session.ts";
 import type { LmuxState, TabInfo, WorkspaceInfo } from "../api.ts";
 import { readProjectTreeGitDecorationsResultSchema } from "../ipc/bridge.ts";
+import { matchTerminalLinks } from "../renderer/tabs/links.ts";
 
 // tsc emits no .md, so the fixture is read from source, the way main reads
 // index.html.
@@ -2780,5 +2781,35 @@ const suite = describe("the command bus", () => {
   });
 });
 
+// Pure string-in, matches-out: the one part of the terminal link provider
+// that does not need a mouse, so the one part the suite can pin down.
+const linkMatching = describe("terminal link matching", () => {
+  busTest({
+    name: "a path ending in a linked extension is a file match",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("src/main/files.ts"), [
+        { kind: "file", index: 0, text: "src/main/files.ts" },
+      ]);
+    },
+  });
+
+  busTest({
+    name: "brackets around a path stay outside the match",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("(see docs/notes.md)"), [
+        { kind: "file", index: 5, text: "docs/notes.md" },
+      ]);
+    },
+  });
+
+  busTest({
+    name: "text without linkable paths matches nothing",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("ls -la && npm run build"), []);
+    },
+  });
+});
+
 await suite;
+await linkMatching;
 endRun();

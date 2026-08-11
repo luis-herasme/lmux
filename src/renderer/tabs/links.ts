@@ -57,20 +57,63 @@ const MAX_LINE_LENGTH = 4096;
 // are, rather than by the caller reading the path a second time.
 export type LinkedFileKind = "markdown" | "code";
 
+export type TerminalLinkMatch = {
+  kind: "url" | "file";
+  index: number;
+  text: string;
+};
+
+export function matchTerminalLinks(text: string): TerminalLinkMatch[] {
+  const matches: TerminalLinkMatch[] = [];
+  for (const match of text.matchAll(PATH_PATTERN)) {
+    matches.push({
+      kind: "file",
+      index: match.index,
+      text: match[0],
+    });
+  }
+  return matches;
+}
+
 type OpenLinkedPath = (options: {
   path: string;
   kind: LinkedFileKind;
 }) => void;
 
-type RegisterFileLinksOptions = {
+type BufferRangeOptions = {
+  match: TerminalLinkMatch;
+  terminal: XtermTerminal;
+  firstRow: number;
+};
+
+// buffer coords are 1-based; index math assumes single-width chars
+function bufferRange({
+  match,
+  terminal,
+  firstRow,
+}: BufferRangeOptions): ILink["range"] {
+  const lastIndex = match.index + match.text.length - 1;
+  return {
+    start: {
+      x: (match.index % terminal.cols) + 1,
+      y: firstRow + Math.floor(match.index / terminal.cols) + 1,
+    },
+    end: {
+      x: (lastIndex % terminal.cols) + 1,
+      y: firstRow + Math.floor(lastIndex / terminal.cols) + 1,
+    },
+  };
+}
+
+type RegisterTerminalLinksOptions = {
   terminal: XtermTerminal;
   openPath: OpenLinkedPath;
 };
 
-export function registerFileLinks({
+export function registerTerminalLinks({
   terminal,
   openPath,
-}: RegisterFileLinksOptions): void {
+}: RegisterTerminalLinksOptions): void {
   terminal.registerLinkProvider({
     provideLinks: (bufferLineNumber, callback) => {
       // a wrapped path spans multiple buffer rows; join them
@@ -97,21 +140,10 @@ export function registerFileLinks({
         return;
       }
       const links: ILink[] = [];
-      for (const match of text.matchAll(PATH_PATTERN)) {
-        const lastIndex = match.index + match[0].length - 1;
+      for (const match of matchTerminalLinks(text)) {
         links.push({
-          // buffer coords are 1-based; index math assumes single-width chars
-          range: {
-            start: {
-              x: (match.index % terminal.cols) + 1,
-              y: firstRow + Math.floor(match.index / terminal.cols) + 1,
-            },
-            end: {
-              x: (lastIndex % terminal.cols) + 1,
-              y: firstRow + Math.floor(lastIndex / terminal.cols) + 1,
-            },
-          },
-          text: match[0],
+          range: bufferRange({ match, terminal, firstRow }),
+          text: match.text,
           decorations: {
             pointerCursor: true,
             underline: true,
