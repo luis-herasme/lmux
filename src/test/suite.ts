@@ -2892,6 +2892,13 @@ const linkMatching = describe("terminal link matching", () => {
       ]);
     },
   });
+
+  busTest({
+    name: "a malformed URL is neither a link nor a file",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("https://a.com:99999/app.ts"), []);
+    },
+  });
 });
 
 await suite;

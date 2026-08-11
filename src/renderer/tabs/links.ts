@@ -74,7 +74,11 @@ export type TerminalLinkMatch = {
 
 export function matchTerminalLinks(text: string): TerminalLinkMatch[] {
   const matches: TerminalLinkMatch[] = [];
+  // scheme-shaped spans claim their range even when they fail to parse: a
+  // malformed URL must stay plain text, never become a file link
+  const urlSpans: { index: number; length: number }[] = [];
   for (const match of text.matchAll(URL_PATTERN)) {
+    urlSpans.push({ index: match.index, length: match[0].length });
     const url = match[0].replace(TRAILING_PUNCTUATION, "");
     if (!URL.canParse(url)) {
       continue;
@@ -87,10 +91,10 @@ export function matchTerminalLinks(text: string): TerminalLinkMatch[] {
   }
   for (const match of text.matchAll(PATH_PATTERN)) {
     // a path overlapping a URL is part of that URL, not a file
-    const claimedByUrl = matches.some(
-      (urlMatch) =>
-        match.index < urlMatch.index + urlMatch.text.length &&
-        urlMatch.index < match.index + match[0].length,
+    const claimedByUrl = urlSpans.some(
+      (span) =>
+        match.index < span.index + span.length &&
+        span.index < match.index + match[0].length,
     );
     if (claimedByUrl) {
       continue;
