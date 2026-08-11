@@ -998,3 +998,11 @@ dialog select:focus {
 .terminal-pane .xterm {
   padding: 4px;
 }
+
+/* xterm's stylesheet paints .xterm-viewport black, and since v6 the theme
+   background is set inline on the scrollable element instead, which only
+   spans the character grid: the viewport fills the whole .xterm box, so the
+   inset and the fit remainder around the grid would show its black. */
+.terminal-pane .xterm-viewport {
+  background-color: var(--background);
+}

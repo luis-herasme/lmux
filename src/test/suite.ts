@@ -90,6 +90,24 @@ const VISIBLE_TERMINAL_BOTTOM_GAP = `(() => {
   return null;
 })()`;
 
+// xterm's stylesheet paints .xterm-viewport black and, since v6, sets the
+// theme background inline on the scrollable element, which only spans the
+// character grid: without style.css overriding the viewport, the inset and
+// the fit remainder around the grid show as a black frame.
+const VISIBLE_TERMINAL_SURROUND = `(() => {
+  for (const pane of document.querySelectorAll(".terminal-pane")) {
+    if (pane.offsetParent === null) {
+      continue;
+    }
+    const viewport = pane.querySelector(".xterm-viewport");
+    return {
+      viewport: getComputedStyle(viewport).backgroundColor,
+      page: getComputedStyle(document.body).backgroundColor,
+    };
+  }
+  return null;
+})()`;
+
 const VISIBLE_DOCUMENT = `(() => {
   for (const element of document.querySelectorAll(".markdown-scroll")) {
     if (element.offsetParent === null) {
@@ -134,6 +152,10 @@ const DOUBLE_CLICK_SIDEBAR = `document
 
 const rowCountsSchema = z.array(z.number().int());
 const bottomGapSchema = z.number();
+const terminalSurroundSchema = z.object({
+  viewport: z.string(),
+  page: z.string(),
+});
 const scrollTopSchema = z.number();
 const refusedSchema = z.boolean();
 const documentSchema = z.object({
@@ -765,6 +787,21 @@ const suite = describe("the command bus", () => {
       assert.ok(
         gap >= TERMINAL_INSET_PX,
         `the grid's last row ends ${gap}px above the pane's edge, inside the ${TERMINAL_INSET_PX}px inset`,
+      );
+    },
+  });
+
+  busTest({
+    name: "the terminal's surround shares the page background",
+    body: async () => {
+      const probed = await lmuxWindow.webContents.executeJavaScript(
+        VISIBLE_TERMINAL_SURROUND,
+      );
+      const surround = terminalSurroundSchema.parse(probed);
+      assert.equal(
+        surround.viewport,
+        surround.page,
+        "the viewport behind the grid's surround left xterm's black instead of the theme background",
       );
     },
   });

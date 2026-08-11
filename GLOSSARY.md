@@ -299,6 +299,19 @@ and the terminal's last line hangs past the pane's edge, cropped. The fix is
 where the padding lives — on the `.xterm` element, whose padding the addon
 explicitly measures and subtracts (style.css).
 
+## Viewport / scrollable element (xterm's layers)
+
+Inside the `.xterm` element xterm stacks two boxes. The **viewport**
+(`.xterm-viewport`) is a plain div absolutely positioned to fill the whole
+`.xterm` box; xterm's stylesheet paints it black. The **scrollable element**
+(`.xterm-scrollable-element`, since xterm v6) wraps the character grid and
+is the box the theme's background color is painted on — but it only spans
+the grid, cols × rows cells. Whatever the grid does not cover — the inset
+around it and the fit remainder past the last row and column — shows the
+viewport behind it, so unless the app restyles the viewport, that surround
+is black no matter what theme the terminal draws with (style.css overrides
+it to the theme background).
+
 ## Code - OSS / openvscode-server / Open VSX
 
 Three names that come up around embedding VS Code. **Code - OSS** is the
