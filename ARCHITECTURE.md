@@ -197,7 +197,7 @@ src/
     tabs/
       index.ts         Tab store + executeCommand (the consumer), kept behind the bus
       terminal-tab.ts  terminal pane, xterm lifecycle and terminal screen reads
-      file-links.ts    terminal link provider: Cmd+click a *.md or source path
+      links.ts         terminal link provider: Cmd+click a *.md or source path, or a URL
       markdown-tab.ts  a document's pane: the toolbar, the two modes, reload, its links
       markdown.ts      GitHub-look rendering (markdown-it + DOMPurify)
       project-tab.ts   resizable file tree, file tabs, buffers and Monaco editor
@@ -660,6 +660,11 @@ change it and update this list.
   against the directory of the document holding it, so a doc tree is
   browsable in place, while anything carrying a scheme is left to main and
   every other relative path is ignored rather than followed.
+- **Terminal URLs open through the existing window-open interception, not a
+  new IPC channel.** (Decided 2026-08-11.) Cmd+clicking a URL link calls
+  `window.open(url)`; main's `setWindowOpenHandler` already denies the
+  popup and hands the URL to `openExternally`, so the protocol allowlist
+  keeps living in the one place it always has.
 - **A markdown tab can show the file instead of the document, and can
   re-read it.** (Decided 2026-08.) Two buttons in a toolbar at the top of
   the pane: one swaps between the rendering and the file's own text, the

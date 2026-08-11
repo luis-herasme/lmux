@@ -255,11 +255,13 @@ into index.html's styles.
 xterm's hook for making arbitrary terminal text clickable. The emulator
 has no idea what a path or URL is; a link provider is asked, per buffer
 line, "any links here?" and answers with character ranges and an activate
-callback. Ours matches `*.md` paths (after joining wrapped rows, since a
-long path spans several buffer rows) and opens the file rendered on
-Cmd+click. The complementary mechanism is OSC 8, an escape sequence a
-program uses to *declare* a hyperlink explicitly; provider-side detection
-needs no cooperation from the program, which is why we started there.
+callback. Ours matches file paths ending in a linked extension (after
+joining wrapped rows, since a long path spans several buffer rows) —
+markdown opens rendered, code opens in the editor — and `http(s)` URLs,
+which open in the default browser; all on Cmd+click. The complementary
+mechanism is OSC 8, an escape sequence a program uses to *declare* a
+hyperlink explicitly; provider-side detection needs no cooperation from
+the program, which is why we started there.
 
 ## Drag region / hiddenInset
 
