@@ -419,7 +419,8 @@ under its new name.)
 - [ ] **Step 4: Run the suite to verify it passes**
 
 Run: `npm test`
-Expected: PASS — all nine "terminal link matching" tests and every pre-existing test green.
+Expected: PASS — every "terminal link matching" test (thirteen once all
+review amendments landed) and every pre-existing test green.
 
 - [ ] **Step 5: Commit**
 
