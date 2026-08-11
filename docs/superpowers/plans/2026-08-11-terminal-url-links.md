@@ -232,6 +232,11 @@ git commit -m "Extract pure terminal link matcher
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
 
+> **Review amendment (applied after Task 1's code review):** `bufferRange`
+> takes `cols: number` instead of the whole terminal (call site passes
+> `cols: terminal.cols`), and a fourth characterization test pins that two
+> paths on one line come back in the order they appear.
+
 ---
 
 ### Task 2: Recognize URLs; open them externally
@@ -354,33 +359,43 @@ export function matchTerminalLinks(text: string): TerminalLinkMatch[] {
       text: match[0],
     });
   }
+  // in the order they appear on the line, whatever their kind
+  matches.sort((a, b) => a.index - b.index);
   return matches;
 }
 ```
 
-In `registerTerminalLinks`, at the top of the `for (const match of matchTerminalLinks(text))` loop body, add the url branch:
+In `registerTerminalLinks`, the two kinds share everything but what a click
+does, so the branch lives inside the one `activate` closure rather than in a
+second link literal. Replace the existing `activate` with:
 
 ```ts
-        if (match.kind === "url") {
-          links.push({
-            range: bufferRange({ match, terminal, firstRow }),
-            text: match.text,
-            decorations: {
-              pointerCursor: true,
-              underline: true,
-            },
-            activate: (event, linkText) => {
-              if (!event.metaKey) {
-                return;
-              }
+          activate: (event, linkText) => {
+            if (!event.metaKey) {
+              return;
+            }
+            if (match.kind === "url") {
               // main denies the popup this asks for and hands the URL to
               // the default browser instead, through its protocol allowlist
               window.open(linkText);
-            },
-          });
-          continue;
-        }
+              return;
+            }
+            const extension = linkText
+              .slice(linkText.lastIndexOf(".") + 1)
+              .toLowerCase();
+            let fileKind: LinkedFileKind = "code";
+            if (MARKDOWN_EXTENSIONS.includes(extension)) {
+              fileKind = "markdown";
+            }
+            openPath({
+              path: linkText,
+              kind: fileKind,
+            });
+          },
 ```
+
+(The local `kind` is renamed `fileKind` here because `match.kind` now appears
+in the same closure and names a different axis.)
 
 Update the two doc lines:
 
@@ -395,6 +410,10 @@ Update the two doc lines:
 ```
       links.ts         terminal link provider: Cmd+click a *.md or source path, or a URL
 ```
+
+(Keep the README table's column alignment consistent after the shorter path,
+and keep the ARCHITECTURE tree entry in a position that still reads naturally
+under its new name.)
 
 - [ ] **Step 4: Run the suite to verify it passes**
 
