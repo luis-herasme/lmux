@@ -86,10 +86,11 @@ export function matchTerminalLinks(text: string): TerminalLinkMatch[] {
     });
   }
   for (const match of text.matchAll(PATH_PATTERN)) {
-    // a path that starts inside a URL is the URL's tail, not a file
+    // a path overlapping a URL is part of that URL, not a file
     const claimedByUrl = matches.some(
-      (url) =>
-        match.index >= url.index && match.index < url.index + url.text.length,
+      (urlMatch) =>
+        match.index < urlMatch.index + urlMatch.text.length &&
+        urlMatch.index < match.index + match[0].length,
     );
     if (claimedByUrl) {
       continue;

@@ -2874,6 +2874,24 @@ const linkMatching = describe("terminal link matching", () => {
       );
     },
   });
+
+  busTest({
+    name: "a path match reaching back over a URL does not claim it",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("--docs=https://example.com/app.js"), [
+        { kind: "url", index: 7, text: "https://example.com/app.js" },
+      ]);
+    },
+  });
+
+  busTest({
+    name: "a trailing slash is part of the URL",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("Local: http://localhost:5173/"), [
+        { kind: "url", index: 7, text: "http://localhost:5173/" },
+      ]);
+    },
+  });
 });
 
 await suite;
