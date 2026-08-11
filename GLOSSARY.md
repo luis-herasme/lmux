@@ -284,6 +284,19 @@ rarely an exact multiple of the cell height, so a leftover strip of a few
 pixels always exists past the last row. Terminals hide it by painting it the
 same color as the screen.
 
+## box-sizing (and the computed-height trap)
+
+`box-sizing` decides what a CSS `height` counts: just the content
+(`content-box`, the default) or content plus padding and border
+(`border-box`). The trap is that `getComputedStyle().height` — the only way
+script can read another element's styled height — reports whichever box the
+element's `box-sizing` points at. xterm's fit addon sizes the grid from the
+pane's computed height, so a `border-box` pane with padding reads as taller
+than the space the grid actually has: the addon deals out one row too many
+and the terminal's last line hangs past the pane's edge, cropped. The fix is
+where the padding lives — on the `.xterm` element, whose padding the addon
+explicitly measures and subtracts (style.css).
+
 ## Code - OSS / openvscode-server / Open VSX
 
 Three names that come up around embedding VS Code. **Code - OSS** is the
