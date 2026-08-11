@@ -2808,6 +2808,16 @@ const linkMatching = describe("terminal link matching", () => {
       assert.deepEqual(matchTerminalLinks("ls -la && npm run build"), []);
     },
   });
+
+  busTest({
+    name: "two paths on one line match in the order they appear",
+    body: async () => {
+      assert.deepEqual(matchTerminalLinks("diff src/a.ts src/b.ts"), [
+        { kind: "file", index: 5, text: "src/a.ts" },
+        { kind: "file", index: 14, text: "src/b.ts" },
+      ]);
+    },
+  });
 });
 
 await suite;

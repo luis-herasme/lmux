@@ -82,25 +82,25 @@ type OpenLinkedPath = (options: {
 
 type BufferRangeOptions = {
   match: TerminalLinkMatch;
-  terminal: XtermTerminal;
+  cols: number;
   firstRow: number;
 };
 
 // buffer coords are 1-based; index math assumes single-width chars
 function bufferRange({
   match,
-  terminal,
+  cols,
   firstRow,
 }: BufferRangeOptions): ILink["range"] {
   const lastIndex = match.index + match.text.length - 1;
   return {
     start: {
-      x: (match.index % terminal.cols) + 1,
-      y: firstRow + Math.floor(match.index / terminal.cols) + 1,
+      x: (match.index % cols) + 1,
+      y: firstRow + Math.floor(match.index / cols) + 1,
     },
     end: {
-      x: (lastIndex % terminal.cols) + 1,
-      y: firstRow + Math.floor(lastIndex / terminal.cols) + 1,
+      x: (lastIndex % cols) + 1,
+      y: firstRow + Math.floor(lastIndex / cols) + 1,
     },
   };
 }
@@ -142,7 +142,7 @@ export function registerTerminalLinks({
       const links: ILink[] = [];
       for (const match of matchTerminalLinks(text)) {
         links.push({
-          range: bufferRange({ match, terminal, firstRow }),
+          range: bufferRange({ match, cols: terminal.cols, firstRow }),
           text: match.text,
           decorations: {
             pointerCursor: true,
