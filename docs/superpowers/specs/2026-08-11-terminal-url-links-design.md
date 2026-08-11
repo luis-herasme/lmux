@@ -48,6 +48,9 @@ more than file paths, it is renamed `file-links.ts` → `links.ts` and
   already assumes single-width cells; URLs inherit that known limitation
 - Detecting URLs by any means other than the scheme prefix (`example.com`
   without a scheme stays plain text)
+- Trimming `:line:col` suffixes off URLs in stack traces
+  (`http://host/app.js:12:5` links whole; a rule that distinguishes them
+  from `host:port` is more machinery than the link is worth)
 
 ## Verification
 

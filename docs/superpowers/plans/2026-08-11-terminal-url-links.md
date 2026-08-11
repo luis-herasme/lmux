@@ -345,10 +345,11 @@ export function matchTerminalLinks(text: string): TerminalLinkMatch[] {
     });
   }
   for (const match of text.matchAll(PATH_PATTERN)) {
-    // a path that starts inside a URL is the URL's tail, not a file
+    // a path overlapping a URL is part of that URL, not a file
     const claimedByUrl = matches.some(
-      (url) =>
-        match.index >= url.index && match.index < url.index + url.text.length,
+      (urlMatch) =>
+        match.index < urlMatch.index + urlMatch.text.length &&
+        urlMatch.index < match.index + match[0].length,
     );
     if (claimedByUrl) {
       continue;
@@ -428,6 +429,13 @@ git commit -m "Open terminal URLs in the default browser
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
+
+> **Review amendment (applied after Task 2's code review):** the
+> `claimedByUrl` predicate is a range-overlap test, not a starts-inside test —
+> `PATH_PATTERN` has no left boundary, so in `--docs=https://a.com/x.js` the
+> path match starts before the URL and would otherwise win the click (xterm
+> hands overlapping links to the first in array order). Two more tests pin
+> this and the trailing-slash shape, bringing the describe to twelve.
 
 ---
 
