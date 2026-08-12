@@ -134,6 +134,15 @@ export const commandSchema = z.discriminatedUnion("type", [
   }).refine(hasExactlyOneFileIdentity, {
     error: "close-file needs exactly one file identity",
   }),
+  // Shows a project tab's markdown file rendered, or back in its editor.
+  // `path` defaults to the visible file; a file that isn't markdown is
+  // ignored, so there is no untitledId to name one by.
+  z.object({
+    type: z.literal("set-file-markdown-mode"),
+    projectTabId: z.number().optional(),
+    path: z.string().optional(),
+    mode: markdownModeSchema,
+  }),
   // Save guards on the mtime captured at read. Omitting a file identity means
   // the visible file. destinationPath saves an untitled buffer without UI.
   z.object({
@@ -230,6 +239,13 @@ export type LmuxEvent =
   | { type: "workspace-activated"; id: number; state: LmuxState }
   | { type: "workspace-renamed"; id: number; state: LmuxState }
   | { type: "markdown-mode-changed"; id: number; state: LmuxState }
+  // a project tab's file swapped between its editor and its rendering
+  | {
+      type: "file-markdown-mode-changed";
+      id: number;
+      path: string;
+      state: LmuxState;
+    }
   // the file was re-read; its text is in the view, not in the state
   | { type: "markdown-reloaded"; id: number; state: LmuxState }
   | { type: "file-opened"; id: number; path: string; state: LmuxState }

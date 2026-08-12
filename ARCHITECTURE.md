@@ -685,7 +685,21 @@ change it and update this list.
   still appears synchronously; only the measuring waits. A failed read
   becomes a document of its own, so the tab and its reload button survive
   a file that isn't there, and reloading again recovers when it returns.
-- **Workspaces: one Dockview instance each, all alive at once.** (Decided
+- **A project tab's markdown buffer can show its rendering in place.**
+  (Decided 2026-08-12.) The same `renderMarkdown` the markdown tab uses,
+  behind the same one-button toolbar, surfacing only while the visible
+  buffer's Monaco language is `markdown`. The rendered face is a sibling
+  of the editor element that swaps visibility with it; the model stays on
+  the hidden editor, so view state, dirty tracking and the save path never
+  notice the swap, and the rendering reads the buffer rather than the disk
+  — unsaved edits show, and there is no Reload button to need. The button
+  is a Command source like every other affordance (`set-file-markdown-mode`,
+  idempotent like `set-markdown-mode`, defaulting to the visible file),
+  and the change announces itself as `file-markdown-mode-changed`. The
+  mode is per open buffer but deliberately not part of `ProjectFileInfo`
+  or the session: a restart brings files back in the editor, the same way
+  cursor positions don't return. The way back from rendered reads *Edit*,
+  not *Raw*, because the project tab's raw face is the editor itself.
   2026-08.) A workspace is a whole lmux of its own inside the window: its
   own pane layout, its own tabs, its own shells (see the glossary). The
   sidebar, which held only the settings gear, becomes their list: one row

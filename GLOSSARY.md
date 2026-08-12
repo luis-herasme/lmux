@@ -514,6 +514,15 @@ switch to, the way a play button names what it will do rather than what
 is happening. The second button re-reads the file, since nothing watches
 the disk: edit a document in one tab, click Reload in the tab showing it.
 
+A markdown file inside the project tab has the same two faces, per open
+buffer. There its raw face is the editor itself, so the way back from
+rendered reads *Edit*, and there is no Reload: the rendering draws the
+buffer as it is in memory, unsaved edits included. The model stays on the
+hidden editor while its rendering shows, which is why dirty state, view
+state and saving never notice the swap. The toggle is the
+`set-file-markdown-mode` Command; each buffer keeps its mode while open,
+and a restart brings files back in the editor.
+
 ## Dirty (a file buffer's unsaved work)
 
 A file buffer is *dirty* when its model holds text the file on disk does not.

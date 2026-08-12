@@ -646,6 +646,54 @@ async function visibleProjectTreeAppearance(): Promise<ProjectTreeAppearance> {
   return projectTreeAppearanceSchema.parse(result);
 }
 
+const projectMarkdownViewSchema = z.object({
+  toolbarVisible: z.boolean(),
+  editorVisible: z.boolean(),
+  renderedVisible: z.boolean(),
+  renderedHeading: z.string().nullable(),
+  buttonLabel: z.string().nullable(),
+});
+
+type ProjectMarkdownView = z.infer<typeof projectMarkdownViewSchema>;
+
+// The visible project pane's two faces: which one shows, what the toolbar
+// button offers, and the rendered document's first heading if it is up.
+async function visibleProjectMarkdownView(): Promise<ProjectMarkdownView> {
+  const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    for (const paneElement of document.querySelectorAll(".project-pane")) {
+      if (paneElement.offsetParent === null) {
+        continue;
+      }
+      const toolbarElement = paneElement.querySelector(
+        ".project-markdown-toolbar",
+      );
+      const buttonElement = toolbarElement === null
+        ? null
+        : toolbarElement.querySelector(".markdown-action");
+      const headingElement = paneElement.querySelector(
+        ".project-markdown .markdown-view h1",
+      );
+      return {
+        toolbarVisible:
+          toolbarElement !== null &&
+          toolbarElement.classList.contains("visible"),
+        editorVisible: paneElement
+          .querySelector(".project-editor")
+          .classList.contains("visible"),
+        renderedVisible: paneElement
+          .querySelector(".project-markdown")
+          .classList.contains("visible"),
+        renderedHeading:
+          headingElement === null ? null : headingElement.textContent,
+        buttonLabel:
+          buttonElement === null ? null : buttonElement.textContent,
+      };
+    }
+    return null;
+  })()`);
+  return projectMarkdownViewSchema.parse(result);
+}
+
 const gitDecorationAppearanceSchema = z.object({
   exists: z.boolean(),
   decoration: z.string().nullable(),
@@ -1133,6 +1181,79 @@ const suite = describe("the command bus", () => {
       assert.equal(screen.kind, "project");
       assert.equal(screen.path, SOURCE_FILE_PATH);
       assert.equal(screen.language, "typescript");
+    },
+  });
+
+  busTest({
+    name: "a markdown file in the project tab can swap to its rendering",
+    body: async () => {
+      // realpath like SOURCE_FILE_PATH: the buffer is keyed by the resolved
+      // path, and the Event carries that key
+      const documentPath = realpathSync(FIXTURE_PATH);
+      sendCommand({
+        type: "open-file",
+        path: documentPath,
+      });
+      await waitForEvent(
+        (event) =>
+          event.type === "file-opened" && event.path === documentPath,
+      );
+
+      const source = await visibleProjectMarkdownView();
+      assert.equal(source.toolbarVisible, true, "the toolbar did not surface");
+      assert.equal(source.editorVisible, true);
+      assert.equal(source.renderedVisible, false);
+      assert.equal(source.buttonLabel, "Rendered");
+
+      // no projectTabId and no path: the workspace's one project tab is the
+      // active tab, and the visible file is the one just opened
+      sendCommand({
+        type: "set-file-markdown-mode",
+        mode: "rendered",
+      });
+      await waitForEvent(
+        (event) =>
+          event.type === "file-markdown-mode-changed" &&
+          event.path === documentPath,
+      );
+
+      const rendered = await visibleProjectMarkdownView();
+      assert.equal(rendered.editorVisible, false, "the editor stayed up");
+      assert.equal(rendered.renderedVisible, true);
+      assert.equal(
+        rendered.renderedHeading,
+        "A document with a diagram in it",
+        "the rendering shows headings as headings",
+      );
+      assert.equal(rendered.buttonLabel, "Edit");
+
+      sendCommand({
+        type: "set-file-markdown-mode",
+        mode: "raw",
+      });
+      await waitForEvent(
+        (event) =>
+          event.type === "file-markdown-mode-changed" &&
+          event.path === documentPath,
+      );
+
+      const back = await visibleProjectMarkdownView();
+      assert.equal(back.editorVisible, true, "the editor did not come back");
+      assert.equal(back.renderedVisible, false);
+      assert.equal(back.buttonLabel, "Rendered");
+
+      // a code buffer has no rendered face, so its toolbar goes away
+      sendCommand({
+        type: "open-file",
+        path: SOURCE_FILE_PATH,
+      });
+      await waitForEvent(
+        (event) =>
+          (event.type === "file-activated" || event.type === "file-opened") &&
+          event.path === SOURCE_FILE_PATH,
+      );
+      const code = await visibleProjectMarkdownView();
+      assert.equal(code.toolbarVisible, false, "the toolbar outlived markdown");
     },
   });
 

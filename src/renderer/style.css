@@ -822,6 +822,26 @@ dialog select:focus {
   background: var(--tab-bar-background);
 }
 
+/* the project tab's copy of the toolbar only surfaces for a markdown buffer */
+.project-markdown-toolbar {
+  display: none;
+}
+
+.project-markdown-toolbar.visible {
+  display: flex;
+}
+
+/* a markdown buffer's rendered face, over the editor's spot like the editor */
+.project-markdown {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.project-markdown.visible {
+  display: block;
+}
+
 .markdown-scroll {
   flex: 1;
   min-height: 0;

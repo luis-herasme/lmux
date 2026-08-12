@@ -26,6 +26,7 @@ import {
   setProjectTreeGitDecorations,
 } from "./project-tree.ts";
 import type { ProjectTree } from "./project-tree.ts";
+import { renderMarkdown } from "./markdown.ts";
 import { executeCommand } from "./index.ts";
 import type { TabElements } from "./index.ts";
 import {
@@ -34,6 +35,7 @@ import {
   snapshot,
 } from "../workspaces.ts";
 import type { Workspace } from "../workspaces.ts";
+import type { MarkdownMode } from "../../api.ts";
 import type { editor as monacoEditor } from "monaco-editor";
 import type { IDockviewPanel, DockviewGroupPanel } from "dockview";
 
@@ -46,6 +48,8 @@ export type ProjectFileBuffer = {
   dirty: boolean;
   pinned: boolean;
   error: string | undefined;
+  // only a markdown buffer ever leaves "raw"; the editor is its raw face
+  markdownMode: MarkdownMode;
   tabElement: HTMLElement;
   titleElement: HTMLElement;
   closeElement: HTMLButtonElement;
@@ -63,6 +67,9 @@ export type ProjectTab = {
   statusElement: HTMLElement;
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
+  markdownElement: HTMLElement;
+  markdownToolbarElement: HTMLElement;
+  markdownModeButton: HTMLElement;
   workspaceRootPath: string;
   projectTree: ProjectTree | undefined;
   monaco: Monaco;
@@ -87,6 +94,9 @@ type ProjectPane = {
   statusElement: HTMLElement;
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
+  markdownElement: HTMLElement;
+  markdownToolbarElement: HTMLElement;
+  markdownModeButton: HTMLElement;
 };
 
 const DEFAULT_PROJECT_TREE_WIDTH_PX = 260;
@@ -209,15 +219,35 @@ function buildProjectPane(): ProjectPane {
   const editorElement = document.createElement("div");
   editorElement.className = "code-editor project-editor";
 
+  // a markdown buffer's rendered face, drawn over the editor's spot
+  const markdownElement = document.createElement("div");
+  markdownElement.className = "markdown-scroll project-markdown";
+  markdownElement.tabIndex = -1;
+
+  const markdownModeButton = document.createElement("button");
+  markdownModeButton.className = "markdown-action";
+  markdownModeButton.title = "Show the file rendered, or back in the editor";
+
+  // only surfaces while the visible buffer is markdown
+  const markdownToolbarElement = document.createElement("div");
+  markdownToolbarElement.className = "markdown-toolbar project-markdown-toolbar";
+  markdownToolbarElement.append(markdownModeButton);
+
   const editorBodyElement = document.createElement("div");
   editorBodyElement.className = "project-editor-body";
-  editorBodyElement.append(emptyElement, errorElement, editorElement);
+  editorBodyElement.append(
+    emptyElement,
+    errorElement,
+    editorElement,
+    markdownElement,
+  );
 
   const editorRegionElement = document.createElement("div");
   editorRegionElement.className = "project-editor-region";
   editorRegionElement.append(
     fileTabsElement,
     statusElement,
+    markdownToolbarElement,
     editorBodyElement,
   );
 
@@ -246,6 +276,9 @@ function buildProjectPane(): ProjectPane {
     statusElement,
     emptyElement,
     errorElement,
+    markdownElement,
+    markdownToolbarElement,
+    markdownModeButton,
   };
 }
 
@@ -356,6 +389,7 @@ function addProjectFileBuffer({
     dirty,
     pinned,
     error,
+    markdownMode: "raw",
     tabElement: fileTab.tabElement,
     titleElement: fileTab.titleElement,
     closeElement: fileTab.closeElement,
@@ -674,6 +708,7 @@ function showEmptyEditor(tab: ProjectTab): void {
   tab.errorElement.classList.remove("visible");
   tab.editorElement.classList.remove("visible");
   tab.statusElement.classList.remove("visible");
+  hideMarkdownView(tab);
   for (const buffer of tab.files.values()) {
     buffer.tabElement.classList.remove("active");
     buffer.tabElement.setAttribute("aria-selected", "false");
@@ -712,6 +747,7 @@ function activateBuffer({
   if (buffer.model === undefined) {
     tab.editor.setModel(null);
     tab.editorElement.classList.remove("visible");
+    hideMarkdownView(tab);
     let errorMessage = "Could not open this file.";
     if (buffer.error !== undefined) {
       errorMessage = buffer.error;
@@ -723,11 +759,54 @@ function activateBuffer({
   }
 
   tab.errorElement.classList.remove("visible");
-  tab.editorElement.classList.add("visible");
   tab.editor.setModel(buffer.model);
   if (buffer.viewState !== null) {
     tab.editor.restoreViewState(buffer.viewState);
   }
+  showActiveFileView({
+    tab,
+    buffer,
+  });
+}
+
+function hideMarkdownView(tab: ProjectTab): void {
+  tab.markdownToolbarElement.classList.remove("visible");
+  tab.markdownElement.classList.remove("visible");
+  tab.markdownElement.replaceChildren();
+}
+
+type ShowActiveFileViewOptions = {
+  tab: ProjectTab;
+  buffer: ProjectFileBuffer;
+};
+
+// The visible buffer's face: its model in the editor or, for a markdown
+// buffer switched to rendered, the same text drawn as a document. The model
+// stays on the (hidden) editor either way, so view state, dirty tracking and
+// the save path never notice the swap. The rendering reads the buffer, not
+// the disk, so unsaved edits show and there is nothing to reload.
+function showActiveFileView({
+  tab,
+  buffer,
+}: ShowActiveFileViewOptions): void {
+  const model = buffer.model;
+  const markdown =
+    model !== undefined && model.getLanguageId() === "markdown";
+  tab.markdownToolbarElement.classList.toggle("visible", markdown);
+  if (markdown && buffer.markdownMode === "rendered") {
+    // the button names the mode it would switch to, like a play button
+    tab.markdownModeButton.textContent = "Edit";
+    tab.editorElement.classList.remove("visible");
+    const { view } = renderMarkdown(model.getValue());
+    tab.markdownElement.replaceChildren(view);
+    tab.markdownElement.classList.add("visible");
+    tab.markdownElement.focus();
+    return;
+  }
+  tab.markdownModeButton.textContent = "Rendered";
+  tab.markdownElement.classList.remove("visible");
+  tab.markdownElement.replaceChildren();
+  tab.editorElement.classList.add("visible");
   tab.editor.focus();
 }
 
@@ -889,6 +968,68 @@ export function activateProjectFile({
     path: eventPath,
     untitledId: buffer.untitledId,
     state: snapshot(),
+  });
+}
+
+type SetProjectFileMarkdownModeOptions = {
+  id: number;
+  tab: ProjectTab;
+  filePath: string | undefined;
+  mode: MarkdownMode;
+};
+
+// Only a markdown buffer has a rendered face; the command ignores anything
+// else, the way set-markdown-mode ignores a tab that isn't a document.
+export function setProjectFileMarkdownMode({
+  id,
+  tab,
+  filePath,
+  mode,
+}: SetProjectFileMarkdownModeOptions): void {
+  let resourceKey = filePath;
+  if (resourceKey === undefined) {
+    resourceKey = tab.activeFileKey;
+  }
+  if (resourceKey === undefined) {
+    return;
+  }
+  const buffer = tab.files.get(resourceKey);
+  if (
+    buffer === undefined ||
+    buffer.filePath === undefined ||
+    buffer.model?.getLanguageId() !== "markdown" ||
+    buffer.markdownMode === mode
+  ) {
+    return;
+  }
+  buffer.markdownMode = mode;
+  if (tab.activeFileKey === buffer.resourceKey) {
+    showActiveFileView({
+      tab,
+      buffer,
+    });
+  }
+  bridge.emitEvent({
+    type: "file-markdown-mode-changed",
+    id,
+    path: buffer.filePath,
+    state: snapshot(),
+  });
+}
+
+// A drawn diagram has the theme and the font baked into its SVG, so a
+// rendered buffer follows a settings change by being drawn again.
+export function redrawProjectMarkdown(tab: ProjectTab): void {
+  if (tab.activeFileKey === undefined) {
+    return;
+  }
+  const buffer = tab.files.get(tab.activeFileKey);
+  if (buffer === undefined || buffer.markdownMode !== "rendered") {
+    return;
+  }
+  showActiveFileView({
+    tab,
+    buffer,
   });
 }
 
@@ -1427,6 +1568,9 @@ export async function openProjectTab({
     statusElement: pane.statusElement,
     emptyElement: pane.emptyElement,
     errorElement: pane.errorElement,
+    markdownElement: pane.markdownElement,
+    markdownToolbarElement: pane.markdownToolbarElement,
+    markdownModeButton: pane.markdownModeButton,
     workspaceRootPath: "",
     projectTree: undefined,
     monaco,
@@ -1443,6 +1587,25 @@ export async function openProjectTab({
     projectTreeWatcherRetryTimer: undefined,
   };
   showEmptyEditor(tab);
+
+  pane.markdownModeButton.addEventListener("click", () => {
+    if (tab.activeFileKey === undefined) {
+      return;
+    }
+    const buffer = tab.files.get(tab.activeFileKey);
+    if (buffer === undefined) {
+      return;
+    }
+    let mode: MarkdownMode = "rendered";
+    if (buffer.markdownMode === "rendered") {
+      mode = "raw";
+    }
+    executeCommand({
+      type: "set-file-markdown-mode",
+      projectTabId: id,
+      mode,
+    });
+  });
 
   pane.fileTabsElement.addEventListener("dblclick", (event) => {
     if (event.target !== pane.fileTabsElement) {
@@ -1625,6 +1788,11 @@ export function focusProjectTab(tab: ProjectTab): void {
   if (tab.activeFileKey !== undefined) {
     const buffer = tab.files.get(tab.activeFileKey);
     if (buffer !== undefined && buffer.model !== undefined) {
+      // a rendered buffer's editor is hidden; keys should scroll the document
+      if (buffer.markdownMode === "rendered") {
+        tab.markdownElement.focus();
+        return;
+      }
       tab.editor.focus();
       return;
     }

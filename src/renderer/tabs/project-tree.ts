@@ -353,9 +353,7 @@ async function loadProjectTreeDirectory({
   }
 
   if (
-    projectTree.pendingDirectoryRefreshes.delete(
-      workspaceRelativeDirectoryPath,
-    )
+    projectTree.pendingDirectoryRefreshes.delete(workspaceRelativeDirectoryPath)
   ) {
     await refreshProjectTreeDirectory({
       projectTree,
@@ -740,9 +738,7 @@ export function setProjectTreeGitDecorations({
   }
 
   const rowElements =
-    projectTree.treeElement.querySelectorAll<HTMLElement>(
-      ".project-tree-row",
-    );
+    projectTree.treeElement.querySelectorAll<HTMLElement>(".project-tree-row");
   for (const rowElement of rowElements) {
     const nameElement = rowElement.querySelector(".project-tree-name");
     if (!(nameElement instanceof HTMLElement)) {
@@ -766,9 +762,8 @@ export function focusProjectTree(projectTree: ProjectTree): void {
     focusedElement.focus();
     return;
   }
-  const firstElement = projectTree.treeElement.querySelector<HTMLElement>(
-    ".project-tree-row",
-  );
+  const firstElement =
+    projectTree.treeElement.querySelector<HTMLElement>(".project-tree-row");
   if (firstElement === null) {
     projectTree.treeElement.focus();
     return;

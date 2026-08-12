@@ -11,8 +11,10 @@ import {
   moveProjectFile,
   openProjectFile,
   openProjectTab,
+  redrawProjectMarkdown,
   saveAllProjectFiles,
   saveProjectFile,
+  setProjectFileMarkdownMode,
 } from "./project-tab.ts";
 import type { ProjectTab } from "./project-tab.ts";
 import {
@@ -494,6 +496,9 @@ export function executeCommand(command: Command): void {
               fontFamily: settings.fontFamily,
               fontSize: settings.fontSize,
             });
+            if (redraw) {
+              redrawProjectMarkdown(tab);
+            }
             continue;
           }
           refreshTerminalTabSettings({
@@ -678,6 +683,19 @@ export function executeCommand(command: Command): void {
         tab: resolved.tab,
         filePath: command.path,
         untitledId: command.untitledId,
+      });
+      return;
+    }
+    case "set-file-markdown-mode": {
+      const resolved = resolveProjectTab(command.projectTabId);
+      if (resolved === undefined) {
+        return;
+      }
+      setProjectFileMarkdownMode({
+        id: resolved.id,
+        tab: resolved.tab,
+        filePath: command.path,
+        mode: command.mode,
       });
       return;
     }
