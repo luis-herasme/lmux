@@ -708,6 +708,9 @@ dialog select:focus {
 
 .file-tab.preview .file-tab-title {
   font-style: italic;
+  /* Italic glyphs slant past their advance width; without this the
+     overflow: hidden clip below shaves the last letter's overhang. */
+  padding-right: 3px;
 }
 
 .file-tab-title {
