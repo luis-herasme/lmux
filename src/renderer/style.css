@@ -414,7 +414,9 @@ dialog select:focus {
 
 .dialog-buttons button.default {
   background: var(--accent);
-  color: white;
+  /* the accent is bright in dark themes and dark in light ones, so the
+     page background is always the readable text color on top of it */
+  color: var(--background);
 }
 
 /* ---------- Markdown view ---------- */

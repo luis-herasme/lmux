@@ -54,7 +54,7 @@ export const THEMES = {
     tabForeground: "#8a8a8a",
     tabActiveForeground: "#e6e6e6",
     separator: "#323232",
-    accent: "#007aff", // macOS system blue
+    accent: "#cccccc", // bright gray
     // https://github.com/microsoft/vscode/blob/main/extensions/git/package.json
     gitAddedForeground: "#81b88b",
     gitModifiedForeground: "#e2c08d",
@@ -81,7 +81,7 @@ export const THEMES = {
     tabForeground: "#767676",
     tabActiveForeground: "#1a1a1a",
     separator: "#d0d0d0",
-    accent: "#007aff",
+    accent: "#5f5f5f", // the dark theme's gray mirrored: bright gray vanishes on white
     // https://github.com/microsoft/vscode/blob/main/extensions/git/package.json
     gitAddedForeground: "#587c0c",
     gitModifiedForeground: "#895503",
