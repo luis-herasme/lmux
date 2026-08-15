@@ -64,7 +64,6 @@ onRenameRequest((id))        main → renderer   "the user picked Rename in tab 
 showWorkspaceMenu(id)        renderer → main   "right-click on workspace `id`: show its native menu"
 onWorkspaceRenameRequest((id)) main → renderer "the user picked Rename in workspace `id`'s menu"
 closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: guard the shells it would kill"
-closeTab(id)                 renderer → main   "the outer ×: main decides what closing means"
 readFile({path, baseTabId})  renderer → main   "read a document or project buffer" (request/response)
 readProjectTree({...})       renderer → main   "resolve a root and list one directory" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
@@ -178,9 +177,8 @@ it.
 **Main owns the machine.** It boots the window and the app lifecycle, keeps one
 PTY per tab and relays its bytes, builds the app and context menus, dispatches
 Commands into the renderer and keeps the read model Events arrive in, serves the
-API socket, reads files, reads directories with
-their Git status and watches them, and writes the window geometry and the last
-session to disk.
+API socket, reads files and directories with their Git status and watches them,
+and writes the window geometry and the last session to disk.
 
 **The renderer owns the screen.** It boots settings into CSS and wires the
 cable, keeps the workspace store (one layout and one project panel each) and the
@@ -257,12 +255,11 @@ change it and update this list.
   when it does not.
 - **Files are read, never written.** (Replaces the guarded save path: ⌘S, Save
   All, Save As, untitled buffers, dirty state and the close-time Save / Don't
-  Save / Cancel dialogs.) The panel's Monaco editors are `readOnly`, the bridge
-  carries no write at all, and main registers only `file:read`, so nothing the
-  page holds can reach disk: a buffer cannot diverge from the file, which is
-  why closing anything now asks about running programs only. Editing files is
-  what the terminal beside the panel is for. Sessions restore pinned paths from
-  disk, never the preview file.
+  Save / Cancel dialogs.) The panel's editors are `readOnly`, the bridge
+  carries no write, and main registers only `file:read`, so a buffer cannot
+  diverge from its file and closing anything asks about running programs only.
+  Editing is what the terminal beside the panel is for. Sessions restore
+  pinned paths from disk, never the preview file.
 - **The workspace tree loads one directory at a time.** (Replaces the eager
   Pierre Trees implementation.) Main resolves the root from the first file or
   named terminal, then returns only one directory's immediate children. Native
@@ -272,10 +269,10 @@ change it and update this list.
   Retry after filesystem failures. Root changes show one loading state and
   commit the root, title and tree together. Row virtualization and paged reads
   remain in #44; tree mutation controls remain out of scope.
-- **Explorer decorations are Git state.** Main reads
-  NUL-delimited porcelain status and the Git index after the tree commits its
-  root. The result is compared with the current `HEAD`, not specifically the
-  repository's main branch. Working-tree status replaces staged status for the
+- **Explorer decorations are Git state.** Main reads NUL-delimited porcelain
+  status and the Git index after the tree commits its root. The result is
+  compared with the current `HEAD`, not specifically the repository's main
+  branch. Working-tree status replaces staged status for the
   same path, matching VS Code; ignored paths have color without a badge,
   submodules use `S`, and changed descendants give folders a generic bubble.
   Both the filename and badge use the matching `gitDecoration.*` color from
@@ -288,9 +285,9 @@ change it and update this list.
   their expansion state. Root replacement and project disposal close the
   watcher, and request generations discard late results. Missing Git leaves an
   undecorated tree. A stopped workspace watcher triggers one full refresh and
-  up to three delayed rebind attempts. Incoming remote arrows, an SCM view
-  and editor-tab Git decorations are separate VS
-  Code features and remain out of scope.
+  up to three delayed rebind attempts. Incoming remote arrows, an SCM view and
+  editor-tab Git decorations are separate VS Code features and remain out of
+  scope.
 - **The IPC contract is a type.** One module declares `Bridge`;
   the preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.

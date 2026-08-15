@@ -249,13 +249,6 @@ ipcMain.on("workspace:close", (event, workspaceId: number) => {
   });
 });
 
-ipcMain.on("tab:close", (_event, tabId: number) => {
-  dispatch({
-    type: "close-tab",
-    id: tabId,
-  });
-});
-
 ipcMain.on("workspace:menu", (event, workspaceId: number) => {
   Menu.buildFromTemplate([
     {

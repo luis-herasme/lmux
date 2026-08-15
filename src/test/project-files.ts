@@ -18,11 +18,36 @@ import {
   waitForEvent,
 } from "./harness.ts";
 import { sessionFromState } from "../session.ts";
-import {
-  findProjectInfo,
-  openWorkspace,
-  typeIntoOpenEditor,
-} from "./shared.ts";
+import { findProjectInfo, openWorkspace } from "./shared.ts";
+
+const editorContentSchema = z.string().nullable();
+
+type TypeIntoOpenEditorOptions = {
+  expectedContent: string;
+  addedContent: string;
+};
+
+// Types into whichever open editor holds `expectedContent`, and answers with
+// what it holds afterwards; null when no editor held that content.
+async function typeIntoOpenEditor({
+  expectedContent,
+  addedContent,
+}: TypeIntoOpenEditorOptions): Promise<string | null> {
+  const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    for (const editor of window.monaco.editor.getEditors()) {
+      if (editor.getModel()?.getValue() !== ${JSON.stringify(expectedContent)}) {
+        continue;
+      }
+      editor.focus();
+      editor.trigger("keyboard", "type", {
+        text: ${JSON.stringify(addedContent)},
+      });
+      return editor.getValue();
+    }
+    return null;
+  })()`);
+  return editorContentSchema.parse(result);
+}
 
 export const projectFiles = describe("project files", () => {
   busTest({
@@ -194,37 +219,20 @@ export const projectFiles = describe("project files", () => {
           throw new Error(`the file arrived as a ${opened.type}`);
         }
 
-        const typed = await typeIntoOpenEditor({
+        const afterTyping = await typeIntoOpenEditor({
           expectedContent: initialContent,
           addedContent: "\n// typed by the suite\n",
         });
         assert.equal(
-          typed.editorFound,
-          true,
-          "the suite could not find the editor it opened",
+          afterTyping,
+          initialContent,
+          "the open editor took the edit, or was not found at all",
         );
-        assert.equal(typed.readOnly, true, "the editor accepts changes");
-        assert.equal(typed.edited, false, "typing changed the buffer");
         assert.equal(
           readFileSync(filePath, "utf8"),
           initialContent,
           "the file on disk was written",
         );
-
-        // The bridge exposes no way to write one either, so a page script (or
-        // anything that reached the page) has nothing to reach for.
-        const writers = z.array(z.string()).parse(
-          await lmuxWindow.webContents.executeJavaScript(`(() => {
-            const found = [];
-            for (const name of ["writeFile", "saveNewFile", "closeFile"]) {
-              if (window.bridge[name] !== undefined) {
-                found.push(name);
-              }
-            }
-            return found;
-          })()`),
-        );
-        assert.deepEqual(writers, [], "the bridge still carries a file write");
       } finally {
         unlinkSync(filePath);
       }

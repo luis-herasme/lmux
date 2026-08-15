@@ -155,8 +155,6 @@ export type Bridge = {
   // a person's workspace ×: routed to main so the shells it would kill are
   // asked about, then dispatched
   closeWorkspace: (id: number) => void;
-  // a person's tab ×: routed to main, which decides what closing means
-  closeTab: (id: number) => void;
   // request/response pairs on the cable (ipcRenderer.invoke)
   readFile: (request: ReadFileRequest) => Promise<ReadFileResult>;
   readProjectTree: (

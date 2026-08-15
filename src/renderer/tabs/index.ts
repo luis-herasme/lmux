@@ -151,9 +151,10 @@ function buildTabElement(id: number): TabElements {
   closeElement.ariaLabel = "Close tab";
   closeElement.addEventListener("click", (event) => {
     event.stopPropagation();
-    // a person's × routes through main, which decides what closing means;
-    // an agent's close-tab Command goes the other way
-    bridge.closeTab(id);
+    executeCommand({
+      type: "close-tab",
+      id,
+    });
   });
 
   const tabElement = document.createElement("div");

@@ -79,9 +79,8 @@ export const commandSchema = z.discriminatedUnion("type", [
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
   }),
-  // Opens source in the workspace's project panel, for reading: a file is
-  // never written back. A preview file is replaceable until another preview
-  // replaces it or it is pinned; other command sources open pinned.
+  // Opens source in the workspace's project panel, for reading. A preview file
+  // is replaceable until it is pinned; other command sources open pinned.
   z.object({
     type: z.literal("open-file"),
     path: z.string(),
@@ -104,9 +103,8 @@ export const commandSchema = z.discriminatedUnion("type", [
     projectTabId: z.number().optional(),
     path: z.string(),
   }),
-  // Shows a project file rendered, or back in its editor.
-  // `path` defaults to the visible file; a file that isn't markdown is
-  // ignored.
+  // Shows a project file rendered, or back in its editor. `path` defaults to
+  // the visible file; a file that isn't markdown is ignored.
   z.object({
     type: z.literal("set-file-markdown-mode"),
     projectTabId: z.number().optional(),

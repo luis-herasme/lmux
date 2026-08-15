@@ -30,8 +30,6 @@ const bridge: Bridge = {
   onWorkspaceRenameRequest: (callback) =>
     ipcRenderer.on("workspace:rename-request", (_event, id) => callback(id)),
   closeWorkspace: (id) => ipcRenderer.send("workspace:close", id),
-  // a person's tab ×: routed to main, which decides what closing means
-  closeTab: (id) => ipcRenderer.send("tab:close", id),
   readFile: (request) => ipcRenderer.invoke("file:read", request),
   readProjectTree: (request) =>
     ipcRenderer.invoke("project-tree:read", request),

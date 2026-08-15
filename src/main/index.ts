@@ -47,7 +47,6 @@ function createWindow(): void {
   }
   const browserWindow = new BrowserWindow(options);
   let closeApproved = false;
-  let closeInProgress = false;
 
   browserWindow.on("close", (event) => {
     if (closeApproved) {
@@ -59,10 +58,6 @@ function createWindow(): void {
       return;
     }
     event.preventDefault();
-    if (closeInProgress) {
-      return;
-    }
-    closeInProgress = true;
 
     const tabIds: number[] = [];
     for (const workspace of lmuxState.workspaces) {
@@ -70,13 +65,13 @@ function createWindow(): void {
         tabIds.push(tab.id);
       }
     }
+    // the one question left, and it blocks, so no second close can arrive
     const killingConfirmed = confirmKilling({
       window: browserWindow,
       tabIds,
       action: "Close Window",
     });
     if (!killingConfirmed) {
-      closeInProgress = false;
       return;
     }
     closeApproved = true;

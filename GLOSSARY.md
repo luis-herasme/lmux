@@ -278,14 +278,14 @@ shows the working-tree status when both exist.
 ## Project panel / file tab
 
 A **project panel** is the workspace's one file viewer, and the only place
-files open. It contains the file tree, a file-tab strip and one read-only Monaco
-editor, under a header naming the workspace root folder. It is not a tab: there is exactly one
-per workspace, it lives in its own region beside the pane layout, and it cannot
-be dragged, split, reordered or moved to another workspace, the same way the
-workspace list itself cannot. Opening another file reuses it; files outside the
-workspace root are valid file tabs but do not change the tree. Hiding the panel
-(its header's ×, ⌘B, or `close-project`) is not closing it: every buffer stays
-open behind it, so nothing is lost.
+files open. It contains the file tree, a file-tab strip and one read-only
+Monaco editor, under a header naming the workspace root folder. It is not a
+tab: there is exactly one per workspace, it lives in its own region beside the
+pane layout, and it cannot be dragged, split, reordered or moved to another
+workspace, the same way the workspace list itself cannot. Opening another file
+reuses it; files outside the workspace root are valid file tabs but do not
+change the tree. Hiding the panel (its header's ×, ⌘B, or `close-project`) is
+not closing it: every buffer stays open behind it, so nothing is lost.
 
 A **file tab** names one in-memory file buffer inside the project panel. A
 single tree click opens a replaceable **preview file tab**. Double-clicking its
@@ -297,10 +297,9 @@ A **buffer** is a file's in-memory copy: its text, cursor and scroll position,
 keyed by the file's canonical path. Switching files keeps each buffer alive. A
 restart restores pinned paths from disk, never the temporary preview.
 
-The editor is **read-only**, and lmux has no way to write a file at all: no
-Save, no Save As, no new-file buffer, and no write on the bridge between the
-page and the machine. A buffer therefore always says what the file said when it
-was read. The terminal beside the panel is where files get changed.
+The editor is **read-only**: no Save, no Save As, and no write at all on the
+bridge between the page and the machine, so a buffer always says what the file
+said when it was read. The terminal beside the panel is where files change.
 
 ## Rendered vs. raw (a markdown tab's two modes)
 

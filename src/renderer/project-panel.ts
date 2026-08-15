@@ -42,8 +42,6 @@ export type ProjectFileBuffer = {
   // only a markdown buffer ever leaves "raw"; the editor is its raw face
   markdownMode: MarkdownMode;
   tabElement: HTMLElement;
-  titleElement: HTMLElement;
-  closeElement: HTMLButtonElement;
   viewState: monacoEditor.ICodeEditorViewState | null;
 };
 
@@ -65,9 +63,9 @@ export type ProjectPanel = {
   projectTree: ProjectTree | undefined;
   monaco: Monaco;
   editor: monacoEditor.IStandaloneCodeEditor;
-  files: Map<string, ProjectFileBuffer>; // by canonical path
+  files: Map<string, ProjectFileBuffer>;
   activeFilePath: string | undefined;
-  previewFilePath: string | undefined;
+  previewFilePath: string | undefined; // the one unpinned buffer, if any
   draggedFilePath: string | undefined;
   latestFileRequest: number;
   latestTreeRequest: number;
@@ -305,11 +303,6 @@ function buildProjectPanelElements(): ProjectPanelElements {
   };
 }
 
-function fileNameForPath(filePath: string): string {
-  const separatorPosition = filePath.lastIndexOf("/");
-  return filePath.slice(separatorPosition + 1);
-}
-
 function clearFileTabDropIndicators(panel: ProjectPanel): void {
   for (const buffer of panel.files.values()) {
     buffer.tabElement.classList.remove("file-drop-before");
@@ -332,20 +325,26 @@ function addProjectFileBuffer({
   pinned,
   error,
 }: AddProjectFileBufferOptions): ProjectFileBuffer {
+  const title = filePath.slice(filePath.lastIndexOf("/") + 1);
+
   const titleElement = document.createElement("span");
   titleElement.className = "file-tab-title";
+  titleElement.textContent = title;
 
   const closeElement = document.createElement("button");
   closeElement.className = "file-tab-close";
   closeElement.textContent = "×";
   closeElement.title = "Close File";
+  closeElement.ariaLabel = `Close ${title}`;
 
   const tabElement = document.createElement("div");
   tabElement.className = "file-tab";
   tabElement.tabIndex = -1;
   tabElement.draggable = true;
+  tabElement.title = filePath;
   tabElement.setAttribute("role", "panel");
   tabElement.dataset.filePath = filePath;
+  tabElement.classList.toggle("preview", !pinned);
   tabElement.append(titleElement, closeElement);
 
   const buffer: ProjectFileBuffer = {
@@ -355,8 +354,6 @@ function addProjectFileBuffer({
     error,
     markdownMode: "raw",
     tabElement,
-    titleElement,
-    closeElement,
     viewState: null,
   };
   const activate = () => {
@@ -402,18 +399,9 @@ function addProjectFileBuffer({
     clearFileTabDropIndicators(panel);
   });
 
-  updateFileTab(buffer);
   panel.files.set(filePath, buffer);
   panel.fileTabsElement.append(tabElement);
   return buffer;
-}
-
-function updateFileTab(buffer: ProjectFileBuffer): void {
-  const title = fileNameForPath(buffer.filePath);
-  buffer.tabElement.title = buffer.filePath;
-  buffer.closeElement.ariaLabel = `Close ${title}`;
-  buffer.titleElement.textContent = title;
-  buffer.tabElement.classList.toggle("preview", !buffer.pinned);
 }
 
 const PROJECT_TREE_WATCH_RETRY_LIMIT = 3;
@@ -726,26 +714,6 @@ function showActiveFileView({
   panel.editor.focus();
 }
 
-type PinProjectFileOptions = {
-  panel: ProjectPanel;
-  filePath: string;
-};
-
-function pinProjectFile({
-  panel,
-  filePath,
-}: PinProjectFileOptions): void {
-  const buffer = panel.files.get(filePath);
-  if (buffer === undefined || buffer.pinned) {
-    return;
-  }
-  buffer.pinned = true;
-  if (panel.previewFilePath === filePath) {
-    panel.previewFilePath = undefined;
-  }
-  updateFileTab(buffer);
-}
-
 type DisposeBufferOptions = {
   panel: ProjectPanel;
   buffer: ProjectFileBuffer;
@@ -773,7 +741,9 @@ export function closeProjectFile({
   if (buffer === undefined) {
     return;
   }
-  const closingPosition = Array.from(panel.files.keys()).indexOf(filePath);
+  const remaining = Array.from(panel.files.values());
+  const closingPosition = remaining.indexOf(buffer);
+  remaining.splice(closingPosition, 1);
   const wasActive = panel.activeFilePath === filePath;
   disposeBuffer({
     panel,
@@ -781,22 +751,18 @@ export function closeProjectFile({
   });
 
   if (wasActive) {
-    const remainingPaths = Array.from(panel.files.keys());
-    let nextPosition = closingPosition;
-    if (nextPosition >= remainingPaths.length) {
-      nextPosition = remainingPaths.length - 1;
+    // the tab that slid into its place, or the last one when it was last
+    let next = remaining.at(closingPosition);
+    if (next === undefined) {
+      next = remaining.at(-1);
     }
-    const nextPath = remainingPaths.at(nextPosition);
-    if (nextPath === undefined) {
+    if (next === undefined) {
       showEmptyEditor(panel);
     } else {
-      const nextBuffer = panel.files.get(nextPath);
-      if (nextBuffer !== undefined) {
-        activateBuffer({
-          panel,
-          buffer: nextBuffer,
-        });
-      }
+      activateBuffer({
+        panel,
+        buffer: next,
+      });
     }
   }
 
@@ -967,11 +933,11 @@ export async function openProjectFile({
 
   const existing = panel.files.get(resolvedPath);
   if (existing !== undefined) {
-    if (!preview) {
-      pinProjectFile({
-        panel,
-        filePath: resolvedPath,
-      });
+    // opening the preview deliberately keeps it instead of replacing it
+    if (!preview && !existing.pinned) {
+      existing.pinned = true;
+      existing.tabElement.classList.remove("preview");
+      panel.previewFilePath = undefined;
     }
     activateBuffer({
       panel,

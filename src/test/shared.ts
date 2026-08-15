@@ -3,12 +3,7 @@ import * as net from "net";
 import * as path from "path";
 import { realpathSync } from "fs";
 import { z } from "zod";
-import {
-  API_SOCKET_PATH,
-  lmuxWindow,
-  sendCommand,
-  waitForEvent,
-} from "./harness.ts";
+import { API_SOCKET_PATH, sendCommand, waitForEvent } from "./harness.ts";
 import { lmuxState } from "../main/bus.ts";
 import type { LmuxState, ProjectInfo, WorkspaceInfo } from "../api.ts";
 
@@ -163,50 +158,3 @@ export const screenSchema = z.object({
   path: z.string().nullable().optional(),
   workspaceRootPath: z.string().optional(),
 });
-
-const editorTypingSchema = z.object({
-  editorFound: z.boolean(),
-  readOnly: z.boolean(),
-  edited: z.boolean(),
-});
-
-type TypeIntoOpenEditorOptions = {
-  expectedContent: string;
-  addedContent: string;
-};
-
-// Types through the real editor, the way a person would, and reports what
-// came of it: the panel's editors refuse the keystrokes.
-export async function typeIntoOpenEditor({
-  expectedContent,
-  addedContent,
-}: TypeIntoOpenEditorOptions): Promise<z.infer<typeof editorTypingSchema>> {
-  const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
-    const expected = ${JSON.stringify(expectedContent)};
-    let target = null;
-    for (const editor of window.monaco.editor.getEditors()) {
-      const model = editor.getModel();
-      if (model !== null && model.getValue() === expected) {
-        target = editor;
-        break;
-      }
-    }
-    if (target === null) {
-      return {
-        editorFound: false,
-        readOnly: false,
-        edited: false,
-      };
-    }
-    target.focus();
-    target.trigger("keyboard", "type", {
-      text: ${JSON.stringify(addedContent)},
-    });
-    return {
-      editorFound: true,
-      readOnly: target.getRawOptions().readOnly === true,
-      edited: target.getValue() !== expected,
-    };
-  })()`);
-  return editorTypingSchema.parse(result);
-}
