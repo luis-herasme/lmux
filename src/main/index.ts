@@ -91,10 +91,7 @@ function createWindow(): void {
     return { action: "deny" };
   });
 
-  // The built page, not the source one: the window loads what Vite wrote.
-  browserWindow.loadFile(
-    path.join(import.meta.dirname, "../page/index.html"),
-  );
+  browserWindow.loadFile(path.join(import.meta.dirname, "../page/index.html"));
 }
 
 // The page asks for this once, at boot, before it decides what to open.

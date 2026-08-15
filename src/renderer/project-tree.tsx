@@ -3,14 +3,13 @@
 // DOM already showed.
 //
 // The state is a plain object outside React (the ProjectTree below), because
-// everything that changes it is asynchronous and belongs to the panel: a
-// directory is expanded, a watcher reports a change, Git decorations come
-// back. React subscribes to it and renders; nothing here reads the DOM to
-// decide what to do next.
-import { useSyncExternalStore } from "react";
-import type { ReactNode } from "react";
+// what changes it is asynchronous and belongs to the panel: a directory is
+// expanded, a watcher reports a change, Git decorations come back. Every one
+// of those ends in draw(), which renders the whole tree again and leaves the
+// difference to React.
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
+import type { ReactNode } from "react";
 import { bridge } from "./bridge.ts";
 import type {
   GitDecorationStatus,
@@ -35,26 +34,22 @@ export type ProjectTree = {
   openFile: OpenTreeFile;
   // keyed by workspace-relative directory path; "" is the workspace root
   directories: Map<string, DirectoryState>;
-  // the last read asked for per directory: an answer that is not the one
-  // still being waited on is dropped rather than shown
+  // how many reads each directory has asked for: an answer to any but the
+  // last is dropped rather than shown
   requests: Map<string, number>;
-  nextRequest: number;
   gitDecorations: Map<string, GitDecorationStatus>;
   propagatedGitDecorations: Map<string, GitDecorationStatus>;
-  // the row the keyboard was last on, remembered by path because the element
+  // the row the keyboard was last on, held by path because the element
   // holding it is replaced whenever its directory is re-read
   focusedPath: string | undefined;
-  version: number; // bumped on every change; what React subscribes to
-  listeners: Set<() => void>;
 };
 
-// Everything that changes the tree ends here, and this is the only thing
-// that makes React draw again.
-function changed(projectTree: ProjectTree): void {
-  projectTree.version += 1;
-  for (const listener of projectTree.listeners) {
-    listener();
-  }
+function draw(projectTree: ProjectTree): void {
+  projectTree.root.render(
+    <ul className="project-tree-list project-tree-root">
+      <DirectoryContents projectTree={projectTree} directoryPath="" />
+    </ul>,
+  );
 }
 
 type GitDecorationPresentation = {
@@ -66,75 +61,30 @@ const GIT_DECORATION_PRESENTATIONS: Record<
   GitDecorationStatus,
   GitDecorationPresentation
 > = {
-  added: {
-    label: "Index Added",
-    badge: "A",
-  },
-  conflicting: {
-    label: "Conflict",
-    badge: "!",
-  },
-  copied: {
-    label: "Index Copied",
-    badge: "C",
-  },
-  deleted: {
-    label: "Deleted",
-    badge: "D",
-  },
-  ignored: {
-    label: "Ignored",
-    badge: undefined,
-  },
-  "intent-to-add": {
-    label: "Intent to Add",
-    badge: "A",
-  },
-  "intent-to-rename": {
-    label: "Intent to Rename",
-    badge: "R",
-  },
-  modified: {
-    label: "Modified",
-    badge: "M",
-  },
-  renamed: {
-    label: "Index Renamed",
-    badge: "R",
-  },
-  "staged-deleted": {
-    label: "Index Deleted",
-    badge: "D",
-  },
-  "staged-modified": {
-    label: "Index Modified",
-    badge: "M",
-  },
-  submodule: {
-    label: "Submodule",
-    badge: "S",
-  },
-  "type-changed": {
-    label: "Type Changed",
-    badge: "T",
-  },
-  untracked: {
-    label: "Untracked",
-    badge: "U",
-  },
+  added: { label: "Index Added", badge: "A" },
+  conflicting: { label: "Conflict", badge: "!" },
+  copied: { label: "Index Copied", badge: "C" },
+  deleted: { label: "Deleted", badge: "D" },
+  ignored: { label: "Ignored", badge: undefined },
+  "intent-to-add": { label: "Intent to Add", badge: "A" },
+  "intent-to-rename": { label: "Intent to Rename", badge: "R" },
+  modified: { label: "Modified", badge: "M" },
+  renamed: { label: "Index Renamed", badge: "R" },
+  "staged-deleted": { label: "Index Deleted", badge: "D" },
+  "staged-modified": { label: "Index Modified", badge: "M" },
+  submodule: { label: "Submodule", badge: "S" },
+  "type-changed": { label: "Type Changed", badge: "T" },
+  untracked: { label: "Untracked", badge: "U" },
 };
 
-function gitDecorationPropagates(status: GitDecorationStatus): boolean {
-  if (
-    status === "deleted" ||
-    status === "ignored" ||
-    status === "staged-deleted" ||
-    status === "submodule"
-  ) {
-    return false;
-  }
-  return true;
-}
+// What a directory does not inherit from something below it: a deleted or
+// ignored child says nothing about the directory holding it.
+const UNPROPAGATED_GIT_STATUSES = new Set<GitDecorationStatus>([
+  "deleted",
+  "ignored",
+  "staged-deleted",
+  "submodule",
+]);
 
 type HasIgnoredGitAncestorOptions = {
   projectTree: ProjectTree;
@@ -156,38 +106,34 @@ function hasIgnoredGitAncestor({
   return false;
 }
 
-// What a row wears once Git has had its say: the attributes are computed
-// from the decoration maps and handed to the row as props, so a new set of
-// decorations redraws every row that one changed.
-type RowDecoration = {
-  title: string;
-  ariaLabel: string;
-  status: GitDecorationStatus | undefined;
-  badge: string | undefined;
-  bubble: boolean;
-};
-
 type DecorateRowOptions = {
   projectTree: ProjectTree;
   entry: ProjectTreeEntry;
   name: string;
 };
 
+type RowDecoration = {
+  title: string;
+  "aria-label": string;
+  "data-git-decoration"?: GitDecorationStatus;
+  "data-git-decoration-badge"?: string;
+  "data-git-decoration-bubble"?: "true";
+};
+
+// What Git has to say about one row, as the attributes that row wears. New
+// decorations redraw every row whose answer here changed, which is what
+// replaced walking the DOM to repaint them.
 function decorateRow({
   projectTree,
   entry,
   name,
 }: DecorateRowOptions): RowDecoration {
-  const undecorated: RowDecoration = {
+  const undecorated = {
     title: entry.path,
-    ariaLabel: name,
-    status: undefined,
-    badge: undefined,
-    bubble: false,
+    "aria-label": name,
   };
 
   let status = projectTree.gitDecorations.get(entry.path);
-  let descendantDecoration = false;
   if (
     status === undefined &&
     hasIgnoredGitAncestor({
@@ -197,59 +143,54 @@ function decorateRow({
   ) {
     status = "ignored";
   }
-  if (status === undefined && entry.kind === "directory") {
-    status = projectTree.propagatedGitDecorations.get(entry.path);
-    descendantDecoration = status !== undefined;
-  }
-  if (status === undefined) {
-    return undecorated;
-  }
   if (status === "ignored") {
     return {
       ...undecorated,
-      status,
+      "data-git-decoration": status,
     };
   }
-  if (descendantDecoration) {
+  if (status !== undefined) {
+    const presentation = GIT_DECORATION_PRESENTATIONS[status];
     return {
-      ...undecorated,
-      status,
-      bubble: true,
-      title: `${entry.path} • Contains emphasized items`,
-      ariaLabel: `${name}, contains emphasized items`,
+      title: `${entry.path} • ${presentation.label}`,
+      "aria-label": `${name}, ${presentation.label}`,
+      "data-git-decoration": status,
+      "data-git-decoration-badge": presentation.badge,
     };
   }
-  const presentation = GIT_DECORATION_PRESENTATIONS[status];
-  return {
-    ...undecorated,
-    status,
-    badge: presentation.badge,
-    title: `${entry.path} • ${presentation.label}`,
-    ariaLabel: `${name}, ${presentation.label}`,
-  };
+  // A directory wears the first decoration found below it, so a change deep
+  // inside a collapsed tree is still visible at the top.
+  const descendantStatus = projectTree.propagatedGitDecorations.get(entry.path);
+  if (entry.kind === "directory" && descendantStatus !== undefined) {
+    return {
+      title: `${entry.path} • Contains emphasized items`,
+      "aria-label": `${name}, contains emphasized items`,
+      "data-git-decoration": descendantStatus,
+      "data-git-decoration-bubble": "true",
+    };
+  }
+  return undecorated;
 }
 
 type ReadDirectoryOptions = {
   projectTree: ProjectTree;
   directoryPath: string;
-  // A first read is one the reader is waiting on: it may say "Loading…"
-  // while it happens and it has to report what went wrong. A re-read happens
-  // behind their back, so it neither flashes a message over rows they are
-  // looking at nor replaces those rows with an error.
-  firstRead: boolean;
 };
 
 async function readDirectory({
   projectTree,
   directoryPath,
-  firstRead,
 }: ReadDirectoryOptions): Promise<void> {
-  projectTree.nextRequest += 1;
-  const request = projectTree.nextRequest;
+  // A directory with rows on screen is being re-read behind the reader's
+  // back: it neither flashes a message over those rows nor replaces them
+  // with an error. One with nothing to show is a read they are waiting on.
+  const waitedOn =
+    projectTree.directories.get(directoryPath)?.status !== "loaded";
+  const request = (projectTree.requests.get(directoryPath) ?? 0) + 1;
   projectTree.requests.set(directoryPath, request);
-  if (firstRead) {
+  if (waitedOn) {
     projectTree.directories.set(directoryPath, { status: "loading" });
-    changed(projectTree);
+    draw(projectTree);
   }
 
   let result: ReadProjectTreeResult;
@@ -261,70 +202,24 @@ async function readDirectory({
   } catch (error) {
     result = { error: String(error) };
   }
-  // an answer to a read this directory has moved on from, or one from a
-  // workspace root the panel has since left, is not an answer at all
   if (projectTree.requests.get(directoryPath) !== request) {
     return;
   }
   if ("error" in result) {
-    if (firstRead) {
+    if (waitedOn) {
       projectTree.directories.set(directoryPath, {
         status: "error",
         message: result.error,
       });
-      changed(projectTree);
+      draw(projectTree);
     }
     return;
   }
-  if (result.workspaceRootPath !== projectTree.workspaceRootPath) {
-    return;
-  }
-  setDirectoryEntries({
-    projectTree,
-    directoryPath,
-    entries: result.entries,
-  });
-}
-
-type SetDirectoryEntriesOptions = {
-  projectTree: ProjectTree;
-  directoryPath: string;
-  entries: ProjectTreeEntry[];
-};
-
-// A directory whose children are gone takes its own children's state with
-// it: if that path comes back it should be read again, not redrawn from
-// what it held the last time it existed.
-function setDirectoryEntries({
-  projectTree,
-  directoryPath,
-  entries,
-}: SetDirectoryEntriesOptions): void {
-  const survivingPaths = new Set<string>();
-  for (const entry of entries) {
-    survivingPaths.add(entry.path);
-  }
-  let prefix = "";
-  if (directoryPath !== "") {
-    prefix = `${directoryPath}/`;
-  }
-  for (const knownPath of Array.from(projectTree.directories.keys())) {
-    if (knownPath === directoryPath || !knownPath.startsWith(prefix)) {
-      continue;
-    }
-    const childName = knownPath.slice(prefix.length).split("/")[0];
-    if (survivingPaths.has(`${prefix}${childName}`)) {
-      continue;
-    }
-    projectTree.directories.delete(knownPath);
-    projectTree.requests.delete(knownPath);
-  }
-
   projectTree.directories.set(directoryPath, {
     status: "loaded",
-    entries,
+    entries: result.entries,
   });
-  changed(projectTree);
+  draw(projectTree);
 }
 
 type DirectoryContentsProps = {
@@ -332,9 +227,9 @@ type DirectoryContentsProps = {
   directoryPath: string;
 };
 
-// One directory's children, in whichever of its three states it is in. The
-// root's own emptiness reads differently from a subdirectory's, because an
-// empty workspace is a thing the reader may have to fix.
+// One directory's children, in whichever of its states it is in. The root's
+// emptiness reads differently from a subdirectory's, because an empty
+// workspace is a thing the reader may have to fix.
 function DirectoryContents({
   projectTree,
   directoryPath,
@@ -354,13 +249,12 @@ function DirectoryContents({
           className="project-tree-retry"
           type="button"
           onClick={(event) => {
-            // the row underneath is a summary, and a click on it toggles
+            // the row above it is a summary, and a click on that toggles
             event.preventDefault();
             event.stopPropagation();
             readDirectory({
               projectTree,
               directoryPath,
-              firstRead: true,
             });
           }}
         >
@@ -370,11 +264,10 @@ function DirectoryContents({
     );
   }
   if (directory.entries.length === 0) {
-    let message = "Empty";
     if (directoryPath === "") {
-      message = "Empty workspace";
+      return <li className="project-tree-message">Empty workspace</li>;
     }
-    return <li className="project-tree-message">{message}</li>;
+    return <li className="project-tree-message">Empty</li>;
   }
   return directory.entries.map((entry) => (
     <TreeEntry key={entry.path} projectTree={projectTree} entry={entry} />
@@ -388,18 +281,13 @@ type TreeEntryProps = {
 
 function TreeEntry({ projectTree, entry }: TreeEntryProps): ReactNode {
   const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
-  const decoration = decorateRow({
-    projectTree,
-    entry,
-    name,
-  });
   const rowProps = {
     "data-project-tree-path": entry.path,
-    "data-git-decoration": decoration.status,
-    "data-git-decoration-badge": decoration.badge,
-    "data-git-decoration-bubble": decoration.bubble ? "true" : undefined,
-    title: decoration.title,
-    "aria-label": decoration.ariaLabel,
+    ...decorateRow({
+      projectTree,
+      entry,
+      name,
+    }),
     onFocus: () => {
       projectTree.focusedPath = entry.path;
     },
@@ -435,18 +323,16 @@ function TreeEntry({ projectTree, entry }: TreeEntryProps): ReactNode {
       <details
         className="project-tree-directory"
         onToggle={(event) => {
-          if (!event.currentTarget.open) {
-            return;
-          }
-          // read once, the first time it is opened; a directory already read
-          // is refreshed by its watcher, not by being opened again
-          if (projectTree.directories.has(entry.path)) {
+          // read on the first expansion only; after that the watcher keeps it
+          if (
+            !event.currentTarget.open ||
+            projectTree.directories.has(entry.path)
+          ) {
             return;
           }
           readDirectory({
             projectTree,
             directoryPath: entry.path,
-            firstRead: true,
           });
         }}
       >
@@ -473,32 +359,6 @@ function TreeEntry({ projectTree, entry }: TreeEntryProps): ReactNode {
   );
 }
 
-type ProjectTreeViewProps = {
-  projectTree: ProjectTree;
-};
-
-function ProjectTreeView({
-  projectTree,
-}: ProjectTreeViewProps): ReactNode {
-  // The store is outside React and mutated in place, so what React watches
-  // is the version number: a new one means draw the tree again.
-  useSyncExternalStore(
-    (listener) => {
-      projectTree.listeners.add(listener);
-      return () => {
-        projectTree.listeners.delete(listener);
-      };
-    },
-    () => projectTree.version,
-  );
-
-  return (
-    <ul className="project-tree-list project-tree-root">
-      <DirectoryContents projectTree={projectTree} directoryPath="" />
-    </ul>
-  );
-}
-
 type MountProjectTreeOptions = {
   treeElement: HTMLElement;
   workspaceRootPath: string;
@@ -512,31 +372,21 @@ export function mountProjectTree({
   entries,
   openFile,
 }: MountProjectTreeOptions): ProjectTree {
-  treeElement.replaceChildren();
   const projectTree: ProjectTree = {
     treeElement,
     root: createRoot(treeElement),
     workspaceRootPath,
     openFile,
-    // the panel already read the root to learn the workspace's name, so the
+    // the panel read the root already, to learn the workspace's name, so the
     // tree starts with one directory it never has to ask for
     directories: new Map([["", { status: "loaded", entries }]]),
     requests: new Map(),
-    nextRequest: 0,
     gitDecorations: new Map(),
     propagatedGitDecorations: new Map(),
     focusedPath: undefined,
-    version: 0,
-    listeners: new Set(),
   };
-  projectTree.root.render(<ProjectTreeView projectTree={projectTree} />);
+  draw(projectTree);
   return projectTree;
-}
-
-// Only a panel that is reloading its root or going away unmounts its tree;
-// hiding the panel leaves it standing.
-export function unmountProjectTree(projectTree: ProjectTree): void {
-  projectTree.root.unmount();
 }
 
 type RefreshProjectTreePathsOptions = {
@@ -546,59 +396,47 @@ type RefreshProjectTreePathsOptions = {
 
 // What the watcher reports are changed paths; what the tree can act on are
 // the directories it is showing. A null list means "anything may have
-// changed", which is every directory it has.
+// changed", and so does a change to the workspace root itself.
 export async function refreshProjectTreePaths({
   projectTree,
   paths,
 }: RefreshProjectTreePathsOptions): Promise<void> {
   const knownPaths = new Set(projectTree.directories.keys());
-  const directoryPaths = new Set<string>();
+  const stalePaths = new Set<string>();
 
-  if (paths === null) {
+  if (paths === null || paths.includes("")) {
     for (const knownPath of knownPaths) {
-      directoryPaths.add(knownPath);
+      stalePaths.add(knownPath);
     }
-  } else {
-    for (const changedPath of paths) {
-      if (changedPath === ".git" || changedPath.startsWith(".git/")) {
-        continue;
-      }
-      if (changedPath.length === 0) {
-        for (const knownPath of knownPaths) {
-          directoryPaths.add(knownPath);
-        }
-        continue;
-      }
-      // the directory the change happened in, which is the one whose listing
-      // gained or lost a row
-      const separatorPosition = changedPath.lastIndexOf("/");
-      if (separatorPosition < 0) {
-        directoryPaths.add("");
-      } else {
-        directoryPaths.add(changedPath.slice(0, separatorPosition));
-      }
-      // and anything below it that is open, since a renamed directory takes
-      // its whole subtree with it
-      const descendantPrefix = `${changedPath}/`;
-      for (const knownPath of knownPaths) {
-        if (
-          knownPath === changedPath ||
-          knownPath.startsWith(descendantPrefix)
-        ) {
-          directoryPaths.add(knownPath);
-        }
+  }
+  for (const changedPath of paths ?? []) {
+    if (changedPath === ".git" || changedPath.startsWith(".git/")) {
+      continue;
+    }
+    // the directory the change happened in, whose listing gained or lost a
+    // row because of it
+    const separatorPosition = changedPath.lastIndexOf("/");
+    let parentPath = "";
+    if (separatorPosition >= 0) {
+      parentPath = changedPath.slice(0, separatorPosition);
+    }
+    if (knownPaths.has(parentPath)) {
+      stalePaths.add(parentPath);
+    }
+    // and anything open below it, since a renamed directory takes its whole
+    // subtree with it
+    const descendantPrefix = `${changedPath}/`;
+    for (const knownPath of knownPaths) {
+      if (knownPath === changedPath || knownPath.startsWith(descendantPrefix)) {
+        stalePaths.add(knownPath);
       }
     }
   }
 
-  for (const directoryPath of directoryPaths) {
-    if (!knownPaths.has(directoryPath)) {
-      continue;
-    }
+  for (const directoryPath of stalePaths) {
     await readDirectory({
       projectTree,
       directoryPath,
-      firstRead: false,
     });
   }
 }
@@ -608,9 +446,6 @@ type SetProjectTreeGitDecorationsOptions = {
   decorations: ProjectTreeGitDecoration[];
 };
 
-// Git reports the files it has something to say about; a directory wears the
-// first decoration found below it, so a change deep in a collapsed tree is
-// still visible at the top.
 export function setProjectTreeGitDecorations({
   projectTree,
   decorations,
@@ -622,7 +457,7 @@ export function setProjectTreeGitDecorations({
   projectTree.propagatedGitDecorations.clear();
   for (const decoration of decorations) {
     projectTree.gitDecorations.set(decoration.path, decoration.status);
-    if (!gitDecorationPropagates(decoration.status)) {
+    if (UNPROPAGATED_GIT_STATUSES.has(decoration.status)) {
       continue;
     }
     let separatorPosition = decoration.path.lastIndexOf("/");
@@ -637,7 +472,7 @@ export function setProjectTreeGitDecorations({
       separatorPosition = directoryPath.lastIndexOf("/");
     }
   }
-  changed(projectTree);
+  draw(projectTree);
 }
 
 // The row the keyboard was last on, by path rather than by element: the one

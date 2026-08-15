@@ -1,32 +1,28 @@
 {
-  // tsc type-checks the whole tree and emits everything under dist/. The
-  // window does not run dist/renderer: Vite builds the page from the same
-  // sources into dist/page (vite.config.ts). The renderer's emitted JS is
-  // kept because it is the type check, and because src/test imports one
-  // renderer module (tabs/links.ts) into the test process.
+  // tsc type-checks the whole tree and emits all of it. The window runs
+  // Vite's build of src/renderer instead (vite.config.ts); dist/renderer is
+  // kept because src/test imports one renderer module, tabs/links.ts.
   "compilerOptions": {
     // Where source lives and where compiled JS goes
     "rootDir": "src",
     "outDir": "dist",
 
     // The whole project is native ES modules ("type": "module" in
-    // package.json): the browser runs renderer.js via <script type="module">,
-    // Electron's main process runs main.js as ESM directly. The one
-    // exception is preload.cts — Electron's sandbox requires preload to be
-    // CommonJS, and the .cts extension tells tsc to emit that one file as
-    // .cjs while its source still uses import syntax.
+    // package.json): Electron's main process runs main.js as ESM directly,
+    // and so does the page. The one exception is preload.cts — Electron's
+    // sandbox requires preload to be CommonJS, and the .cts extension tells
+    // tsc to emit that one file as .cjs while its source still uses import
+    // syntax.
     "module": "nodenext",
     "target": "es2022",
 
-    // JSX compiles to calls on react/jsx-runtime, which the .tsx file never
-    // has to import itself. (The other setting, "react", predates that
-    // runtime and needs React in scope in every file.)
+    // JSX compiles to calls on react/jsx-runtime, which a .tsx file never
+    // has to import itself.
     "jsx": "react-jsx",
 
     // Source imports name local files by their real extension (""./foo.ts"");
     // tsc rewrites those relative specifiers to "".js"" in emitted output so
-    // Node still runs plain ESM files on disk. Keeps the source honest without
-    // a bundler.
+    // Node still runs plain ESM files on disk.
     "rewriteRelativeImportExtensions": true,
 
     // The renderer needs browser types (DOM); main needs Node types.

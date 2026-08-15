@@ -11,9 +11,8 @@ import {
 import { openRenameDialog } from "./rename-dialog.ts";
 import "./settings-dialog.js";
 import "./edge-resize.js";
-// Last, and imported here rather than linked in index.html for that reason:
-// the stylesheets above are xterm's and Dockview's, and ours is the one that
-// overrides them.
+// Last, which is why it is imported here rather than linked in index.html:
+// the stylesheets above are xterm's and Dockview's, and ours overrides them.
 import "./style.css";
 
 applyCssVariables();

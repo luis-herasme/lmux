@@ -12,10 +12,8 @@
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     />
     <title>lmux</title>
-    <!-- code token colors, one file of the two highlight.js ships for VS
-         Code's palettes; settings.ts picks the one this theme wants and puts
-         its URL here, at boot and on every theme change. Every other
-         stylesheet the app needs is imported by the module that needs it. -->
+    <!-- code token colors; settings.ts puts the palette this theme wants
+         here. Every other stylesheet is imported by the module needing it. -->
     <link rel="stylesheet" id="highlight-css" />
   </head>
   <body>
@@ -106,8 +104,7 @@
         <div id="project-resizer"></div>
       </div>
     </div>
-    <!-- The page's one entry. Vite follows its imports from here and writes
-         the bundle the window actually loads (vite.config.ts). -->
+    <!-- the page's one entry; Vite follows its imports from here -->
     <script type="module" src="./index.ts"></script>
   </body>
 </html>

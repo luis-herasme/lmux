@@ -20,8 +20,6 @@ import type {
   IDockviewPanel,
   SerializedDockview,
 } from "dockview";
-// the layout engine's own stylesheet: the tab strip, the drop overlays, the
-// sashes between groups
 import "dockview/dist/styles/dockview.css";
 import { bridge } from "./bridge.ts";
 import { requireElement } from "./dom.ts";

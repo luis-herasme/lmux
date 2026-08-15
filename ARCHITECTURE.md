@@ -228,13 +228,11 @@ change it and update this list.
   accept: what runs in the window is fused and minified rather than the file
   you wrote, with sourcemaps to carry the debugger back; and CSS order is now
   import order, so `index.ts` imports our own stylesheet last, after the ones
-  its dependencies bring, because ours is the one that overrides them.
-- **Vite builds the page, and does not serve it.** (Decided 2026-08-15,
-  with the entry above.) A dev server would buy hot reloading, and cost a
+  its dependencies bring, because ours is the one that overrides them. It
+  builds and does not serve: a dev server would buy hot reloading and cost a
   second way for the window to find a page — `loadURL` in development,
-  `loadFile` in the packaged app — plus a CSP loose enough for the dev
-  server's own injected scripts, which means the policy we test under is not
-  the policy we ship. One code path and a restart instead.
+  `loadFile` packaged — plus a CSP loose enough for the dev server's own
+  injected scripts, which is not the policy we ship.
 - **Monaco is loaded when the first project panel opens, not at boot.** It is
   about 4MB with every language grammar it ships. A dynamic `import()` where
   the editor is set up keeps that cost off the boot path entirely: a session
@@ -306,14 +304,14 @@ change it and update this list.
   what vanished, and keep generation counters so a late answer could not
   overwrite a newer one. That is the algorithm React is, so the tree now
   declares what each directory looks like and React works out the DOM. The
-  state stays a plain object outside React, mutated by the same asynchronous
-  functions as before, with `useSyncExternalStore` subscribing the view to
-  it: what changed is who writes the DOM, not who owns the state.
-  Deliberately not React: xterm, Monaco and Dockview own their DOM and would
-  only be wrapped, the terminal and Markdown panes are theirs, and every
-  affordance still issues Commands. Cost we accept: a framework and its two
-  packages in the page's bundle, and one file whose dialect (JSX, `.tsx`) is
-  not the rest of the codebase's.
+  state stays a plain object outside React, changed by the same asynchronous
+  functions as before; each of them ends by rendering the whole tree again,
+  which is cheap because working out the difference is React's job. What
+  changed is who writes the DOM, not who owns the state. Deliberately not
+  React: xterm, Monaco and Dockview own their DOM and would only be wrapped,
+  and every affordance still issues Commands. Cost we accept: a framework and
+  its two packages in the page's bundle, and one file whose dialect (JSX,
+  `.tsx`) is not the rest of the codebase's.
 - **Explorer decorations are Git state.** Main reads NUL-delimited porcelain
   status and the Git index after the tree commits its root. The result is
   compared with the current `HEAD`, not specifically the repository's main

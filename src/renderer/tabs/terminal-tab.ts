@@ -13,7 +13,6 @@ import type { ScreenResult } from "../../api.ts";
 import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-// the terminal's own stylesheet: the grid, the cursor, the selection
 import "@xterm/xterm/css/xterm.css";
 import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
 

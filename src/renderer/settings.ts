@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { THEMES, DEFAULT_SETTINGS } from "../theme.ts";
-// The two code palettes highlight.js ships for VS Code's themes, as URLs:
-// the page keeps one link element and points it at whichever this theme
-// wants (applyCssVariables, below).
+// The page keeps one link element for code token colors and points it at
+// whichever of these two palettes the theme wants (applyCssVariables).
 import darkCodeStyleUrl from "highlight.js/styles/vs2015.min.css?url";
 import lightCodeStyleUrl from "highlight.js/styles/vs.min.css?url";
 import { requireElement } from "./dom.ts";
