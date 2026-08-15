@@ -33,12 +33,6 @@ type MountProjectTreeOptions = {
   openFile: OpenTreeFile;
 };
 
-type AppendProjectTreeEntriesOptions = {
-  projectTree: ProjectTree;
-  listElement: HTMLUListElement;
-  entries: ProjectTreeEntry[];
-};
-
 type AppendProjectTreeEntryOptions = {
   projectTree: ProjectTree;
   listElement: HTMLUListElement;
@@ -90,13 +84,9 @@ type PruneLoadedDirectoryOptions = {
   directoryPath: string;
 };
 
-function treeEntryName(treePath: string): string {
-  const separatorPosition = treePath.lastIndexOf("/");
-  if (separatorPosition < 0) {
-    return treePath;
-  }
-  return treePath.slice(separatorPosition + 1);
-}
+// The row element of a tree item: a file button, or a directory's summary.
+const ITEM_ROW_SELECTOR =
+  ":scope > .project-tree-file, :scope > .project-tree-directory > summary";
 
 type GitDecorationPresentation = {
   label: string;
@@ -247,20 +237,6 @@ function applyProjectTreeRowDecoration({
   rowElement.ariaLabel = `${name}, ${presentation.label}`;
 }
 
-function appendProjectTreeEntries({
-  projectTree,
-  listElement,
-  entries,
-}: AppendProjectTreeEntriesOptions): void {
-  for (const entry of entries) {
-    appendProjectTreeEntry({
-      projectTree,
-      listElement,
-      entry,
-    });
-  }
-}
-
 async function loadProjectTreeDirectory({
   projectTree,
   detailsElement,
@@ -345,11 +321,13 @@ async function loadProjectTreeDirectory({
     emptyElement.textContent = "Empty";
     childrenElement.append(emptyElement);
   } else {
-    appendProjectTreeEntries({
-      projectTree,
-      listElement: childrenElement,
-      entries: result.entries,
-    });
+    for (const entry of result.entries) {
+      appendProjectTreeEntry({
+        projectTree,
+        listElement: childrenElement,
+        entry,
+      });
+    }
   }
 
   if (
@@ -370,7 +348,7 @@ function appendProjectTreeEntry({
 }: AppendProjectTreeEntryOptions): void {
   const itemElement = document.createElement("li");
   itemElement.className = "project-tree-item";
-  const name = treeEntryName(entry.path);
+  const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
 
   if (entry.kind === "directory") {
     const detailsElement = document.createElement("details");
@@ -489,11 +467,13 @@ export function mountProjectTree({
     emptyElement.textContent = "Empty workspace";
     listElement.append(emptyElement);
   } else {
-    appendProjectTreeEntries({
-      projectTree,
-      listElement,
-      entries,
-    });
+    for (const entry of entries) {
+      appendProjectTreeEntry({
+        projectTree,
+        listElement,
+        entry,
+      });
+    }
   }
   treeElement.replaceChildren(listElement);
   return projectTree;
@@ -537,9 +517,8 @@ function reconcileProjectTreeEntries({
     if (!(childElement instanceof HTMLLIElement)) {
       continue;
     }
-    const rowElement = childElement.querySelector<HTMLElement>(
-      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
-    );
+    const rowElement =
+      childElement.querySelector<HTMLElement>(ITEM_ROW_SELECTOR);
     const treePath = rowElement?.dataset.projectTreePath;
     if (treePath === undefined) {
       continue;
@@ -552,9 +531,8 @@ function reconcileProjectTreeEntries({
   for (const entry of entries) {
     retainedPaths.add(entry.path);
     let itemElement = existingItems.get(entry.path);
-    const existingRow = itemElement?.querySelector<HTMLElement>(
-      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
-    );
+    const existingRow =
+      itemElement?.querySelector<HTMLElement>(ITEM_ROW_SELECTOR);
     if (
       existingRow?.dataset.projectTreeKind === "directory" &&
       existingRow.dataset.projectTreeKind !== entry.kind
@@ -586,9 +564,8 @@ function reconcileProjectTreeEntries({
     if (retainedPaths.has(existingPath)) {
       continue;
     }
-    const rowElement = itemElement.querySelector<HTMLElement>(
-      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
-    );
+    const rowElement =
+      itemElement.querySelector<HTMLElement>(ITEM_ROW_SELECTOR);
     if (rowElement?.dataset.projectTreeKind !== "directory") {
       continue;
     }
