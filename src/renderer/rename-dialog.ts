@@ -1,17 +1,9 @@
 import { executeCommand, getTabTitle, focusWorkspace } from "./tabs/index.ts";
 import { workspaces } from "./workspaces.ts";
-import { requireElement } from "./dom.ts";
+import { requireElement, requireElementOfType } from "./dom.ts";
 
-const dialogElement = requireElement("rename-dialog");
-if (!(dialogElement instanceof HTMLDialogElement)) {
-  throw new Error("#rename-dialog is not a <dialog>");
-}
-const dialog: HTMLDialogElement = dialogElement;
-const inputElement = requireElement("rename-input");
-if (!(inputElement instanceof HTMLInputElement)) {
-  throw new Error("#rename-input is not an <input>");
-}
-const input: HTMLInputElement = inputElement;
+const dialog = requireElementOfType("rename-dialog", HTMLDialogElement);
+const input = requireElementOfType("rename-input", HTMLInputElement);
 const heading = requireElement("rename-heading");
 
 type RenameTarget = {
