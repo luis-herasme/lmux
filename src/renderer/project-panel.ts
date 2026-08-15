@@ -12,8 +12,12 @@ import type {
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
 } from "../ipc/bridge.ts";
-import { focusProjectTree, mountProjectTree } from "./project-tree.ts";
-import type { ProjectTree } from "./project-tree.ts";
+import {
+  focusProjectTree,
+  mountProjectTree,
+  unmountProjectTree,
+} from "./project-tree.tsx";
+import type { ProjectTree } from "./project-tree.tsx";
 import { buildProjectPanelElements } from "./project-panel-elements.ts";
 import {
   handleProjectTreeChange,
@@ -224,6 +228,11 @@ async function loadProjectTreeRoot({
   panel.latestGitRequest += 1;
   const treeRequest = panel.latestTreeRequest;
   stopProjectTreeWatcher(panel);
+  // the message below is written straight into the element the old tree was
+  // drawn in, so that tree has to let go of it first
+  if (panel.projectTree !== undefined) {
+    unmountProjectTree(panel.projectTree);
+  }
   panel.projectTree = undefined;
   panel.treeElement.textContent = "Loading workspace…";
 
@@ -410,6 +419,9 @@ export function disposeProjectPanel(panel: ProjectPanel): void {
   panel.latestTreeRequest += 1;
   panel.latestGitRequest += 1;
   stopProjectTreeWatcher(panel);
+  if (panel.projectTree !== undefined) {
+    unmountProjectTree(panel.projectTree);
+  }
   panel.file?.model?.dispose();
   panel.editor.dispose();
   panel.element.remove();

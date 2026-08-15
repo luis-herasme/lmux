@@ -18,6 +18,11 @@
     "module": "nodenext",
     "target": "es2022",
 
+    // JSX compiles to calls on react/jsx-runtime, which the .tsx file never
+    // has to import itself. (The other setting, "react", predates that
+    // runtime and needs React in scope in every file.)
+    "jsx": "react-jsx",
+
     // Source imports name local files by their real extension (""./foo.ts"");
     // tsc rewrites those relative specifiers to "".js"" in emitted output so
     // Node still runs plain ESM files on disk. Keeps the source honest without

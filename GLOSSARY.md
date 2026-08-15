@@ -394,3 +394,27 @@ The cost of a bundler is that what runs is no longer what you wrote: one
 `assets/index-HASH.js` instead of your files. A *sourcemap*, emitted beside it,
 is the table that maps a position in the built file back to the line of source
 it came from, which is what lets the debugger show you your own code.
+
+## React / JSX / reconciliation
+
+*React* is a library for describing what the screen should show, instead of
+writing the steps that change it. You write a *component* — a function
+returning a description of some DOM — and React works out the difference
+between what it described last time and what it describes now, then applies
+that difference. That last part is *reconciliation*, and it is why a component
+can be written as if it were drawing the whole thing from scratch every time.
+
+*JSX* is the syntax those descriptions are written in: `<li className="row">`
+inside a `.tsx` file, which the compiler turns into ordinary function calls.
+It is markup-shaped because what it describes is markup, but it is code —
+`className` and not `class`, `{name}` to interpolate a value.
+
+Reconciliation needs to know which item is which when a list changes, and it
+cannot guess: that is what a *key* is for. Give each row the path it shows as
+its key, and a directory that gained a file in the middle keeps every other
+row exactly as it was, rather than shuffling their contents up by one.
+
+lmux uses React for the project panel's file tree and for nothing else. The
+tree is a view of data that arrives late and changes underneath — the case
+reconciliation is for. A terminal is not: xterm owns that DOM and draws it
+itself, and wrapping it in a component would buy nothing.

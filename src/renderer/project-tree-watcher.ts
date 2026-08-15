@@ -15,8 +15,8 @@ import type {
 import {
   refreshProjectTreePaths,
   setProjectTreeGitDecorations,
-} from "./project-tree.ts";
-import type { ProjectTree } from "./project-tree.ts";
+} from "./project-tree.tsx";
+import type { ProjectTree } from "./project-tree.tsx";
 import type { ProjectPanel } from "./project-panel.ts";
 
 export type ProjectTreeWatcher = {

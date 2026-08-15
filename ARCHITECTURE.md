@@ -183,8 +183,9 @@ and writes the window geometry and the last session to disk.
 **The renderer owns the screen.** It boots settings into CSS and wires the
 cable, keeps the workspace store (one layout and one project panel each) and the
 tab store whose one dispatcher hands every Command to its family, draws terminal
-and Markdown panes, hosts the project panel with its lazy tree, its one open
-file and Monaco, and owns the modals, the settings and the drag handles.
+and Markdown panes, hosts the project panel with its lazy tree (the one React
+component in the app), its one open file and Monaco, and owns the modals, the
+settings and the drag handles.
 
 **The tests** boot the real app, drive the bus, and assert on the state that
 comes back.
@@ -198,7 +199,7 @@ splitting.
 Each entry: what we chose, and why. If a decision stops making sense, we
 change it and update this list.
 
-- **TypeScript, compiled by `tsc` alone: still no bundler, no framework.**
+- **TypeScript, compiled by `tsc`.**
   (Replaced the original "plain JavaScript, no build step" decision.) Node
   22.18+ (including the Node 24 inside our Electron) can *run* `.ts` files
   natively by stripping the type annotations, but that gets us nothing on its
@@ -209,7 +210,9 @@ change it and update this list.
   no-bundler rule no longer extends to every dependency. Amended 2026-08-15:
   it no longer covers the page either — see the entry below. `tsc` is still
   the type checker for the whole tree, and still the compiler for main, the
-  preload and the tests, whose output mirrors their source one to one.)
+  preload and the tests, whose output mirrors their source one to one. The
+  entry also carried "no framework", which stood until the file tree — see
+  the React entry further down.)
 - **The page is built by Vite; everything else stays `tsc`'s.** (Decided
   2026-08-15. Replaces "only browser-incompatible dependencies are bundled",
   which held until the page had three different ways of reaching a package.)
@@ -294,6 +297,23 @@ change it and update this list.
   Retry after filesystem failures. Root changes show one loading state and
   commit the root, title and tree together. Row virtualization and paged reads
   remain in #44; tree mutation controls remain out of scope.
+- **React draws the file tree, and nothing else.** (Decided 2026-08-15, the
+  first framework in the project.) The tree is the one part of the app that
+  is a *view of data*: directories arrive one at a time, a watcher replaces
+  them underneath, and Git decorations repaint rows that did not otherwise
+  change. Written by hand that meant a keyed reconciler — match the new
+  entries against the rows already in the DOM, reuse what survived, prune
+  what vanished, and keep generation counters so a late answer could not
+  overwrite a newer one. That is the algorithm React is, so the tree now
+  declares what each directory looks like and React works out the DOM. The
+  state stays a plain object outside React, mutated by the same asynchronous
+  functions as before, with `useSyncExternalStore` subscribing the view to
+  it: what changed is who writes the DOM, not who owns the state.
+  Deliberately not React: xterm, Monaco and Dockview own their DOM and would
+  only be wrapped, the terminal and Markdown panes are theirs, and every
+  affordance still issues Commands. Cost we accept: a framework and its two
+  packages in the page's bundle, and one file whose dialect (JSX, `.tsx`) is
+  not the rest of the codebase's.
 - **Explorer decorations are Git state.** Main reads NUL-delimited porcelain
   status and the Git index after the tree commits its root. The result is
   compared with the current `HEAD`, not specifically the repository's main
