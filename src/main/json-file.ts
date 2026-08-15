@@ -1,5 +1,3 @@
-// The small state files main keeps in the profile directory: one that is
-// missing, half-written or unwritable is not an error, it is just no state.
 import { readFileSync, writeFileSync } from "fs";
 
 export function readJsonFile(filePath: string): unknown {

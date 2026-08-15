@@ -117,7 +117,10 @@ ipcMain.on("event", (event, lmuxEvent: LmuxEvent) => {
   lmuxState = lmuxEvent.state;
   // Only a close can empty the app: a new workspace is momentarily empty
   // between its own Event and its first tab's, and must not count.
-  if (lmuxEvent.type !== "tab-closed" && lmuxEvent.type !== "workspace-closed") {
+  if (
+    lmuxEvent.type !== "tab-closed" &&
+    lmuxEvent.type !== "workspace-closed"
+  ) {
     return;
   }
   for (const workspace of lmuxState.workspaces) {
