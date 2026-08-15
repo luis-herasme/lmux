@@ -1,6 +1,7 @@
 // A panel's width is a setting, so a drag ends as one update-settings
 // Command; the pixels moving under the cursor until then are a preview.
-import { executeCommand, focusWorkspace } from "./tabs/index.ts";
+import { executeCommand } from "./tabs/index.ts";
+import { focusWorkspace } from "./workspaces.ts";
 import {
   MAX_PROJECT_WIDTH_PX,
   MAX_SIDEBAR_WIDTH_PX,

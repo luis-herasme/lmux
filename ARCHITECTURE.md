@@ -129,7 +129,7 @@ flowchart LR
     M["main
     dispatch(command)"] -->|command| R
     R["renderer
-    executeCommand: one switch,
+    executeCommand: one door,
     the only place state changes"] -->|"event, carrying
     a state snapshot"| M
     M --> K["main's read model:
@@ -182,9 +182,9 @@ and writes the window geometry and the last session to disk.
 
 **The renderer owns the screen.** It boots settings into CSS and wires the
 cable, keeps the workspace store (one layout and one project panel each) and the
-tab store whose single switch consumes every Command, draws terminal and
-Markdown panes, hosts the project panel with its lazy tree, its one open file
-and Monaco, and owns the modals, the settings and the drag handles.
+tab store whose one dispatcher hands every Command to its family, draws terminal
+and Markdown panes, hosts the project panel with its lazy tree, its one open
+file and Monaco, and owns the modals, the settings and the drag handles.
 
 **The tests** boot the real app, drive the bus, and assert on the state that
 comes back.
@@ -1057,6 +1057,22 @@ change it and update this list.
   above: native HTML5 drags and pointer capture. The menu path is a third,
   since it depends on OS focus. CI does not run this yet: the check workflow runs
   on Linux, where Electron needs a window server.
+- **`executeCommand` is a dispatcher, and each Command family has its own
+  file.** (Decided 2026-08-15.) The switch had grown to 22 cases and 430
+  lines: the "module that stops fitting a one-line description of its job"
+  this document warns about. The cases now live in `tab-commands.ts`,
+  `project-commands.ts`, `workspace-commands.ts` and `settings-command.ts`,
+  and `executeCommand` groups its cases without handling any, so it reads as
+  a table of contents. Nothing about the bus changed — still exactly one
+  function every Command arrives at, still the only place state changes — so
+  the one-door rule is untouched. The project panel was split the same way:
+  its DOM (`project-panel-elements.ts`), its resize handle
+  (`project-tree-resize.ts`) and its file watcher with the git decorations
+  and retries (`project-tree-watcher.ts`) were three jobs it had
+  accumulated. Two things fell out along the way: opening a tab of either
+  kind is now one call that allocates its own id, with `addPanel` building
+  the strip row every tab wears, and `focusWorkspace` moved to
+  `workspaces.ts`, where the `focus` field it reads already lived.
 
 ## Where future features will live
 

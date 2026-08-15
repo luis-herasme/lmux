@@ -2,9 +2,9 @@
 // tabs, plus the one project panel beside it. Only the active one is
 // displayed; the others keep their terminals and their shells alive off
 // screen.
-import { executeCommand, focusWorkspace } from "./tabs/index.ts";
+import { executeCommand } from "./tabs/index.ts";
 import type { Tab } from "./tabs/index.ts";
-import { disposeProjectPanel } from "./project-panel.ts";
+import { disposeProjectPanel, focusProjectPanel } from "./project-panel.ts";
 import type { ProjectPanel } from "./project-panel.ts";
 import type {
   LayoutNode,
@@ -46,6 +46,14 @@ export const workspaces = new Map<number, Workspace>();
 export let activeWorkspace: Workspace | undefined;
 
 let nextWorkspaceId = 1;
+
+// Tabs and project panels share one counter, so a panel can be named by a
+// command the same way a tab is (see readScreen).
+let nextId = 0;
+
+export function nextTabId(): number {
+  return nextId++;
+}
 
 const titleBarElement = requireElement("title-bar");
 const layoutElement = requireElement("layout");
@@ -268,6 +276,40 @@ export function createWorkspace(): Workspace {
   return workspace;
 }
 
+// The workspace a Command names, or the active one when it names none.
+export function resolveWorkspace(
+  id: number | undefined,
+): Workspace | undefined {
+  if (id === undefined) {
+    return activeWorkspace;
+  }
+  return workspaces.get(id);
+}
+
+// Where the keyboard belongs in the active workspace: its project panel
+// while that is the half being worked in, its active tab otherwise.
+export function focusWorkspace(): void {
+  if (!activeWorkspace) {
+    return;
+  }
+  const panel = activeWorkspace.project;
+  if (
+    activeWorkspace.focus === "project" &&
+    panel !== undefined &&
+    panel.visible
+  ) {
+    focusProjectPanel(panel);
+    return;
+  }
+  const tab = activeWorkspace.tabs.get(activeWorkspace.activeId);
+  if (tab?.kind === "terminal") {
+    tab.terminal.focus();
+  }
+  if (tab?.kind === "markdown") {
+    tab.contentElement.focus();
+  }
+}
+
 // The host holds one panel per workspace and collapses when the active
 // workspace has none open, so the pane layout gets the whole window back.
 export function refreshProjectPanel(): void {
@@ -423,8 +465,12 @@ type AddPanelOptions = {
   component: "terminal" | "markdown";
   title: string;
   paneElement: HTMLElement;
-  tabElement: HTMLElement;
   group: DockviewGroupPanel | undefined;
+};
+
+type AddedPanel = {
+  panel: IDockviewPanel;
+  titleElement: HTMLElement; // the tab's title in the strip, for retitling
 };
 
 export function addPanel({
@@ -433,16 +479,45 @@ export function addPanel({
   component,
   title,
   paneElement,
-  tabElement,
   group,
-}: AddPanelOptions): IDockviewPanel {
+}: AddPanelOptions): AddedPanel {
+  // The row in the strip is built here rather than by the caller: every kind
+  // of tab wears the same one, and only the pane below it differs.
+  const titleElement = document.createElement("span");
+  titleElement.className = "tab-title";
+  titleElement.textContent = title;
+  titleElement.title = "Double-click to fill the window";
+
+  // a button, not a span: it has to be reachable and pressable by keyboard
+  const closeElement = document.createElement("button");
+  closeElement.className = "tab-close";
+  closeElement.textContent = "×";
+  closeElement.title = "Close Tab (⌘W)";
+  closeElement.ariaLabel = "Close tab";
+  closeElement.addEventListener("click", (event) => {
+    event.stopPropagation();
+    executeCommand({
+      type: "close-tab",
+      id,
+    });
+  });
+
+  const tabElement = document.createElement("div");
+  tabElement.className = "tab";
+  tabElement.dataset.tabId = String(id);
+  tabElement.append(titleElement, closeElement);
+  tabElement.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    bridge.showTabMenu(id);
+  });
+
   handOffPaneElement = paneElement;
   handOffTabElement = tabElement;
   let position: AddPanelPositionOptions | undefined;
   if (group !== undefined) {
     position = { referenceGroup: group };
   }
-  return workspace.dockview.api.addPanel({
+  const panel = workspace.dockview.api.addPanel({
     id: String(id),
     component,
     tabComponent: `${component}-tab`,
@@ -450,6 +525,10 @@ export function addPanel({
     inactive: true,
     position,
   });
+  return {
+    panel,
+    titleElement,
+  };
 }
 
 layoutElement.addEventListener("dblclick", (event) => {

@@ -1,6 +1,7 @@
 import { THEMES } from "../theme.ts";
 import { getSettings } from "./settings.ts";
-import { executeCommand, focusWorkspace } from "./tabs/index.ts";
+import { executeCommand } from "./tabs/index.ts";
+import { focusWorkspace } from "./workspaces.ts";
 import { requireElement, requireElementOfType } from "./dom.ts";
 import type { Settings } from "../api.ts";
 

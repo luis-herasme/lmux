@@ -2,8 +2,7 @@
 import { bridge } from "../bridge.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { executeCommand } from "./index.ts";
-import type { TabElements } from "./index.ts";
-import { addPanel, snapshot } from "../workspaces.ts";
+import { addPanel, nextTabId, snapshot } from "../workspaces.ts";
 import type { Workspace } from "../workspaces.ts";
 import type { MarkdownMode } from "../../api.ts";
 import type { ReadFileResult } from "../../ipc/bridge.ts";
@@ -171,24 +170,21 @@ function attachPaneHandlers({ id, tab }: AttachPaneHandlersOptions): void {
 }
 
 type OpenMarkdownTabOptions = {
-  id: number;
   workspace: Workspace;
-  tabElements: TabElements;
   filePath: string;
-  baseTabId: number | undefined;
-  group: DockviewGroupPanel | undefined;
+  baseTabId?: number; // the tab a relative path is resolved against
+  group?: DockviewGroupPanel; // the active group when none is named
 };
 
-// Reads the file and builds the tab; the caller owns the store, so putting
-// it there, announcing it and activating it stay on that side.
+// Reads the file and opens the tab on it. The promise settles once the
+// document is in the store, so restoring several keeps them in order.
 export async function openMarkdownTab({
-  id,
   workspace,
-  tabElements,
   filePath,
   baseTabId,
   group,
-}: OpenMarkdownTabOptions): Promise<MarkdownTab> {
+}: OpenMarkdownTabOptions): Promise<void> {
+  const id = nextTabId();
   const result = await bridge.readFile({
     path: filePath,
     baseTabId,
@@ -201,22 +197,20 @@ export async function openMarkdownTab({
   }
   // the renderer has no node:path; a document's name is its last segment
   const title = resolvedPath.slice(resolvedPath.lastIndexOf("/") + 1);
-  tabElements.titleElement.textContent = title;
 
-  const panel = addPanel({
+  const { panel, titleElement } = addPanel({
     workspace,
     id,
     component: "markdown",
     title,
     paneElement: pane.paneElement,
-    tabElement: tabElements.tabElement,
     group,
   });
 
   const tab: MarkdownTab = {
     kind: "markdown",
     panel,
-    titleElement: tabElements.titleElement,
+    titleElement,
     titlePinned: true,
     element: pane.paneElement,
     contentElement: pane.contentElement,
@@ -234,7 +228,15 @@ export async function openMarkdownTab({
     tab,
   });
   showMarkdown(tab);
-  return tab;
+
+  workspace.tabs.set(id, tab);
+  bridge.emitEvent({
+    type: "tab-opened",
+    id,
+    state: snapshot(),
+  });
+  tab.panel.api.setActive();
+  tab.contentElement.focus();
 }
 
 type SetMarkdownModeOptions = {

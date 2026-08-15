@@ -8,28 +8,22 @@ import {
   loadMonaco,
 } from "./code.ts";
 import type { Monaco } from "./code.ts";
-import {
-  projectTreeChangeMessageSchema,
-  readProjectTreeGitDecorationsResultSchema,
-  watchProjectTreeResultSchema,
-} from "../ipc/bridge.ts";
 import type {
-  ReadProjectTreeGitDecorationsResult,
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
-  WatchProjectTreeResult,
 } from "../ipc/bridge.ts";
-import {
-  focusProjectTree,
-  mountProjectTree,
-  refreshProjectTreePaths,
-  setProjectTreeGitDecorations,
-} from "./project-tree.ts";
+import { focusProjectTree, mountProjectTree } from "./project-tree.ts";
 import type { ProjectTree } from "./project-tree.ts";
-import { mountProjectTreeScrollbar } from "./project-tree-scrollbar.ts";
+import { buildProjectPanelElements } from "./project-panel-elements.ts";
+import {
+  handleProjectTreeChange,
+  startProjectTreeWatcher,
+  stopProjectTreeWatcher,
+} from "./project-tree-watcher.ts";
+import type { ProjectTreeWatcher } from "./project-tree-watcher.ts";
 import { renderMarkdown } from "./tabs/markdown.ts";
 import { executeCommand } from "./tabs/index.ts";
-import { snapshot } from "./workspaces.ts";
+import { nextTabId, snapshot } from "./workspaces.ts";
 import { requireElement } from "./dom.ts";
 import type { MarkdownMode } from "../api.ts";
 import type { editor as monacoEditor } from "monaco-editor";
@@ -61,435 +55,17 @@ export type ProjectPanel = {
   monaco: Monaco;
   editor: monacoEditor.IStandaloneCodeEditor;
   file: ProjectFile | undefined;
+  // a request counter each: an answer that arrives after the panel moved on
+  // is dropped rather than shown
   latestFileRequest: number;
   latestTreeRequest: number;
   latestGitRequest: number;
-  projectTreeWatcherId: number | undefined;
-  projectTreeWatcherRetryCount: number;
-  projectTreeWatcherRetryTimer: number | undefined;
-};
-
-type ProjectPanelElements = {
-  panelElement: HTMLElement;
-  nameElement: HTMLElement;
-  treeElement: HTMLElement;
-  editorElement: HTMLElement;
-  emptyElement: HTMLElement;
-  errorElement: HTMLElement;
-  markdownElement: HTMLElement;
-  markdownToolbarElement: HTMLElement;
-  markdownModeButton: HTMLElement;
+  projectTreeWatcher: ProjectTreeWatcher; // project-tree-watcher.ts owns it
 };
 
 // Holds one panel per workspace, the way #layout holds one Dockview root
 // each; workspaces.ts decides which is on screen.
 const projectHostElement = requireElement("project");
-
-const DEFAULT_PROJECT_TREE_WIDTH_PX = 260;
-const MIN_PROJECT_TREE_WIDTH_PX = 120;
-const MAX_PROJECT_TREE_WIDTH_PX = 600;
-const MIN_PROJECT_EDITOR_WIDTH_PX = 160;
-const PROJECT_TREE_KEYBOARD_RESIZE_STEP_PX = 20;
-
-type MountProjectTreeResizeHandleOptions = {
-  paneElement: HTMLElement;
-  treeElement: HTMLElement;
-  resizeHandleElement: HTMLElement;
-};
-
-function mountProjectTreeResizeHandle({
-  paneElement,
-  treeElement,
-  resizeHandleElement,
-}: MountProjectTreeResizeHandleOptions): void {
-  function applyProjectTreeWidth(requestedWidth: number): void {
-    const paneWidth = Math.round(paneElement.getBoundingClientRect().width);
-    let maximumWidth = paneWidth - MIN_PROJECT_EDITOR_WIDTH_PX;
-    maximumWidth = Math.min(MAX_PROJECT_TREE_WIDTH_PX, maximumWidth);
-    if (maximumWidth < MIN_PROJECT_TREE_WIDTH_PX) {
-      maximumWidth = MIN_PROJECT_TREE_WIDTH_PX;
-    }
-    const width = Math.min(
-      maximumWidth,
-      Math.max(MIN_PROJECT_TREE_WIDTH_PX, Math.round(requestedWidth)),
-    );
-    paneElement.style.setProperty("--project-tree-width", `${width}px`);
-    resizeHandleElement.setAttribute("aria-valuenow", String(width));
-    resizeHandleElement.setAttribute("aria-valuemax", String(maximumWidth));
-  }
-
-  function resizeProjectTree(event: MouseEvent): void {
-    event.preventDefault();
-    const paneBounds = paneElement.getBoundingClientRect();
-    applyProjectTreeWidth(paneBounds.right - event.clientX);
-  }
-
-  function endProjectTreeResize(): void {
-    document.removeEventListener("mousemove", resizeProjectTree, true);
-    document.removeEventListener("mouseup", endProjectTreeResize, true);
-    document.body.classList.remove("resizing");
-    resizeHandleElement.classList.remove("dragging");
-  }
-
-  resizeHandleElement.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-    event.preventDefault();
-    resizeHandleElement.classList.add("dragging");
-    document.body.classList.add("resizing");
-    document.addEventListener("mousemove", resizeProjectTree, true);
-    document.addEventListener("mouseup", endProjectTreeResize, true);
-  });
-
-  resizeHandleElement.addEventListener("keydown", (event) => {
-    let requestedWidth = Math.round(treeElement.getBoundingClientRect().width);
-    // the arrows move the handle, and the tree is the side to its right
-    if (event.key === "ArrowLeft") {
-      requestedWidth += PROJECT_TREE_KEYBOARD_RESIZE_STEP_PX;
-    } else if (event.key === "ArrowRight") {
-      requestedWidth -= PROJECT_TREE_KEYBOARD_RESIZE_STEP_PX;
-    } else if (event.key === "Home") {
-      requestedWidth = MIN_PROJECT_TREE_WIDTH_PX;
-    } else if (event.key === "End") {
-      requestedWidth = MAX_PROJECT_TREE_WIDTH_PX;
-    } else {
-      return;
-    }
-    event.preventDefault();
-    applyProjectTreeWidth(requestedWidth);
-  });
-}
-
-function buildProjectPanelElements(): ProjectPanelElements {
-  const treeElement = document.createElement("div");
-  treeElement.className = "project-tree";
-  treeElement.tabIndex = -1;
-  treeElement.textContent = "Loading workspace…";
-
-  // the tree's own scrollbar, floated over its rows: project-tree-scrollbar.ts
-  const treeScrollbarElement = document.createElement("div");
-  treeScrollbarElement.className = "project-tree-scrollbar";
-  treeScrollbarElement.ariaHidden = "true";
-
-  const resizeHandleElement = document.createElement("div");
-  resizeHandleElement.className = "project-tree-resizer";
-  resizeHandleElement.setAttribute("role", "separator");
-  resizeHandleElement.setAttribute("aria-label", "Resize file tree");
-  resizeHandleElement.setAttribute("aria-orientation", "vertical");
-  resizeHandleElement.setAttribute(
-    "aria-valuemin",
-    String(MIN_PROJECT_TREE_WIDTH_PX),
-  );
-  resizeHandleElement.setAttribute(
-    "aria-valuenow",
-    String(DEFAULT_PROJECT_TREE_WIDTH_PX),
-  );
-  resizeHandleElement.setAttribute(
-    "aria-valuemax",
-    String(MAX_PROJECT_TREE_WIDTH_PX),
-  );
-  resizeHandleElement.tabIndex = 0;
-
-  const emptyElement = document.createElement("div");
-  emptyElement.className = "project-empty";
-  emptyElement.textContent = "Select a file from the workspace tree.";
-
-  const errorElement = document.createElement("div");
-  errorElement.className = "code-error project-file-error";
-  errorElement.tabIndex = -1;
-
-  // Monaco owns this element. Sibling UI lives around it, never inside it.
-  const editorElement = document.createElement("div");
-  editorElement.className = "code-editor project-editor";
-
-  // the file's rendered face, drawn over the editor's spot
-  const markdownElement = document.createElement("div");
-  markdownElement.className = "markdown-scroll project-markdown";
-  markdownElement.tabIndex = -1;
-
-  const markdownModeButton = document.createElement("button");
-  markdownModeButton.className = "markdown-action";
-  markdownModeButton.title = "Show the file rendered, or back in the editor";
-
-  // only surfaces while the open file is markdown
-  const markdownToolbarElement = document.createElement("div");
-  markdownToolbarElement.className = "markdown-toolbar project-markdown-toolbar";
-  markdownToolbarElement.append(markdownModeButton);
-
-  const editorBodyElement = document.createElement("div");
-  editorBodyElement.className = "project-editor-body";
-  editorBodyElement.append(
-    emptyElement,
-    errorElement,
-    editorElement,
-    markdownElement,
-  );
-
-  const editorRegionElement = document.createElement("div");
-  editorRegionElement.className = "project-editor-region";
-  editorRegionElement.append(markdownToolbarElement, editorBodyElement);
-
-  const paneElement = document.createElement("div");
-  paneElement.className = "project-pane";
-  paneElement.style.setProperty(
-    "--project-tree-width",
-    `${DEFAULT_PROJECT_TREE_WIDTH_PX}px`,
-  );
-  paneElement.append(
-    editorRegionElement,
-    treeElement,
-    treeScrollbarElement,
-    resizeHandleElement,
-  );
-  mountProjectTreeResizeHandle({
-    paneElement,
-    treeElement,
-    resizeHandleElement,
-  });
-  mountProjectTreeScrollbar({
-    treeElement,
-    thumbElement: treeScrollbarElement,
-  });
-
-  // The header says which project this is and takes it off screen: what the
-  // Dockview tab used to do, for a panel that no longer has one.
-  const nameElement = document.createElement("span");
-  nameElement.className = "project-name";
-
-  const hideElement = document.createElement("button");
-  hideElement.className = "project-hide";
-  hideElement.textContent = "×";
-  hideElement.title = "Hide Project Panel (⌘B)";
-  hideElement.ariaLabel = "Hide project panel";
-  hideElement.addEventListener("click", () => {
-    executeCommand({ type: "close-project" });
-  });
-
-  const headerElement = document.createElement("div");
-  headerElement.className = "project-header";
-  headerElement.append(nameElement, hideElement);
-
-  const panelElement = document.createElement("div");
-  panelElement.className = "project-panel";
-  panelElement.append(headerElement, paneElement);
-
-  return {
-    panelElement,
-    nameElement,
-    treeElement,
-    editorElement,
-    emptyElement,
-    errorElement,
-    markdownElement,
-    markdownToolbarElement,
-    markdownModeButton,
-  };
-}
-
-const PROJECT_TREE_WATCH_RETRY_LIMIT = 3;
-const PROJECT_TREE_WATCH_RETRY_DELAY_MS = 500;
-
-const projectTabsByTreeWatcherId = new Map<number, ProjectPanel>();
-
-type StartProjectTreeWatcherOptions = {
-  panel: ProjectPanel;
-  treeRequest: number;
-};
-
-type HandleProjectTreeChangeOptions = {
-  panel: ProjectPanel;
-  paths: string[] | null;
-};
-
-type ScheduleProjectTreeWatcherRetryOptions = {
-  panel: ProjectPanel;
-  projectTree: ProjectTree;
-};
-
-function stopProjectTreeWatcher(panel: ProjectPanel): void {
-  if (panel.projectTreeWatcherRetryTimer !== undefined) {
-    window.clearTimeout(panel.projectTreeWatcherRetryTimer);
-    panel.projectTreeWatcherRetryTimer = undefined;
-  }
-  panel.projectTreeWatcherRetryCount = 0;
-
-  const watcherId = panel.projectTreeWatcherId;
-  if (watcherId === undefined) {
-    return;
-  }
-  panel.projectTreeWatcherId = undefined;
-  projectTabsByTreeWatcherId.delete(watcherId);
-  bridge.unwatchProjectTree({ watcherId });
-}
-
-async function refreshProjectTreeGitDecorations(
-  panel: ProjectPanel,
-): Promise<void> {
-  const projectTree = panel.projectTree;
-  if (projectTree === undefined) {
-    return;
-  }
-  panel.latestGitRequest += 1;
-  const gitRequest = panel.latestGitRequest;
-
-  let result: ReadProjectTreeGitDecorationsResult;
-  try {
-    result = readProjectTreeGitDecorationsResultSchema.parse(
-      await bridge.readProjectTreeGitDecorations({
-        workspaceRootPath: projectTree.workspaceRootPath,
-      }),
-    );
-  } catch {
-    return;
-  }
-  if (
-    gitRequest !== panel.latestGitRequest ||
-    panel.projectTree !== projectTree ||
-    result.workspaceRootPath !== projectTree.workspaceRootPath
-  ) {
-    return;
-  }
-  setProjectTreeGitDecorations({
-    projectTree,
-    decorations: result.decorations,
-  });
-}
-
-async function startProjectTreeWatcher({
-  panel,
-  treeRequest,
-}: StartProjectTreeWatcherOptions): Promise<void> {
-  const projectTree = panel.projectTree;
-  if (projectTree === undefined) {
-    return;
-  }
-
-  let result: WatchProjectTreeResult;
-  try {
-    result = watchProjectTreeResultSchema.parse(
-      await bridge.watchProjectTree({
-        workspaceRootPath: projectTree.workspaceRootPath,
-      }),
-    );
-  } catch {
-    return;
-  }
-  if ("error" in result) {
-    return;
-  }
-  if (
-    treeRequest !== panel.latestTreeRequest ||
-    panel.projectTree !== projectTree
-  ) {
-    bridge.unwatchProjectTree({ watcherId: result.watcherId });
-    return;
-  }
-  panel.projectTreeWatcherId = result.watcherId;
-  projectTabsByTreeWatcherId.set(result.watcherId, panel);
-}
-
-async function handleProjectTreeChange({
-  panel,
-  paths,
-}: HandleProjectTreeChangeOptions): Promise<void> {
-  const projectTree = panel.projectTree;
-  if (projectTree === undefined) {
-    return;
-  }
-  await refreshProjectTreePaths({
-    projectTree,
-    paths,
-  });
-  if (panel.projectTree !== projectTree) {
-    return;
-  }
-  await refreshProjectTreeGitDecorations(panel);
-}
-
-function scheduleProjectTreeWatcherRetry({
-  panel,
-  projectTree,
-}: ScheduleProjectTreeWatcherRetryOptions): void {
-  if (
-    panel.projectTreeWatcherRetryCount >= PROJECT_TREE_WATCH_RETRY_LIMIT ||
-    panel.projectTreeWatcherRetryTimer !== undefined
-  ) {
-    return;
-  }
-  panel.projectTreeWatcherRetryCount += 1;
-  const retryDelay =
-    PROJECT_TREE_WATCH_RETRY_DELAY_MS * panel.projectTreeWatcherRetryCount;
-  panel.projectTreeWatcherRetryTimer = window.setTimeout(async () => {
-    panel.projectTreeWatcherRetryTimer = undefined;
-    if (
-      panel.projectTree !== projectTree ||
-      panel.projectTreeWatcherId !== undefined
-    ) {
-      return;
-    }
-    const treeRequest = panel.latestTreeRequest;
-    await startProjectTreeWatcher({
-      panel,
-      treeRequest,
-    });
-    if (
-      panel.projectTree !== projectTree ||
-      treeRequest !== panel.latestTreeRequest
-    ) {
-      return;
-    }
-    if (panel.projectTreeWatcherId === undefined) {
-      scheduleProjectTreeWatcherRetry({
-        panel,
-        projectTree,
-      });
-      return;
-    }
-    await handleProjectTreeChange({
-      panel,
-      paths: null,
-    });
-  }, retryDelay);
-}
-
-bridge.onProjectTreeChanged(async (unvalidatedMessage) => {
-  const messageResult = projectTreeChangeMessageSchema.safeParse(
-    unvalidatedMessage,
-  );
-  if (!messageResult.success) {
-    return;
-  }
-  const panel = projectTabsByTreeWatcherId.get(
-    messageResult.data.watcherId,
-  );
-  if (
-    panel === undefined ||
-    panel.projectTreeWatcherId !== messageResult.data.watcherId
-  ) {
-    return;
-  }
-  if (messageResult.data.stopped === true) {
-    const projectTree = panel.projectTree;
-    projectTabsByTreeWatcherId.delete(messageResult.data.watcherId);
-    panel.projectTreeWatcherId = undefined;
-    await handleProjectTreeChange({
-      panel,
-      paths: null,
-    });
-    if (projectTree !== undefined && panel.projectTree === projectTree) {
-      scheduleProjectTreeWatcherRetry({
-        panel,
-        projectTree,
-      });
-    }
-    return;
-  }
-  await handleProjectTreeChange({
-    panel,
-    paths: messageResult.data.paths,
-  });
-});
 
 // The panel's one view, drawn from what it holds: the file in its editor or,
 // for markdown switched to rendered, that same model drawn as a document; the
@@ -579,7 +155,7 @@ export function setProjectFileMarkdownMode({
 type OpenProjectFileOptions = {
   panel: ProjectPanel;
   filePath: string;
-  baseTabId: number | undefined;
+  baseTabId?: number; // the tab a relative path is resolved against
 };
 
 // The panel holds one file, so opening another reads it and replaces what was
@@ -721,16 +297,14 @@ async function loadProjectTreeRoot({
 }
 
 type CreateProjectPanelOptions = {
-  id: number;
-  baseTabId: number | undefined;
-  workspaceRootPath: string | undefined;
-  initialFilePath: string | undefined;
+  baseTabId?: number;
+  workspaceRootPath?: string;
+  initialFilePath?: string;
 };
 
 // The panel is planted hidden: whoever asked for it decides when the
 // workspace shows it, the way a workspace's own layout is planted hidden.
 export async function createProjectPanel({
-  id,
   baseTabId,
   workspaceRootPath,
   initialFilePath,
@@ -744,7 +318,7 @@ export async function createProjectPanel({
     container: pane.editorElement,
   });
   const panel: ProjectPanel = {
-    id,
+    id: nextTabId(),
     element: pane.panelElement,
     nameElement: pane.nameElement,
     name: "",
@@ -764,9 +338,11 @@ export async function createProjectPanel({
     latestFileRequest: 0,
     latestTreeRequest: 0,
     latestGitRequest: 0,
-    projectTreeWatcherId: undefined,
-    projectTreeWatcherRetryCount: 0,
-    projectTreeWatcherRetryTimer: undefined,
+    projectTreeWatcher: {
+      id: undefined,
+      retryCount: 0,
+      retryTimer: undefined,
+    },
   };
   showProjectFile(panel);
 

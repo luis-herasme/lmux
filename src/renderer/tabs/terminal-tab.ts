@@ -5,10 +5,10 @@ import { registerTerminalLinks } from "./links.ts";
 import {
   activeWorkspace,
   addPanel,
+  nextTabId,
   snapshot,
 } from "../workspaces.ts";
 import type { Workspace } from "../workspaces.ts";
-import type { TabElements } from "./index.ts";
 import type { ScreenResult } from "../../api.ts";
 import type { ITheme, Terminal as XtermTerminal } from "@xterm/xterm";
 import type { FitAddon as XtermFitAddon } from "@xterm/addon-fit";
@@ -37,9 +37,7 @@ export type TerminalTab = {
 
 type OpenTerminalTabOptions = {
   workspace: Workspace;
-  tabId: number;
-  group: DockviewGroupPanel | undefined;
-  tabElements: TabElements;
+  group?: DockviewGroupPanel; // the active group when none is named
 };
 
 type RefreshTerminalTabSettingsOptions = {
@@ -84,22 +82,22 @@ function xtermTheme(): ITheme {
   };
 }
 
+// Everything a terminal tab needs, from its id to the shell behind it;
+// openMarkdownTab has the same shape.
 export function openTerminalTab({
   workspace,
-  tabId,
   group,
-  tabElements,
 }: OpenTerminalTabOptions): void {
+  const tabId = nextTabId();
   const paneElement = document.createElement("div");
   paneElement.className = "terminal-pane";
 
-  const panel = addPanel({
+  const { panel, titleElement } = addPanel({
     workspace,
     id: tabId,
     component: "terminal",
     title: "Untitled",
     paneElement,
-    tabElement: tabElements.tabElement,
     group,
   });
 
@@ -125,7 +123,7 @@ export function openTerminalTab({
     kind: "terminal",
     panel,
     terminal,
-    titleElement: tabElements.titleElement,
+    titleElement,
     titlePinned: false,
     observer,
     fitAddon,
