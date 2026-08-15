@@ -33,12 +33,6 @@ type MountProjectTreeOptions = {
   openFile: OpenTreeFile;
 };
 
-type AppendProjectTreeEntriesOptions = {
-  projectTree: ProjectTree;
-  listElement: HTMLUListElement;
-  entries: ProjectTreeEntry[];
-};
-
 type AppendProjectTreeEntryOptions = {
   projectTree: ProjectTree;
   listElement: HTMLUListElement;
@@ -47,7 +41,6 @@ type AppendProjectTreeEntryOptions = {
 
 type LoadProjectTreeDirectoryOptions = {
   projectTree: ProjectTree;
-  detailsElement: HTMLDetailsElement;
   childrenElement: HTMLUListElement;
   workspaceRelativeDirectoryPath: string;
 };
@@ -89,14 +82,6 @@ type PruneLoadedDirectoryOptions = {
   projectTree: ProjectTree;
   directoryPath: string;
 };
-
-function treeEntryName(treePath: string): string {
-  const separatorPosition = treePath.lastIndexOf("/");
-  if (separatorPosition < 0) {
-    return treePath;
-  }
-  return treePath.slice(separatorPosition + 1);
-}
 
 type GitDecorationPresentation = {
   label: string;
@@ -247,23 +232,8 @@ function applyProjectTreeRowDecoration({
   rowElement.ariaLabel = `${name}, ${presentation.label}`;
 }
 
-function appendProjectTreeEntries({
-  projectTree,
-  listElement,
-  entries,
-}: AppendProjectTreeEntriesOptions): void {
-  for (const entry of entries) {
-    appendProjectTreeEntry({
-      projectTree,
-      listElement,
-      entry,
-    });
-  }
-}
-
 async function loadProjectTreeDirectory({
   projectTree,
-  detailsElement,
   childrenElement,
   workspaceRelativeDirectoryPath,
 }: LoadProjectTreeDirectoryOptions): Promise<void> {
@@ -316,7 +286,6 @@ async function loadProjectTreeDirectory({
       event.stopPropagation();
       loadProjectTreeDirectory({
         projectTree,
-        detailsElement,
         childrenElement,
         workspaceRelativeDirectoryPath,
       });
@@ -324,32 +293,20 @@ async function loadProjectTreeDirectory({
 
     errorElement.append(errorTextElement, retryElement);
     childrenElement.replaceChildren(errorElement);
-    if (
-      projectTree.pendingDirectoryRefreshes.delete(
-        workspaceRelativeDirectoryPath,
-      )
-    ) {
-      await refreshProjectTreeDirectory({
-        projectTree,
-        workspaceRelativeDirectoryPath,
-        listElement: childrenElement,
-      });
-    }
-    return;
-  }
-
-  childrenElement.replaceChildren();
-  if (result.entries.length === 0) {
+  } else if (result.entries.length === 0) {
     const emptyElement = document.createElement("li");
     emptyElement.className = "project-tree-message";
     emptyElement.textContent = "Empty";
-    childrenElement.append(emptyElement);
+    childrenElement.replaceChildren(emptyElement);
   } else {
-    appendProjectTreeEntries({
-      projectTree,
-      listElement: childrenElement,
-      entries: result.entries,
-    });
+    childrenElement.replaceChildren();
+    for (const entry of result.entries) {
+      appendProjectTreeEntry({
+        projectTree,
+        listElement: childrenElement,
+        entry,
+      });
+    }
   }
 
   if (
@@ -370,7 +327,7 @@ function appendProjectTreeEntry({
 }: AppendProjectTreeEntryOptions): void {
   const itemElement = document.createElement("li");
   itemElement.className = "project-tree-item";
-  const name = treeEntryName(entry.path);
+  const name = entry.path.slice(entry.path.lastIndexOf("/") + 1);
 
   if (entry.kind === "directory") {
     const detailsElement = document.createElement("details");
@@ -408,16 +365,12 @@ function appendProjectTreeEntry({
     childrenElement.className = "project-tree-list";
     detailsElement.append(summaryElement, childrenElement);
     detailsElement.addEventListener("toggle", () => {
-      if (!detailsElement.open) {
-        return;
-      }
-      if (directoryReadStarted) {
+      if (!detailsElement.open || directoryReadStarted) {
         return;
       }
       directoryReadStarted = true;
       loadProjectTreeDirectory({
         projectTree,
-        detailsElement,
         childrenElement,
         workspaceRelativeDirectoryPath: entry.path,
       });
@@ -489,11 +442,13 @@ export function mountProjectTree({
     emptyElement.textContent = "Empty workspace";
     listElement.append(emptyElement);
   } else {
-    appendProjectTreeEntries({
-      projectTree,
-      listElement,
-      entries,
-    });
+    for (const entry of entries) {
+      appendProjectTreeEntry({
+        projectTree,
+        listElement,
+        entry,
+      });
+    }
   }
   treeElement.replaceChildren(listElement);
   return projectTree;
@@ -527,74 +482,70 @@ function pruneLoadedDirectory({
   }
 }
 
+const ITEM_ROW_SELECTOR =
+  ":scope > .project-tree-file, :scope > .project-tree-directory > summary";
+
+type ExistingTreeItem = {
+  itemElement: HTMLLIElement;
+  kind: string;
+};
+
 function reconcileProjectTreeEntries({
   projectTree,
   listElement,
   entries,
 }: ReconcileProjectTreeEntriesOptions): void {
-  const existingItems = new Map<string, HTMLLIElement>();
+  const existingItems = new Map<string, ExistingTreeItem>();
   for (const childElement of Array.from(listElement.children)) {
     if (!(childElement instanceof HTMLLIElement)) {
       continue;
     }
-    const rowElement = childElement.querySelector<HTMLElement>(
-      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
-    );
+    const rowElement =
+      childElement.querySelector<HTMLElement>(ITEM_ROW_SELECTOR);
     const treePath = rowElement?.dataset.projectTreePath;
-    if (treePath === undefined) {
+    const kind = rowElement?.dataset.projectTreeKind;
+    if (treePath === undefined || kind === undefined) {
       continue;
     }
-    existingItems.set(treePath, childElement);
+    existingItems.set(treePath, {
+      itemElement: childElement,
+      kind,
+    });
   }
 
   const orderedItems: HTMLLIElement[] = [];
-  const retainedPaths = new Set<string>();
   for (const entry of entries) {
-    retainedPaths.add(entry.path);
-    let itemElement = existingItems.get(entry.path);
-    const existingRow = itemElement?.querySelector<HTMLElement>(
-      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
-    );
-    if (
-      existingRow?.dataset.projectTreeKind === "directory" &&
-      existingRow.dataset.projectTreeKind !== entry.kind
-    ) {
+    // Consuming the match leaves only vanished paths for the prune pass below.
+    const existingItem = existingItems.get(entry.path);
+    existingItems.delete(entry.path);
+    if (existingItem?.kind === entry.kind) {
+      orderedItems.push(existingItem.itemElement);
+      continue;
+    }
+    if (existingItem?.kind === "directory") {
       pruneLoadedDirectory({
         projectTree,
         directoryPath: entry.path,
       });
     }
-    if (
-      itemElement === undefined ||
-      existingRow?.dataset.projectTreeKind !== entry.kind
-    ) {
-      appendProjectTreeEntry({
-        projectTree,
-        listElement,
-        entry,
-      });
-      const appendedItem = listElement.lastElementChild;
-      if (!(appendedItem instanceof HTMLLIElement)) {
-        continue;
-      }
-      itemElement = appendedItem;
+    appendProjectTreeEntry({
+      projectTree,
+      listElement,
+      entry,
+    });
+    const appendedItem = listElement.lastElementChild;
+    if (appendedItem instanceof HTMLLIElement) {
+      orderedItems.push(appendedItem);
     }
-    orderedItems.push(itemElement);
   }
 
-  for (const [existingPath, itemElement] of existingItems) {
-    if (retainedPaths.has(existingPath)) {
-      continue;
-    }
-    const rowElement = itemElement.querySelector<HTMLElement>(
-      ":scope > .project-tree-file, :scope > .project-tree-directory > summary",
-    );
-    if (rowElement?.dataset.projectTreeKind !== "directory") {
+  for (const [vanishedPath, vanishedItem] of existingItems) {
+    if (vanishedItem.kind !== "directory") {
       continue;
     }
     pruneLoadedDirectory({
       projectTree,
-      directoryPath: existingPath,
+      directoryPath: vanishedPath,
     });
   }
 
