@@ -343,41 +343,6 @@ function workspaceRelativePath({
   return filePath.slice(workspacePrefix.length);
 }
 
-type BuildFileTabOptions = {
-  title: string;
-};
-
-type FileTabElements = {
-  tabElement: HTMLElement;
-  titleElement: HTMLElement;
-  closeElement: HTMLButtonElement;
-};
-
-function buildFileTab({ title }: BuildFileTabOptions): FileTabElements {
-  const titleElement = document.createElement("span");
-  titleElement.className = "file-tab-title";
-  titleElement.textContent = title;
-
-  const closeElement = document.createElement("button");
-  closeElement.className = "file-tab-close";
-  closeElement.textContent = "×";
-  closeElement.title = "Close File";
-  closeElement.ariaLabel = `Close ${title}`;
-
-  const tabElement = document.createElement("div");
-  tabElement.className = "file-tab";
-  tabElement.tabIndex = -1;
-  tabElement.draggable = true;
-  tabElement.setAttribute("role", "panel");
-  tabElement.append(titleElement, closeElement);
-
-  return {
-    tabElement,
-    titleElement,
-    closeElement,
-  };
-}
-
 function clearFileTabDropIndicators(panel: ProjectPanel): void {
   for (const buffer of panel.files.values()) {
     buffer.tabElement.classList.remove("file-drop-before");
@@ -408,11 +373,22 @@ function addProjectFileBuffer({
   pinned,
   error,
 }: AddProjectFileBufferOptions): ProjectFileBuffer {
-  let title = "Untitled";
-  if (filePath !== undefined) {
-    title = fileNameForPath(filePath);
-  }
-  const fileTab = buildFileTab({ title });
+  const titleElement = document.createElement("span");
+  titleElement.className = "file-tab-title";
+
+  const closeElement = document.createElement("button");
+  closeElement.className = "file-tab-close";
+  closeElement.textContent = "×";
+  closeElement.title = "Close File";
+
+  const tabElement = document.createElement("div");
+  tabElement.className = "file-tab";
+  tabElement.tabIndex = -1;
+  tabElement.draggable = true;
+  tabElement.setAttribute("role", "panel");
+  tabElement.dataset.resourceKey = resourceKey;
+  tabElement.append(titleElement, closeElement);
+
   const buffer: ProjectFileBuffer = {
     resourceKey,
     filePath,
@@ -423,102 +399,72 @@ function addProjectFileBuffer({
     pinned,
     error,
     markdownMode: "raw",
-    tabElement: fileTab.tabElement,
-    titleElement: fileTab.titleElement,
-    closeElement: fileTab.closeElement,
+    tabElement,
+    titleElement,
+    closeElement,
     viewState: null,
   };
-  fileTab.tabElement.dataset.resourceKey = resourceKey;
+  // handlers read the identity off the buffer: saving swaps one for the other
+  const activate = () => {
+    executeCommand({
+      type: "activate-file",
+      projectTabId: panel.id,
+      path: buffer.filePath,
+      untitledId: buffer.untitledId,
+    });
+  };
 
-  fileTab.closeElement.addEventListener("click", (event) => {
+  closeElement.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (buffer.filePath !== undefined) {
-      bridge.closeFile({
-        projectTabId: panel.id,
-        filePath: buffer.filePath,
-      });
-      return;
-    }
-    if (buffer.untitledId !== undefined) {
-      bridge.closeFile({
-        projectTabId: panel.id,
-        untitledId: buffer.untitledId,
-      });
-    }
-  });
-  fileTab.tabElement.addEventListener("click", () => {
-    if (buffer.filePath !== undefined) {
-      executeCommand({
-        type: "activate-file",
-        projectTabId: panel.id,
-        path: buffer.filePath,
-      });
-      return;
-    }
-    executeCommand({
-      type: "activate-file",
+    bridge.closeFile({
       projectTabId: panel.id,
+      filePath: buffer.filePath,
       untitledId: buffer.untitledId,
     });
   });
-  fileTab.tabElement.addEventListener("dblclick", () => {
-    if (buffer.filePath !== undefined) {
-      executeCommand({
-        type: "open-file",
-        path: buffer.filePath,
-        preview: false,
-      });
+  tabElement.addEventListener("click", activate);
+  // a double click pins the tab, so an untitled buffer has nothing to do here
+  tabElement.addEventListener("dblclick", () => {
+    if (buffer.filePath === undefined) {
       return;
     }
     executeCommand({
-      type: "activate-file",
-      projectTabId: panel.id,
-      untitledId: buffer.untitledId,
+      type: "open-file",
+      path: buffer.filePath,
+      preview: false,
     });
   });
-  fileTab.tabElement.addEventListener("keydown", (event) => {
+  tabElement.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") {
       return;
     }
     event.preventDefault();
-    if (buffer.filePath !== undefined) {
-      executeCommand({
-        type: "activate-file",
-        projectTabId: panel.id,
-        path: buffer.filePath,
-      });
-      return;
-    }
-    executeCommand({
-      type: "activate-file",
-      projectTabId: panel.id,
-      untitledId: buffer.untitledId,
-    });
+    activate();
   });
-  fileTab.tabElement.addEventListener("dragstart", (event) => {
+  tabElement.addEventListener("dragstart", (event) => {
     panel.draggedFileKey = buffer.resourceKey;
     if (event.dataTransfer !== null) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", buffer.resourceKey);
     }
   });
-  fileTab.tabElement.addEventListener("dragend", () => {
+  tabElement.addEventListener("dragend", () => {
     panel.draggedFileKey = undefined;
     clearFileTabDropIndicators(panel);
   });
 
+  updateFileTab(buffer);
   panel.files.set(resourceKey, buffer);
-  panel.fileTabsElement.append(fileTab.tabElement);
+  panel.fileTabsElement.append(tabElement);
   return buffer;
 }
 
 function updateFileTab(buffer: ProjectFileBuffer): void {
   let title = "Untitled";
+  buffer.tabElement.title = "Untitled";
   if (buffer.filePath !== undefined) {
     title = fileNameForPath(buffer.filePath);
     buffer.tabElement.title = buffer.filePath;
-  } else {
-    buffer.tabElement.title = "Untitled";
   }
   buffer.closeElement.ariaLabel = `Close ${title}`;
   if (buffer.dirty) {
@@ -527,7 +473,6 @@ function updateFileTab(buffer: ProjectFileBuffer): void {
   buffer.titleElement.textContent = title;
   buffer.tabElement.classList.toggle("preview", !buffer.pinned);
   buffer.tabElement.classList.toggle("dirty", buffer.dirty);
-  buffer.tabElement.setAttribute("aria-selected", "false");
 }
 
 const PROJECT_TREE_WATCH_RETRY_LIMIT = 3;
@@ -1074,7 +1019,6 @@ export function createUntitledProjectFile(panel: ProjectPanel): void {
     pinned: true,
     error: undefined,
   });
-  updateFileTab(buffer);
   activateBuffer({
     panel,
     buffer,
@@ -1231,7 +1175,6 @@ export async function openProjectFile({
   if (preview) {
     panel.previewFileKey = resolvedPath;
   }
-  updateFileTab(buffer);
   activateBuffer({
     panel,
     buffer,
