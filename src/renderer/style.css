@@ -527,8 +527,7 @@ body.resizing #project .project-panel {
   color: var(--tab-active-foreground);
 }
 
-/* one editor region beside a resizable tree, which sits against the window's
-   edge the way the panel itself does */
+/* one editor region beside a resizable tree */
 .project-pane {
   flex: 1;
   min-height: 0;
@@ -561,7 +560,6 @@ body.resizing #project .project-panel {
 .project-tree-scrollbar {
   position: absolute;
   top: 0;
-  /* over the tree's last pixels, which are the panel's own edge */
   right: 0;
   width: var(--scrollbar-size);
   z-index: 1;

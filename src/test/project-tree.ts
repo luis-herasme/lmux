@@ -197,8 +197,6 @@ async function visibleProjectTreeAppearance(): Promise<ProjectTreeAppearance> {
         rootPaddingLeft: Number.parseFloat(
           getComputedStyle(rootElement).paddingLeft,
         ),
-        // the tree's separator is on its left, against the editor region, so
-        // its right edge is the panel's own and a row runs the whole way to it
         rowEdgeGap:
           treeElement.getBoundingClientRect().right -
           directoryElement.getBoundingClientRect().right,
@@ -414,7 +412,6 @@ export const projectTree = describe("the project tree", () => {
             }
             const paneBounds = paneElement.getBoundingClientRect();
             const initialWidth = treeElement.getBoundingClientRect().width;
-            // the tree hangs off the pane's right edge, so it widens leftwards
             const targetClientX = paneBounds.right - initialWidth - 48;
             resizeHandleElement.dispatchEvent(new MouseEvent("mousedown", {
               bubbles: true,

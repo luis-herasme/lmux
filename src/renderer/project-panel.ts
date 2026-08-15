@@ -128,7 +128,6 @@ function mountProjectTreeResizeHandle({
   function resizeProjectTree(event: MouseEvent): void {
     event.preventDefault();
     const paneBounds = paneElement.getBoundingClientRect();
-    // the tree hangs off the pane's right edge, so it grows leftwards
     applyProjectTreeWidth(paneBounds.right - event.clientX);
   }
 
