@@ -2,15 +2,13 @@ import { getSettings, updateSettings } from "../settings.ts";
 import { bridge } from "../bridge.ts";
 import { refreshCodeTheme } from "../code.ts";
 import {
-  activateProjectFile,
   changeProjectWorkspaceRoot,
   closeProjectFile,
   createProjectPanel,
   focusProjectPanel,
-  moveProjectFile,
   openProjectFile,
-  redrawProjectMarkdown,
   setProjectFileMarkdownMode,
+  showProjectFile,
 } from "../project-panel.ts";
 import type { ProjectPanel } from "../project-panel.ts";
 import {
@@ -277,17 +275,12 @@ function showProjectPanel({ workspace, panel }: ShowProjectPanelOptions): void {
   });
 }
 
-type OpenProjectOptions = EnsureProjectPanelOptions & {
-  initialFilePreview: boolean;
-};
-
 async function openProject({
   workspace,
   baseTabId,
   workspaceRootPath,
   initialFilePath,
-  initialFilePreview,
-}: OpenProjectOptions): Promise<void> {
+}: EnsureProjectPanelOptions): Promise<void> {
   const panel = await ensureProjectPanel({
     workspace,
     baseTabId,
@@ -300,7 +293,6 @@ async function openProject({
       panel,
       filePath: initialFilePath,
       baseTabId,
-      preview: initialFilePreview,
     });
   }
   showProjectPanel({
@@ -480,8 +472,8 @@ export function executeCommand(command: Command): void {
             fontFamily: settings.fontFamily,
             fontSize: settings.fontSize,
           });
-          if (redraw) {
-            redrawProjectMarkdown(panel);
+          if (redraw && panel.file?.markdownMode === "rendered") {
+            showProjectFile(panel);
           }
         }
         for (const tab of workspace.tabs.values()) {
@@ -530,16 +522,11 @@ export function executeCommand(command: Command): void {
       if (!activeWorkspace) {
         return;
       }
-      let preview = false;
-      if (command.preview !== undefined) {
-        preview = command.preview;
-      }
       openProject({
         workspace: activeWorkspace,
         baseTabId: command.baseTabId,
         workspaceRootPath: undefined,
         initialFilePath: command.path,
-        initialFilePreview: preview,
       });
       return;
     }
@@ -557,7 +544,6 @@ export function executeCommand(command: Command): void {
         baseTabId,
         workspaceRootPath: undefined,
         initialFilePath: undefined,
-        initialFilePreview: false,
       });
       return;
     }
@@ -593,7 +579,6 @@ export function executeCommand(command: Command): void {
           baseTabId: undefined,
           workspaceRootPath: command.path,
           initialFilePath: undefined,
-          initialFilePreview: false,
         });
         return;
       }
@@ -607,38 +592,12 @@ export function executeCommand(command: Command): void {
       });
       return;
     }
-    case "move-file": {
-      const panel = resolveProject(command.projectTabId);
-      if (panel === undefined) {
-        return;
-      }
-      moveProjectFile({
-        panel,
-        filePath: command.path,
-        index: command.index,
-      });
-      return;
-    }
-    case "activate-file": {
-      const panel = resolveProject(command.projectTabId);
-      if (panel === undefined) {
-        return;
-      }
-      activateProjectFile({
-        panel,
-        filePath: command.path,
-      });
-      return;
-    }
     case "close-file": {
       const panel = resolveProject(command.projectTabId);
       if (panel === undefined) {
         return;
       }
-      closeProjectFile({
-        panel,
-        filePath: command.path,
-      });
+      closeProjectFile(panel);
       return;
     }
     case "set-file-markdown-mode": {
@@ -648,7 +607,6 @@ export function executeCommand(command: Command): void {
       }
       setProjectFileMarkdownMode({
         panel,
-        filePath: command.path,
         mode: command.mode,
       });
       return;
@@ -780,11 +738,11 @@ export function readScreen(request: ScreenRequest): ScreenResult {
   if (panel !== undefined) {
     let path: string | null = null;
     let language: string | null = null;
-    if (panel.activeFilePath !== undefined) {
-      path = panel.activeFilePath;
-      const model = panel.editor.getModel();
-      if (model !== null) {
-        language = model.getLanguageId();
+    const file = panel.file;
+    if (file !== undefined) {
+      path = file.filePath;
+      if (file.model !== undefined) {
+        language = file.model.getLanguageId();
       }
     }
     return {
@@ -862,18 +820,11 @@ export async function restoreSession(session: Session): Promise<void> {
         workspaceRootPath: saved.project.workspaceRootPath,
         initialFilePath: undefined,
       });
-      for (const filePath of saved.project.files) {
+      if (saved.project.filePath !== null) {
         await openProjectFile({
           panel,
-          filePath,
+          filePath: saved.project.filePath,
           baseTabId: undefined,
-          preview: false,
-        });
-      }
-      if (saved.project.activeFilePath !== null) {
-        activateProjectFile({
-          panel,
-          filePath: saved.project.activeFilePath,
         });
       }
       // restored, not opened: the panel comes back on screen without the

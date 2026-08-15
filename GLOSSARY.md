@@ -215,7 +215,7 @@ disabled until a feature needs them.
 A **tab** is one selectable item and its content in a workspace layout. A **tab
 kind** describes that content: terminal or Markdown. A **pane** is the layout
 region displaying one active tab. The project panel is not a tab: it is
-workspace state shown beside the panes (see *Project panel / file tab*).
+workspace state shown beside the panes (see *Project panel*).
 
 ## Workspace
 
@@ -248,7 +248,7 @@ workspace comes forward.
 A **workspace root** is the stable top directory shown by one workspace's file
 tree. The panel derives it, when it is first opened, from a file's Git
 repository, or from a terminal's Git repository or current directory. Changing
-it is explicit and does not close file tabs. Resolving it to its real path and
+it is explicit and leaves the open file where it is. Resolving it to its real path and
 refusing to follow symbolic links keeps directory reads inside that boundary.
 
 A **file tree** is the hierarchical view of every directory and file below the
@@ -275,32 +275,27 @@ necessarily the branch named `main`. A file can carry both a staged change in
 the index and a later unstaged change in the working tree; like VS Code, lmux
 shows the working-tree status when both exist.
 
-## Project panel / file tab
+## Project panel
 
 A **project panel** is the workspace's one file viewer, and the only place
-files open. It contains a file-tab strip and one read-only Monaco editor,
-beside the file tree on the panel's outer edge, under a header naming the
-workspace root folder. It is not a
-tab: there is exactly one per workspace, it lives in its own region beside the
-pane layout, and it cannot be dragged, split, reordered or moved to another
-workspace, the same way the workspace list itself cannot. Opening another file
-reuses it; files outside the workspace root are valid file tabs but do not
-change the tree. Hiding the panel (its header's ×, ⌘B, or `close-project`) is
-not closing it: every buffer stays open behind it, so nothing is lost.
+files open. It contains one read-only Monaco editor beside the file tree on
+the panel's outer edge, under a header naming the workspace root folder. It is
+not a tab: there is exactly one per workspace, it lives in its own region
+beside the pane layout, and it cannot be dragged, split, reordered or moved to
+another workspace, the same way the workspace list itself cannot. Hiding it
+(its header's ×, ⌘B, or `close-project`) is not closing it: the file stays
+open behind it.
 
-A **file tab** names one in-memory file buffer inside the project panel. A
-single tree click opens a replaceable **preview file tab**. Double-clicking its
-tree item makes it a **pinned file tab**, which remains until explicitly closed.
-File tabs can be dragged to reorder them. The file-tab strip, not Dockview,
-switches the one Monaco editor between those buffers.
-
-A **buffer** is a file's in-memory copy: its text, cursor and scroll position,
-keyed by the file's canonical path. Switching files keeps each buffer alive. A
-restart restores pinned paths from disk, never the temporary preview.
+It shows **one file at a time**. Opening another reads it over the first, and
+clicking the open file's own tree item re-reads it from disk; files outside
+the workspace root open the same way and leave the tree unchanged.
+`close-file` empties the panel, and a restart re-reads whichever path was
+open, never its cursor or scroll position.
 
 The editor is **read-only**: no Save, no Save As, and no write at all on the
-bridge between the page and the machine, so a buffer always says what the file
-said when it was read. The terminal beside the panel is where files change.
+bridge between the page and the machine, so what is on screen always says what
+the file said when it was read. The terminal beside the panel is where files
+change.
 
 ## Rendered vs. raw (a markdown tab's two modes)
 
@@ -312,13 +307,13 @@ names what it will do rather than what is happening. The second button re-reads
 the file, since nothing watches the disk: edit a document in one tab, click
 Reload in the tab showing it.
 
-A markdown file inside the project panel has the same two faces, per open
-buffer. There its raw face is the editor itself, so the way back from rendered
-reads *Source*, and there is no Reload: the rendering draws the buffer as it was
-read. The model stays on the hidden editor while its rendering shows, which is
-why view state never notices the swap. The toggle is the
-`set-file-markdown-mode` Command; each buffer keeps its mode while open, and a
-restart brings files back in the editor.
+A markdown file inside the project panel has the same two faces. There its raw
+face is the editor itself, so the way back from rendered reads *Source*, and
+there is no Reload: the rendering draws the file as it was read. The model
+stays on the hidden editor while its rendering shows, which is why view state
+never notices the swap. The toggle is the `set-file-markdown-mode` Command; the
+open file keeps its mode while it is open, and a restart brings it back in the
+editor.
 
 ## Drag-and-drop interception (the one-door rule)
 
@@ -331,10 +326,8 @@ the equivalent Command (`move-tab` for strip and pane-center drops, `split-tab`
 for pane-edge drops), and dispatch that through `executeCommand`, which performs
 the identical move via Dockview's programmatic API (`panel.api.moveTo`). The
 gesture becomes just another Command source, the same door as the menus, the
-devtools console, and an agent. The hand-built file-tab strip follows the same
-rule: a browser drop issues `move-file`, then that Command reorders the buffers.
-The one exception is clicking a Dockview tab to activate it: that's focus, not
-layout, and the mousedown that activates is the same one that begins a drag, so
+devtools console, and an agent. The one exception is clicking a Dockview tab to
+activate it: that's focus, not layout, and the mousedown that activates is the same one that begins a drag, so
 activation is applied by Dockview and announced on the bus afterwards as a
 `tab-activated` Event.
 

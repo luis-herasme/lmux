@@ -22,12 +22,11 @@ const sessionTabSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-// Only pinned file paths return. Preview files, cursor positions and scroll
-// positions are transient and every file is re-read from disk.
+// Only the open file's path returns: cursor and scroll positions are
+// transient, and the file is re-read from disk.
 const sessionProjectSchema = z.object({
   workspaceRootPath: z.string(),
-  files: z.array(z.string()),
-  activeFilePath: z.string().nullable(),
+  filePath: z.string().nullable(),
   visible: z.boolean(),
 });
 
@@ -81,21 +80,9 @@ export function sessionFromState(state: LmuxState): Session {
     }
     let project: SessionProject | null = null;
     if (workspace.project !== null) {
-      const files: string[] = [];
-      for (const file of workspace.project.files) {
-        if (!file.pinned) {
-          continue;
-        }
-        files.push(file.path);
-      }
-      let activeFilePath: string | null = workspace.project.activeFilePath;
-      if (activeFilePath !== null && !files.includes(activeFilePath)) {
-        activeFilePath = null;
-      }
       project = {
         workspaceRootPath: workspace.project.workspaceRootPath,
-        files,
-        activeFilePath,
+        filePath: workspace.project.filePath,
         visible: workspace.project.visible,
       };
     }

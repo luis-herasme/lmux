@@ -79,40 +79,26 @@ export const commandSchema = z.discriminatedUnion("type", [
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
   }),
-  // Opens source in the workspace's project panel, for reading. A preview file
-  // is replaceable until it is pinned; other command sources open pinned.
+  // Opens source in the workspace's project panel, for reading. The panel
+  // shows one file, so this replaces whatever it was showing.
   z.object({
     type: z.literal("open-file"),
     path: z.string(),
     baseTabId: z.number().optional(),
-    preview: z.boolean().optional(),
-  }),
-  z.object({
-    type: z.literal("move-file"),
-    projectTabId: z.number().optional(),
-    path: z.string(),
-    index: z.number(),
-  }),
-  z.object({
-    type: z.literal("activate-file"),
-    projectTabId: z.number().optional(),
-    path: z.string(),
   }),
   z.object({
     type: z.literal("close-file"),
     projectTabId: z.number().optional(),
-    path: z.string(),
   }),
-  // Shows a project file rendered, or back in its editor. `path` defaults to
-  // the visible file; a file that isn't markdown is ignored.
+  // Shows the open file rendered, or back in its editor; one that isn't
+  // markdown is ignored.
   z.object({
     type: z.literal("set-file-markdown-mode"),
     projectTabId: z.number().optional(),
-    path: z.string().optional(),
     mode: markdownModeSchema,
   }),
   // Shows the workspace's project panel, rooting it from a terminal the
-  // first time. Hiding it keeps its files, so nothing is asked or lost.
+  // first time. Hiding it keeps its file, so nothing is asked or lost.
   z.object({
     type: z.literal("open-project"),
     workspaceId: z.number().optional(),
@@ -173,7 +159,7 @@ export type ScreenResult =
   // drive a shell can already read files; saying which file it shows is the
   // part lmux knows and the caller doesn't.
   | { kind: "markdown"; path: string; mode: MarkdownMode }
-  // The project panel combines a workspace tree and one visible file buffer.
+  // The project panel combines a workspace tree and the one file it shows.
   | {
       kind: "project";
       workspaceRootPath: string;
@@ -200,7 +186,7 @@ export type LmuxEvent =
   // the project panel came on screen or left it; `id` is the panel's
   | { type: "project-opened"; id: number; state: LmuxState }
   | { type: "project-closed"; id: number; state: LmuxState }
-  // a project file swapped between its editor and its rendering
+  // the project file swapped between its editor and its rendering
   | {
       type: "file-markdown-mode-changed";
       id: number;
@@ -210,8 +196,6 @@ export type LmuxEvent =
   // the file was re-read; its text is in the view, not in the state
   | { type: "markdown-reloaded"; id: number; state: LmuxState }
   | { type: "file-opened"; id: number; path: string; state: LmuxState }
-  | { type: "file-moved"; id: number; path: string; state: LmuxState }
-  | { type: "file-activated"; id: number; path: string; state: LmuxState }
   | { type: "file-closed"; id: number; path: string; state: LmuxState }
   | {
       type: "workspace-root-changed";
@@ -220,27 +204,21 @@ export type LmuxEvent =
       state: LmuxState;
     };
 
-export type ProjectFileInfo = {
-  path: string;
-  pinned: boolean;
-};
-
 export type TabInfo =
   | { id: number; title: string; kind: "terminal" }
   // the file it shows, so an observer (and a restart) knows which document
   | { id: number; title: string; kind: "markdown"; mode: MarkdownMode; path: string };
 
-// The workspace's own editor: its file tree, its open files, and the one
-// visible among them. Not a tab, so it has no place in the layout and no
-// title of its own; `name` is the root folder's, which the panel's header
-// wears. `id` is what a command's projectTabId names.
+// The workspace's own editor: its file tree and the one file it shows. Not a
+// tab, so it has no place in the layout and no title of its own; `name` is
+// the root folder's, which the panel's header wears. `id` is what a command's
+// projectTabId names.
 export type ProjectInfo = {
   id: number;
   name: string;
   workspaceRootPath: string;
-  visible: boolean; // hiding it keeps every file open behind it
-  activeFilePath: string | null;
-  files: ProjectFileInfo[];
+  visible: boolean; // hiding it keeps the file open behind it
+  filePath: string | null;
 };
 
 // One tab strip and the pane below it. Group ids are opaque handles

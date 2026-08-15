@@ -9,7 +9,6 @@ import type { ProjectPanel } from "./project-panel.ts";
 import type {
   LayoutNode,
   LmuxState,
-  ProjectFileInfo,
   ProjectInfo,
   TabInfo,
   WorkspaceInfo,
@@ -606,24 +605,16 @@ function describeProject(panel: ProjectPanel | undefined): ProjectInfo | null {
   if (panel === undefined) {
     return null;
   }
-  const files: ProjectFileInfo[] = [];
-  for (const file of panel.files.values()) {
-    files.push({
-      path: file.filePath,
-      pinned: file.pinned,
-    });
-  }
-  let activeFilePath: string | null = null;
-  if (panel.activeFilePath !== undefined) {
-    activeFilePath = panel.activeFilePath;
+  let filePath: string | null = null;
+  if (panel.file !== undefined) {
+    filePath = panel.file.filePath;
   }
   return {
     id: panel.id,
     name: panel.name,
     workspaceRootPath: panel.workspaceRootPath,
     visible: panel.visible,
-    activeFilePath,
-    files,
+    filePath,
   };
 }
 

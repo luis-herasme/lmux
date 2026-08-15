@@ -6,12 +6,7 @@ import type {
   ReadProjectTreeResult,
 } from "../ipc/bridge.ts";
 
-type OpenTreeFileOptions = {
-  filePath: string;
-  preview: boolean;
-};
-
-type OpenTreeFile = (options: OpenTreeFileOptions) => void;
+type OpenTreeFile = (filePath: string) => void;
 
 export type ProjectTree = {
   treeElement: HTMLElement;
@@ -404,11 +399,8 @@ function appendProjectTreeEntry({
   fileElement.addEventListener("focus", () => {
     projectTree.focusedElement = fileElement;
   });
-  fileElement.addEventListener("click", (event) => {
-    projectTree.openFile({
-      filePath: entry.absolutePath,
-      preview: event.detail < 2,
-    });
+  fileElement.addEventListener("click", () => {
+    projectTree.openFile(entry.absolutePath);
   });
 
   itemElement.append(fileElement);

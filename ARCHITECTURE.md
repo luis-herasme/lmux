@@ -21,8 +21,8 @@ page around the terminal, which buys three things:
 2. **Integrated browser views.** Embedding a live web page next to the
    terminal is nearly free in Electron; in a TUI it's impossible.
 3. **Integrated project reading.** A project panel combines a lazy file
-   tree, file buffers and a Monaco editor without turning the terminal into
-   an editor. The editor is read-only: lmux shows files, it does not write
+   tree and a Monaco editor showing one file, without turning the terminal
+   into an editor. The editor is read-only: lmux shows files, it does not write
    them.
 
 These capabilities exist as terminal and Markdown tab kinds, plus the project
@@ -64,7 +64,7 @@ onRenameRequest((id))        main → renderer   "the user picked Rename in tab 
 showWorkspaceMenu(id)        renderer → main   "right-click on workspace `id`: show its native menu"
 onWorkspaceRenameRequest((id)) main → renderer "the user picked Rename in workspace `id`'s menu"
 closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: guard the shells it would kill"
-readFile({path, baseTabId})  renderer → main   "read a document or project buffer" (request/response)
+readFile({path, baseTabId})  renderer → main   "read a document or project file" (request/response)
 readProjectTree({...})       renderer → main   "resolve a root and list one directory" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
 onScreenRead({readId, ...})  main → renderer   "what is tab `id` showing?" (request/response, the only one this way)
@@ -183,8 +183,8 @@ and writes the window geometry and the last session to disk.
 **The renderer owns the screen.** It boots settings into CSS and wires the
 cable, keeps the workspace store (one layout and one project panel each) and the
 tab store whose single switch consumes every Command, draws terminal and
-Markdown panes, hosts the project panel with its lazy tree, its file buffers and
-Monaco, and owns the modals, the settings and the drag handles.
+Markdown panes, hosts the project panel with its lazy tree, its one open file
+and Monaco, and owns the modals, the settings and the drag handles.
 
 **The tests** boot the real app, drive the bus, and assert on the state that
 comes back.
@@ -235,23 +235,23 @@ change it and update this list.
   separate code and tree panels of #34 and #35.) The panel is workspace state
   like the workspace list itself: one per workspace, in a host on the right of
   the window, never dragged, split or reordered, and with no place in the
-  layout. Inside it a file-tab strip and one Monaco editor sit beside a stable
-  workspace-root tree, under a header carrying the root folder's name and
-  the × that hides it. (Amended 2026-08-15: the tree was the panel's left
+  layout. Inside it one Monaco editor sits beside a stable workspace-root
+  tree, under a header carrying the root folder's name and the × that hides
+  it. (Amended 2026-08-15: the tree was the panel's left
   column and is now its right one, hard against the window's edge, so the
   editor stays next to the panes whose files it is showing. Its separator, its
   floated scrollbar and its resize handle all moved sides with it, and the
   handle's arrows swapped: Left widens the tree now, because that is the
   direction the handle moves.) `open-file` and `open-project` create it on
-  first use and show it; `close-project` hides it, and hiding is not closing: every
-  buffer and the tree watcher stay alive behind it, so nothing is lost. Its
-  width is a setting with a drag handle, like the sidebar's. A tree
-  single-click replaces one preview file, while double-clicking pins it. File
-  tabs drag to reorder through a `move-file` Command, so their visual,
-  public-state and restored-session orders agree. Each file owns a Monaco
-  model, so cursor and scroll state survive file switches. Files outside the
-  workspace root are ordinary file tabs and leave the tree unchanged. Changing
-  the root is an explicit folder-picker action and keeps every file tab open.
+  first use and show it; `close-project` hides it, and hiding is not closing:
+  the open file and the tree watcher stay alive behind it, so nothing is lost.
+  Its width is a setting with a drag handle, like the sidebar's. (Amended
+  2026-08-15: the panel shows **one** file. The file-tab strip went, and with
+  it preview/pinned files, `move-file`, `activate-file` and their Events. A
+  tree click reads its file over whatever was there, the same path included,
+  which is the only way to re-read one.) Files outside the workspace root open
+  like any other and leave the tree unchanged. Changing the root is an
+  explicit folder-picker action and leaves the open file where it is.
 - **The keyboard belongs to one half of the window at a time.** A workspace
   records whether it was last worked in through its panes or its panel, in
   `WorkspaceInfo.focus`, decided by where the last press landed. Restoring
@@ -261,10 +261,10 @@ change it and update this list.
 - **Files are read, never written.** (Replaces the guarded save path: ⌘S, Save
   All, Save As, untitled buffers, dirty state and the close-time Save / Don't
   Save / Cancel dialogs.) The panel's editors are `readOnly`, the bridge
-  carries no write, and main registers only `file:read`, so a buffer cannot
-  diverge from its file and closing anything asks about running programs only.
-  Editing is what the terminal beside the panel is for. Sessions restore
-  pinned paths from disk, never the preview file.
+  carries no write, and main registers only `file:read`, so what is on screen
+  cannot diverge from the file and closing anything asks about running programs
+  only. Editing is what the terminal beside the panel is for. A session restores
+  the open file's path, and the file is read from disk again.
 - **The workspace tree loads one directory at a time.** (Replaces the eager
   Pierre Trees implementation.) Main resolves the root from the first file or
   named terminal, then returns only one directory's immediate children. Native
@@ -670,20 +670,19 @@ change it and update this list.
   still appears synchronously; only the measuring waits. A failed read
   becomes a document of its own, so the tab and its reload button survive
   a file that isn't there, and reloading again recovers when it returns.
-- **A project file's markdown buffer can show its rendering in place.**
+- **A project file's markdown can show its rendering in place.**
   (Decided 2026-08-12.) The same `renderMarkdown` the markdown tab uses,
-  behind the same one-button toolbar, surfacing only while the visible
-  buffer's Monaco language is `markdown`. The rendered face is a sibling
+  behind the same one-button toolbar, surfacing only while the open file's
+  Monaco language is `markdown`. The rendered face is a sibling
   of the editor element that swaps visibility with it; the model stays on
   the hidden editor, so view state never notices the swap, and the
-  rendering reads the buffer rather than the disk, so there is no Reload
+  rendering reads that model rather than the disk, so there is no Reload
   button to need. The button is a Command source like every other
   affordance (`set-file-markdown-mode`, idempotent like
-  `set-markdown-mode`, defaulting to the visible file), and the change
-  announces itself as `file-markdown-mode-changed`. The mode is per open
-  buffer but deliberately not part of `ProjectFileInfo` or the session: a
-  restart brings files back in the editor, the same way cursor positions
-  don't return. The way back from rendered reads *Source*, because that is
+  `set-markdown-mode`), and the change announces itself as
+  `file-markdown-mode-changed`. The mode is deliberately not part of
+  `ProjectInfo` or the session: a restart brings the file back in the editor,
+  the same way cursor positions don't return. The way back from rendered reads *Source*, because that is
   what the editor face shows now that it cannot be typed into.
   2026-08.) A workspace is a whole lmux of its own inside the window: its
   own pane layout, its own tabs, its own shells (see the glossary). The
@@ -1007,7 +1006,7 @@ change it and update this list.
   nothing to rebuild, boot opens one empty workspace exactly as before.
   What a session holds is deliberately less than the state: a workspace's
   tabs in order, a document's path and mode, its project panel's workspace
-  root, pinned file paths, active pinned file and whether the panel was on
+  root, the path of the file it was showing and whether the panel was on
   screen, which tab and workspace you were looking at, and a workspace's name
   only when a rename pinned it. It
   carries no ids, because the renderer assigns

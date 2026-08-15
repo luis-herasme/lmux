@@ -157,13 +157,7 @@ export const projectPanel = describe("the project panel", () => {
         project.name,
         path.basename(realpathSync(path.join(import.meta.dirname, "../.."))),
       );
-      assert.equal(project.activeFilePath, SOURCE_FILE_PATH);
-      assert.deepEqual(project.files, [
-        {
-          path: SOURCE_FILE_PATH,
-          pinned: true,
-        },
-      ]);
+      assert.equal(project.filePath, SOURCE_FILE_PATH);
 
       // A language's grammar is imported the first time it is needed, so the
       // first paint carries no colours at all.
@@ -203,7 +197,7 @@ export const projectPanel = describe("the project panel", () => {
   });
 
   busTest({
-    name: "hiding the project panel keeps its files and hands back the window",
+    name: "hiding the project panel keeps its file and hands back the window",
     body: async () => {
       const panelWorkspace = await openWorkspace();
       try {
@@ -235,12 +229,7 @@ export const projectPanel = describe("the project panel", () => {
           id: opened.id,
         });
         assert.equal(hiddenProject?.visible, false);
-        assert.deepEqual(hiddenProject?.files, [
-          {
-            path: SOURCE_FILE_PATH,
-            pinned: true,
-          },
-        ]);
+        assert.equal(hiddenProject?.filePath, SOURCE_FILE_PATH);
         assert.equal(
           findWorkspace({
             state: closed.state,
@@ -259,7 +248,7 @@ export const projectPanel = describe("the project panel", () => {
           id: opened.id,
         });
         assert.equal(shownProject?.visible, true);
-        assert.equal(shownProject?.activeFilePath, SOURCE_FILE_PATH);
+        assert.equal(shownProject?.filePath, SOURCE_FILE_PATH);
         assert.equal(await visibleProjectPanelCount(), 1);
       } finally {
         const workspaceClosed = waitForEvent(
@@ -279,8 +268,8 @@ export const projectPanel = describe("the project panel", () => {
   busTest({
     name: "a markdown file in the project panel can swap to its rendering",
     body: async () => {
-      // realpath like SOURCE_FILE_PATH: the buffer is keyed by the resolved
-      // path, and the Event carries that key
+      // realpath like SOURCE_FILE_PATH: the panel holds the resolved path,
+      // and the Event carries it
       const documentPath = realpathSync(FIXTURE_PATH);
       sendCommand({
         type: "open-file",
@@ -334,15 +323,14 @@ export const projectPanel = describe("the project panel", () => {
       assert.equal(back.renderedVisible, false);
       assert.equal(back.buttonLabel, "Rendered");
 
-      // a code buffer has no rendered face, so its toolbar goes away
+      // a code file has no rendered face, so its toolbar goes away
       sendCommand({
         type: "open-file",
         path: SOURCE_FILE_PATH,
       });
       await waitForEvent(
         (event) =>
-          (event.type === "file-activated" || event.type === "file-opened") &&
-          event.path === SOURCE_FILE_PATH,
+          event.type === "file-opened" && event.path === SOURCE_FILE_PATH,
       );
       const code = await visibleProjectMarkdownView();
       assert.equal(code.toolbarVisible, false, "the toolbar outlived markdown");

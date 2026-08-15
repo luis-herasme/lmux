@@ -93,12 +93,11 @@ function closeActiveFileOrTab(): void {
   if (
     project?.visible === true &&
     workspace?.focus === "project" &&
-    project.activeFilePath !== null
+    project.filePath !== null
   ) {
     dispatch({
       type: "close-file",
       projectTabId: project.id,
-      path: project.activeFilePath,
     });
     return;
   }

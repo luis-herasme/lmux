@@ -1,6 +1,6 @@
-// One workspace's file experience: its stable root, tree, file tabs and
-// read-only editor. Not a tab: a workspace has exactly one of these, it lives
-// in the panel beside the pane layout, and hiding it leaves every file open.
+// One workspace's file experience: its stable root, tree and read-only
+// editor. Not a tab: a workspace has exactly one of these, it lives in the
+// panel beside the pane layout, and it shows one file at a time.
 import { bridge } from "./bridge.ts";
 import {
   createCodeEditor,
@@ -34,15 +34,13 @@ import { requireElement } from "./dom.ts";
 import type { MarkdownMode } from "../api.ts";
 import type { editor as monacoEditor } from "monaco-editor";
 
-export type ProjectFileBuffer = {
-  filePath: string; // canonical, and the key its panel holds it under
+// The one file the panel holds: opening another replaces it.
+type ProjectFile = {
+  filePath: string; // canonical, as the tree and the Events name it
   model: monacoEditor.ITextModel | undefined;
-  pinned: boolean;
   error: string | undefined;
-  // only a markdown buffer ever leaves "raw"; the editor is its raw face
+  // only a markdown file ever leaves "raw"; the editor is its raw face
   markdownMode: MarkdownMode;
-  tabElement: HTMLElement;
-  viewState: monacoEditor.ICodeEditorViewState | null;
 };
 
 export type ProjectPanel = {
@@ -53,7 +51,6 @@ export type ProjectPanel = {
   visible: boolean;
   treeElement: HTMLElement;
   editorElement: HTMLElement;
-  fileTabsElement: HTMLElement;
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
   markdownElement: HTMLElement;
@@ -63,10 +60,7 @@ export type ProjectPanel = {
   projectTree: ProjectTree | undefined;
   monaco: Monaco;
   editor: monacoEditor.IStandaloneCodeEditor;
-  files: Map<string, ProjectFileBuffer>;
-  activeFilePath: string | undefined;
-  previewFilePath: string | undefined; // the one unpinned buffer, if any
-  draggedFilePath: string | undefined;
+  file: ProjectFile | undefined;
   latestFileRequest: number;
   latestTreeRequest: number;
   latestGitRequest: number;
@@ -80,7 +74,6 @@ type ProjectPanelElements = {
   nameElement: HTMLElement;
   treeElement: HTMLElement;
   editorElement: HTMLElement;
-  fileTabsElement: HTMLElement;
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
   markdownElement: HTMLElement;
@@ -198,11 +191,6 @@ function buildProjectPanelElements(): ProjectPanelElements {
   );
   resizeHandleElement.tabIndex = 0;
 
-  const fileTabsElement = document.createElement("div");
-  fileTabsElement.className = "file-tabs";
-  fileTabsElement.setAttribute("role", "tablist");
-  fileTabsElement.setAttribute("aria-label", "Open files");
-
   const emptyElement = document.createElement("div");
   emptyElement.className = "project-empty";
   emptyElement.textContent = "Select a file from the workspace tree.";
@@ -215,7 +203,7 @@ function buildProjectPanelElements(): ProjectPanelElements {
   const editorElement = document.createElement("div");
   editorElement.className = "code-editor project-editor";
 
-  // a markdown buffer's rendered face, drawn over the editor's spot
+  // the file's rendered face, drawn over the editor's spot
   const markdownElement = document.createElement("div");
   markdownElement.className = "markdown-scroll project-markdown";
   markdownElement.tabIndex = -1;
@@ -224,7 +212,7 @@ function buildProjectPanelElements(): ProjectPanelElements {
   markdownModeButton.className = "markdown-action";
   markdownModeButton.title = "Show the file rendered, or back in the editor";
 
-  // only surfaces while the visible buffer is markdown
+  // only surfaces while the open file is markdown
   const markdownToolbarElement = document.createElement("div");
   markdownToolbarElement.className = "markdown-toolbar project-markdown-toolbar";
   markdownToolbarElement.append(markdownModeButton);
@@ -240,11 +228,7 @@ function buildProjectPanelElements(): ProjectPanelElements {
 
   const editorRegionElement = document.createElement("div");
   editorRegionElement.className = "project-editor-region";
-  editorRegionElement.append(
-    fileTabsElement,
-    markdownToolbarElement,
-    editorBodyElement,
-  );
+  editorRegionElement.append(markdownToolbarElement, editorBodyElement);
 
   const paneElement = document.createElement("div");
   paneElement.className = "project-pane";
@@ -295,114 +279,12 @@ function buildProjectPanelElements(): ProjectPanelElements {
     nameElement,
     treeElement,
     editorElement,
-    fileTabsElement,
     emptyElement,
     errorElement,
     markdownElement,
     markdownToolbarElement,
     markdownModeButton,
   };
-}
-
-function clearFileTabDropIndicators(panel: ProjectPanel): void {
-  for (const buffer of panel.files.values()) {
-    buffer.tabElement.classList.remove("file-drop-before");
-    buffer.tabElement.classList.remove("file-drop-after");
-  }
-}
-
-type AddProjectFileBufferOptions = {
-  panel: ProjectPanel;
-  filePath: string;
-  model: monacoEditor.ITextModel | undefined;
-  pinned: boolean;
-  error: string | undefined;
-};
-
-function addProjectFileBuffer({
-  panel,
-  filePath,
-  model,
-  pinned,
-  error,
-}: AddProjectFileBufferOptions): ProjectFileBuffer {
-  const title = filePath.slice(filePath.lastIndexOf("/") + 1);
-
-  const titleElement = document.createElement("span");
-  titleElement.className = "file-tab-title";
-  titleElement.textContent = title;
-
-  const closeElement = document.createElement("button");
-  closeElement.className = "file-tab-close";
-  closeElement.textContent = "×";
-  closeElement.title = "Close File";
-  closeElement.ariaLabel = `Close ${title}`;
-
-  const tabElement = document.createElement("div");
-  tabElement.className = "file-tab";
-  tabElement.tabIndex = -1;
-  tabElement.draggable = true;
-  tabElement.title = filePath;
-  tabElement.setAttribute("role", "panel");
-  tabElement.dataset.filePath = filePath;
-  tabElement.classList.toggle("preview", !pinned);
-  tabElement.append(titleElement, closeElement);
-
-  const buffer: ProjectFileBuffer = {
-    filePath,
-    model,
-    pinned,
-    error,
-    markdownMode: "raw",
-    tabElement,
-    viewState: null,
-  };
-  const activate = () => {
-    executeCommand({
-      type: "activate-file",
-      projectTabId: panel.id,
-      path: filePath,
-    });
-  };
-
-  closeElement.addEventListener("click", (event) => {
-    event.stopPropagation();
-    executeCommand({
-      type: "close-file",
-      projectTabId: panel.id,
-      path: filePath,
-    });
-  });
-  tabElement.addEventListener("click", activate);
-  tabElement.addEventListener("dblclick", () => {
-    executeCommand({
-      type: "open-file",
-      path: filePath,
-      preview: false,
-    });
-  });
-  tabElement.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    activate();
-  });
-  tabElement.addEventListener("dragstart", (event) => {
-    panel.draggedFilePath = filePath;
-    if (event.dataTransfer !== null) {
-      event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", filePath);
-    }
-  });
-  tabElement.addEventListener("dragend", () => {
-    panel.draggedFilePath = undefined;
-    clearFileTabDropIndicators(panel);
-  });
-
-  panel.files.set(filePath, buffer);
-  panel.fileTabsElement.append(tabElement);
-  return buffer;
 }
 
 const PROJECT_TREE_WATCH_RETRY_LIMIT = 3;
@@ -609,296 +491,87 @@ bridge.onProjectTreeChanged(async (unvalidatedMessage) => {
   });
 });
 
-function showEmptyEditor(panel: ProjectPanel): void {
-  panel.activeFilePath = undefined;
-  panel.editor.setModel(null);
-  panel.emptyElement.classList.add("visible");
-  panel.errorElement.classList.remove("visible");
-  panel.editorElement.classList.remove("visible");
-  hideMarkdownView(panel);
-  for (const buffer of panel.files.values()) {
-    buffer.tabElement.classList.remove("active");
-    buffer.tabElement.setAttribute("aria-selected", "false");
-  }
-}
+// The panel's one view, drawn from what it holds: the file in its editor or,
+// for markdown switched to rendered, that same model drawn as a document; the
+// error its path answered with; or the empty state.
+export function showProjectFile(panel: ProjectPanel): void {
+  const file = panel.file;
+  const model = file?.model;
+  const markdown = model !== undefined && model.getLanguageId() === "markdown";
+  const rendered = markdown && file?.markdownMode === "rendered";
+  panel.emptyElement.classList.toggle("visible", file === undefined);
+  panel.errorElement.classList.toggle("visible", file?.error !== undefined);
+  panel.editorElement.classList.toggle(
+    "visible",
+    model !== undefined && !rendered,
+  );
+  panel.markdownToolbarElement.classList.toggle("visible", markdown);
+  panel.markdownElement.classList.toggle("visible", rendered);
 
-type ActivateBufferOptions = {
-  panel: ProjectPanel;
-  buffer: ProjectFileBuffer;
-};
-
-function activateBuffer({
-  panel,
-  buffer,
-}: ActivateBufferOptions): void {
-  if (panel.activeFilePath !== undefined) {
-    const activeBuffer = panel.files.get(panel.activeFilePath);
-    if (activeBuffer !== undefined && activeBuffer.model !== undefined) {
-      activeBuffer.viewState = panel.editor.saveViewState();
-    }
-  }
-
-  panel.activeFilePath = buffer.filePath;
-  panel.emptyElement.classList.remove("visible");
-  for (const candidate of panel.files.values()) {
-    const active = candidate === buffer;
-    candidate.tabElement.classList.toggle("active", active);
-    candidate.tabElement.setAttribute("aria-selected", String(active));
-    candidate.tabElement.tabIndex = -1;
-    if (active) {
-      candidate.tabElement.tabIndex = 0;
-    }
-  }
-
-  if (buffer.model === undefined) {
+  if (model === undefined) {
     panel.editor.setModel(null);
-    panel.editorElement.classList.remove("visible");
-    hideMarkdownView(panel);
-    let errorMessage = "Could not open this file.";
-    if (buffer.error !== undefined) {
-      errorMessage = buffer.error;
+    panel.markdownElement.replaceChildren();
+    if (file?.error !== undefined) {
+      panel.errorElement.textContent = file.error;
+      panel.errorElement.focus();
     }
-    panel.errorElement.textContent = errorMessage;
-    panel.errorElement.classList.add("visible");
-    panel.errorElement.focus();
     return;
   }
-
-  panel.errorElement.classList.remove("visible");
-  panel.editor.setModel(buffer.model);
-  if (buffer.viewState !== null) {
-    panel.editor.restoreViewState(buffer.viewState);
-  }
-  showActiveFileView({
-    panel,
-    buffer,
-  });
-}
-
-function hideMarkdownView(panel: ProjectPanel): void {
-  panel.markdownToolbarElement.classList.remove("visible");
-  panel.markdownElement.classList.remove("visible");
-  panel.markdownElement.replaceChildren();
-}
-
-type ShowActiveFileViewOptions = {
-  panel: ProjectPanel;
-  buffer: ProjectFileBuffer;
-};
-
-// The visible buffer's face: its model in the editor or, for a markdown
-// buffer switched to rendered, the same text drawn as a document. The model
-// stays on the (hidden) editor either way, so view state never notices the
-// swap. The rendering reads the buffer, so there is nothing to reload.
-function showActiveFileView({
-  panel,
-  buffer,
-}: ShowActiveFileViewOptions): void {
-  const model = buffer.model;
-  const markdown =
-    model !== undefined && model.getLanguageId() === "markdown";
-  panel.markdownToolbarElement.classList.toggle("visible", markdown);
-  if (markdown && buffer.markdownMode === "rendered") {
+  panel.editor.setModel(model);
+  if (rendered) {
     // the button names the mode it would switch to, like a play button
     panel.markdownModeButton.textContent = "Source";
-    panel.editorElement.classList.remove("visible");
     const { view } = renderMarkdown(model.getValue());
     panel.markdownElement.replaceChildren(view);
-    panel.markdownElement.classList.add("visible");
     panel.markdownElement.focus();
     return;
   }
   panel.markdownModeButton.textContent = "Rendered";
-  panel.markdownElement.classList.remove("visible");
   panel.markdownElement.replaceChildren();
-  panel.editorElement.classList.add("visible");
   panel.editor.focus();
 }
 
-type DisposeBufferOptions = {
-  panel: ProjectPanel;
-  buffer: ProjectFileBuffer;
-};
-
-function disposeBuffer({ panel, buffer }: DisposeBufferOptions): void {
-  if (panel.previewFilePath === buffer.filePath) {
-    panel.previewFilePath = undefined;
-  }
-  panel.files.delete(buffer.filePath);
-  buffer.tabElement.remove();
-  buffer.model?.dispose();
-}
-
-type CloseProjectFileOptions = {
-  panel: ProjectPanel;
-  filePath: string;
-};
-
-export function closeProjectFile({
-  panel,
-  filePath,
-}: CloseProjectFileOptions): void {
-  const buffer = panel.files.get(filePath);
-  if (buffer === undefined) {
+export function closeProjectFile(panel: ProjectPanel): void {
+  const file = panel.file;
+  if (file === undefined) {
     return;
   }
-  const remaining = Array.from(panel.files.values());
-  const closingPosition = remaining.indexOf(buffer);
-  remaining.splice(closingPosition, 1);
-  const wasActive = panel.activeFilePath === filePath;
-  disposeBuffer({
-    panel,
-    buffer,
-  });
-
-  if (wasActive) {
-    // the tab that slid into its place, or the last one when it was last
-    let next = remaining.at(closingPosition);
-    if (next === undefined) {
-      next = remaining.at(-1);
-    }
-    if (next === undefined) {
-      showEmptyEditor(panel);
-    } else {
-      activateBuffer({
-        panel,
-        buffer: next,
-      });
-    }
-  }
-
+  panel.file = undefined;
+  showProjectFile(panel);
+  file.model?.dispose();
   bridge.emitEvent({
     type: "file-closed",
     id: panel.id,
-    path: filePath,
-    state: snapshot(),
-  });
-}
-
-type ActivateProjectFileOptions = {
-  panel: ProjectPanel;
-  filePath: string;
-};
-
-export function activateProjectFile({
-  panel,
-  filePath,
-}: ActivateProjectFileOptions): void {
-  const buffer = panel.files.get(filePath);
-  if (buffer === undefined) {
-    return;
-  }
-  activateBuffer({
-    panel,
-    buffer,
-  });
-  bridge.emitEvent({
-    type: "file-activated",
-    id: panel.id,
-    path: filePath,
+    path: file.filePath,
     state: snapshot(),
   });
 }
 
 type SetProjectFileMarkdownModeOptions = {
   panel: ProjectPanel;
-  filePath: string | undefined;
   mode: MarkdownMode;
 };
 
-// Only a markdown buffer has a rendered face; the command ignores anything
-// else, the way set-markdown-mode ignores a panel that isn't a document.
+// Only a markdown file has a rendered face; the command ignores anything
+// else, the way set-markdown-mode ignores a tab that isn't a document.
 export function setProjectFileMarkdownMode({
   panel,
-  filePath,
   mode,
 }: SetProjectFileMarkdownModeOptions): void {
-  let targetPath = filePath;
-  if (targetPath === undefined) {
-    targetPath = panel.activeFilePath;
-  }
-  if (targetPath === undefined) {
-    return;
-  }
-  const buffer = panel.files.get(targetPath);
+  const file = panel.file;
   if (
-    buffer === undefined ||
-    buffer.model?.getLanguageId() !== "markdown" ||
-    buffer.markdownMode === mode
+    file === undefined ||
+    file.model?.getLanguageId() !== "markdown" ||
+    file.markdownMode === mode
   ) {
     return;
   }
-  buffer.markdownMode = mode;
-  if (panel.activeFilePath === buffer.filePath) {
-    showActiveFileView({
-      panel,
-      buffer,
-    });
-  }
+  file.markdownMode = mode;
+  showProjectFile(panel);
   bridge.emitEvent({
     type: "file-markdown-mode-changed",
     id: panel.id,
-    path: buffer.filePath,
-    state: snapshot(),
-  });
-}
-
-// A drawn diagram has the theme and the font baked into its SVG, so a
-// rendered buffer follows a settings change by being drawn again.
-export function redrawProjectMarkdown(panel: ProjectPanel): void {
-  if (panel.activeFilePath === undefined) {
-    return;
-  }
-  const buffer = panel.files.get(panel.activeFilePath);
-  if (buffer === undefined || buffer.markdownMode !== "rendered") {
-    return;
-  }
-  showActiveFileView({
-    panel,
-    buffer,
-  });
-}
-
-type MoveProjectFileOptions = {
-  panel: ProjectPanel;
-  filePath: string;
-  index: number;
-};
-
-export function moveProjectFile({
-  panel,
-  filePath,
-  index,
-}: MoveProjectFileOptions): void {
-  const buffer = panel.files.get(filePath);
-  if (buffer === undefined) {
-    return;
-  }
-  const orderedBuffers = Array.from(panel.files.values());
-  const currentIndex = orderedBuffers.indexOf(buffer);
-  orderedBuffers.splice(currentIndex, 1);
-  let targetIndex = index;
-  if (targetIndex < 0) {
-    targetIndex = 0;
-  }
-  if (targetIndex > orderedBuffers.length) {
-    targetIndex = orderedBuffers.length;
-  }
-  if (targetIndex === currentIndex) {
-    return;
-  }
-  orderedBuffers.splice(targetIndex, 0, buffer);
-  panel.files.clear();
-  const tabElements: HTMLElement[] = [];
-  for (const orderedBuffer of orderedBuffers) {
-    panel.files.set(orderedBuffer.filePath, orderedBuffer);
-    tabElements.push(orderedBuffer.tabElement);
-  }
-  panel.fileTabsElement.replaceChildren(...tabElements);
-  bridge.emitEvent({
-    type: "file-moved",
-    id: panel.id,
-    path: filePath,
+    path: file.filePath,
     state: snapshot(),
   });
 }
@@ -907,14 +580,14 @@ type OpenProjectFileOptions = {
   panel: ProjectPanel;
   filePath: string;
   baseTabId: number | undefined;
-  preview: boolean;
 };
 
+// The panel holds one file, so opening another reads it and replaces what was
+// there, including when it is the same path read again.
 export async function openProjectFile({
   panel,
   filePath,
   baseTabId,
-  preview,
 }: OpenProjectFileOptions): Promise<void> {
   panel.latestFileRequest += 1;
   const fileRequest = panel.latestFileRequest;
@@ -923,51 +596,17 @@ export async function openProjectFile({
     path: filePath,
     baseTabId,
   });
-  if (preview && fileRequest !== panel.latestFileRequest) {
+  if (fileRequest !== panel.latestFileRequest) {
     return;
   }
 
   let resolvedPath = filePath;
-  if (!("error" in result)) {
-    resolvedPath = result.resolvedPath;
-  }
-
-  const existing = panel.files.get(resolvedPath);
-  if (existing !== undefined) {
-    // opening the preview deliberately keeps it instead of replacing it
-    if (!preview && !existing.pinned) {
-      existing.pinned = true;
-      existing.tabElement.classList.remove("preview");
-      panel.previewFilePath = undefined;
-    }
-    activateBuffer({
-      panel,
-      buffer: existing,
-    });
-    bridge.emitEvent({
-      type: "file-activated",
-      id: panel.id,
-      path: resolvedPath,
-      state: snapshot(),
-    });
-    return;
-  }
-
-  if (preview && panel.previewFilePath !== undefined) {
-    const previousPreview = panel.files.get(panel.previewFilePath);
-    if (previousPreview !== undefined) {
-      disposeBuffer({
-        panel,
-        buffer: previousPreview,
-      });
-    }
-  }
-
   let model: monacoEditor.ITextModel | undefined;
   let error: string | undefined;
   if ("error" in result) {
     error = result.error;
   } else {
+    resolvedPath = result.resolvedPath;
     model = panel.monaco.editor.createModel(
       result.content,
       languageForPath({
@@ -976,20 +615,16 @@ export async function openProjectFile({
       }),
     );
   }
-  const buffer = addProjectFileBuffer({
-    panel,
+  const previous = panel.file;
+  panel.file = {
     filePath: resolvedPath,
     model,
-    pinned: !preview,
     error,
-  });
-  if (preview) {
-    panel.previewFilePath = resolvedPath;
-  }
-  activateBuffer({
-    panel,
-    buffer,
-  });
+    markdownMode: "raw",
+  };
+  showProjectFile(panel);
+  // disposed after the view took the new model, never while it holds this one
+  previous?.model?.dispose();
   bridge.emitEvent({
     type: "file-opened",
     id: panel.id,
@@ -1050,11 +685,10 @@ async function loadProjectTreeRoot({
     treeElement: panel.treeElement,
     workspaceRootPath: result.workspaceRootPath,
     entries: result.entries,
-    openFile: ({ filePath, preview }) => {
+    openFile: (filePath) => {
       executeCommand({
         type: "open-file",
         path: filePath,
-        preview,
       });
     },
   });
@@ -1117,7 +751,6 @@ export async function createProjectPanel({
     visible: false,
     treeElement: pane.treeElement,
     editorElement: pane.editorElement,
-    fileTabsElement: pane.fileTabsElement,
     emptyElement: pane.emptyElement,
     errorElement: pane.errorElement,
     markdownElement: pane.markdownElement,
@@ -1127,10 +760,7 @@ export async function createProjectPanel({
     projectTree: undefined,
     monaco,
     editor,
-    files: new Map(),
-    activeFilePath: undefined,
-    previewFilePath: undefined,
-    draggedFilePath: undefined,
+    file: undefined,
     latestFileRequest: 0,
     latestTreeRequest: 0,
     latestGitRequest: 0,
@@ -1138,119 +768,17 @@ export async function createProjectPanel({
     projectTreeWatcherRetryCount: 0,
     projectTreeWatcherRetryTimer: undefined,
   };
-  showEmptyEditor(panel);
+  showProjectFile(panel);
 
   pane.markdownModeButton.addEventListener("click", () => {
-    if (panel.activeFilePath === undefined) {
-      return;
-    }
-    const buffer = panel.files.get(panel.activeFilePath);
-    if (buffer === undefined) {
-      return;
-    }
     let mode: MarkdownMode = "rendered";
-    if (buffer.markdownMode === "rendered") {
+    if (panel.file?.markdownMode === "rendered") {
       mode = "raw";
     }
     executeCommand({
       type: "set-file-markdown-mode",
       projectTabId: panel.id,
       mode,
-    });
-  });
-
-  pane.fileTabsElement.addEventListener("dragover", (event) => {
-    if (panel.draggedFilePath === undefined) {
-      return;
-    }
-    event.preventDefault();
-    if (event.dataTransfer !== null) {
-      event.dataTransfer.dropEffect = "move";
-    }
-    clearFileTabDropIndicators(panel);
-    const target = event.target;
-    if (!(target instanceof Element)) {
-      return;
-    }
-    const targetTabElement = target.closest(".file-tab");
-    if (
-      !(targetTabElement instanceof HTMLElement) ||
-      targetTabElement.parentElement !== pane.fileTabsElement ||
-      targetTabElement.dataset.filePath === panel.draggedFilePath
-    ) {
-      return;
-    }
-    const bounds = targetTabElement.getBoundingClientRect();
-    if (event.clientX < bounds.left + bounds.width / 2) {
-      targetTabElement.classList.add("file-drop-before");
-      return;
-    }
-    targetTabElement.classList.add("file-drop-after");
-  });
-  pane.fileTabsElement.addEventListener("dragleave", (event) => {
-    const relatedTarget = event.relatedTarget;
-    if (
-      relatedTarget instanceof Node &&
-      pane.fileTabsElement.contains(relatedTarget)
-    ) {
-      return;
-    }
-    clearFileTabDropIndicators(panel);
-  });
-  pane.fileTabsElement.addEventListener("drop", (event) => {
-    const draggedFilePath = panel.draggedFilePath;
-    if (draggedFilePath === undefined) {
-      return;
-    }
-    event.preventDefault();
-    const draggedBuffer = panel.files.get(draggedFilePath);
-    const target = event.target;
-    let targetTabElement: HTMLElement | undefined;
-    if (target instanceof Element) {
-      const closestTabElement = target.closest(".file-tab");
-      if (
-        closestTabElement instanceof HTMLElement &&
-        closestTabElement.parentElement === pane.fileTabsElement
-      ) {
-        targetTabElement = closestTabElement;
-      }
-    }
-    if (targetTabElement?.dataset.filePath === draggedFilePath) {
-      panel.draggedFilePath = undefined;
-      clearFileTabDropIndicators(panel);
-      return;
-    }
-
-    const candidateBuffers: ProjectFileBuffer[] = [];
-    for (const candidateBuffer of panel.files.values()) {
-      if (candidateBuffer.filePath !== draggedFilePath) {
-        candidateBuffers.push(candidateBuffer);
-      }
-    }
-    let targetIndex = candidateBuffers.length;
-    if (targetTabElement !== undefined) {
-      const targetFilePath = targetTabElement.dataset.filePath;
-      for (let position = 0; position < candidateBuffers.length; position++) {
-        if (candidateBuffers[position].filePath !== targetFilePath) {
-          continue;
-        }
-        targetIndex = position;
-        if (targetTabElement.classList.contains("file-drop-after")) {
-          targetIndex += 1;
-        }
-        break;
-      }
-    }
-    panel.draggedFilePath = undefined;
-    clearFileTabDropIndicators(panel);
-    if (draggedBuffer === undefined) {
-      return;
-    }
-    executeCommand({
-      type: "move-file",
-      projectTabId: panel.id,
-      path: draggedBuffer.filePath,
-      index: targetIndex,
     });
   });
 
@@ -1283,17 +811,15 @@ export async function changeProjectWorkspaceRoot({
 }
 
 export function focusProjectPanel(panel: ProjectPanel): void {
-  if (panel.activeFilePath !== undefined) {
-    const buffer = panel.files.get(panel.activeFilePath);
-    if (buffer !== undefined && buffer.model !== undefined) {
-      // a rendered buffer's editor is hidden; keys should scroll the document
-      if (buffer.markdownMode === "rendered") {
-        panel.markdownElement.focus();
-        return;
-      }
-      panel.editor.focus();
+  const file = panel.file;
+  if (file !== undefined && file.model !== undefined) {
+    // a rendered file's editor is hidden; keys should scroll the document
+    if (file.markdownMode === "rendered") {
+      panel.markdownElement.focus();
       return;
     }
+    panel.editor.focus();
+    return;
   }
   if (panel.projectTree === undefined) {
     panel.treeElement.focus();
@@ -1302,15 +828,13 @@ export function focusProjectPanel(panel: ProjectPanel): void {
   focusProjectTree(panel.projectTree);
 }
 
-// Only a closing workspace disposes its panel; hiding one keeps every file
+// Only a closing workspace disposes its panel; hiding one keeps its file
 // open behind it.
 export function disposeProjectPanel(panel: ProjectPanel): void {
   panel.latestTreeRequest += 1;
   panel.latestGitRequest += 1;
   stopProjectTreeWatcher(panel);
-  for (const buffer of panel.files.values()) {
-    buffer.model?.dispose();
-  }
+  panel.file?.model?.dispose();
   panel.editor.dispose();
   panel.element.remove();
 }

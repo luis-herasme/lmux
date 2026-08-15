@@ -33,6 +33,15 @@ import {
   screenSchema,
 } from "./shared.ts";
 
+// every model the page still holds, to catch a replaced file leaking its own
+const OPEN_MODEL_CONTENTS = `(() => {
+  const contents = [];
+  for (const model of window.monaco.editor.getModels()) {
+    contents.push(model.getValue());
+  }
+  return contents;
+})()`;
+
 const treeClickSchema = z.object({
   clicked: z.boolean(),
   gitVisible: z.boolean(),
@@ -40,17 +49,11 @@ const treeClickSchema = z.object({
 
 type ClickVisibleTreeFileOptions = {
   relativePath: string;
-  clickCount?: number;
 };
 
 async function clickVisibleTreeFile({
   relativePath,
-  clickCount,
 }: ClickVisibleTreeFileOptions) {
-  let resolvedClickCount = clickCount;
-  if (resolvedClickCount === undefined) {
-    resolvedClickCount = 1;
-  }
   const probed = await lmuxWindow.webContents.executeJavaScript(`(() => {
     for (const treeElement of document.querySelectorAll(".project-tree")) {
       if (treeElement.offsetParent === null) {
@@ -73,10 +76,7 @@ async function clickVisibleTreeFile({
       if (!(target instanceof HTMLElement)) {
         return { clicked: false, gitVisible };
       }
-      target.dispatchEvent(new MouseEvent("click", {
-        bubbles: true,
-        detail: ${resolvedClickCount},
-      }));
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       return { clicked: true, gitVisible };
     }
     return { clicked: false, gitVisible: false };
@@ -465,7 +465,7 @@ export const projectTree = describe("the project tree", () => {
   });
 
   busTest({
-    name: "one project panel previews and pins files from its workspace tree",
+    name: "one project panel opens files from its workspace tree",
     body: async () => {
       const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-tree-"));
       const nestedPath = path.join(rootPath, "nested");
@@ -597,8 +597,7 @@ export const projectTree = describe("the project tree", () => {
           name: path.basename(canonicalRootPath),
           workspaceRootPath: canonicalRootPath,
           visible: true,
-          activeFilePath: null,
-          files: [],
+          filePath: null,
         });
 
         const projectScreen = screenSchema.parse(
@@ -679,39 +678,23 @@ export const projectTree = describe("the project tree", () => {
         if (secondProject === undefined) {
           throw new Error("the project panel disappeared");
         }
-        assert.deepEqual(secondProject.files, [
-          {
-            path: canonicalOtherFilePath,
-            pinned: false,
-          },
-        ]);
-
-        const pinning = waitForEvent(
-          (event) =>
-            event.type === "file-activated" &&
-            event.path === canonicalOtherFilePath,
+        // the panel shows one file, so the second click replaced the first
+        assert.equal(secondProject.filePath, canonicalOtherFilePath);
+        const openContents = z.array(z.string()).parse(
+          await lmuxWindow.webContents.executeJavaScript(OPEN_MODEL_CONTENTS),
         );
-        await clickVisibleTreeFile({
-          relativePath: "other.ts",
-          clickCount: 2,
-        });
-        const pinned = await pinning;
-        const pinnedProject = findProjectInfo({
-          state: pinned.state,
-          id: opened.id,
-        });
-        if (pinnedProject === undefined) {
-          throw new Error("pinning lost the project panel");
-        }
-        assert.equal(pinnedProject.files.at(0)?.pinned, true);
+        assert.equal(
+          openContents.includes("export const project = true;\n"),
+          false,
+          "the replaced file kept its model",
+        );
 
-        const savedProject = sessionFromState(pinned.state)
+        const savedProject = sessionFromState(secondOpened.state)
           .workspaces.at(-1)
           ?.project;
         assert.deepEqual(savedProject, {
           workspaceRootPath: canonicalRootPath,
-          files: [canonicalOtherFilePath],
-          activeFilePath: canonicalOtherFilePath,
+          filePath: canonicalOtherFilePath,
           visible: true,
         });
 
@@ -825,58 +808,6 @@ export const projectTree = describe("the project tree", () => {
           description: "an externally deleted file to leave the tree",
         });
 
-        const nextPreview = waitForEvent(
-          (event) =>
-            event.type === "file-opened" &&
-            event.path === canonicalFilePath,
-        );
-        await clickVisibleTreeFile({ relativePath: "project.ts" });
-        const previewed = await nextPreview;
-        const previewedProject = findProjectInfo({
-          state: previewed.state,
-          id: opened.id,
-        });
-        if (previewedProject === undefined) {
-          throw new Error("previewing lost the project panel");
-        }
-        assert.equal(previewedProject.files.length, 2);
-        assert.equal(previewedProject.files.at(1)?.pinned, false);
-
-        const tabPinning = waitForEvent(
-          (event) =>
-            event.type === "file-activated" &&
-            event.path === canonicalFilePath,
-        );
-        const tabDoubleClicked = z.boolean().parse(
-          await lmuxWindow.webContents.executeJavaScript(`(() => {
-            for (const paneElement of document.querySelectorAll(".project-pane")) {
-              if (paneElement.offsetParent === null) {
-                continue;
-              }
-              const element = paneElement.querySelector(".file-tab.active");
-              if (!(element instanceof HTMLElement)) {
-                return false;
-              }
-              element.dispatchEvent(new MouseEvent("dblclick", {
-                bubbles: true,
-                detail: 2,
-              }));
-              return true;
-            }
-            return false;
-          })()`),
-        );
-        assert.equal(tabDoubleClicked, true);
-        const tabPinned = await tabPinning;
-        const tabPinnedProject = findProjectInfo({
-          state: tabPinned.state,
-          id: opened.id,
-        });
-        if (tabPinnedProject === undefined) {
-          throw new Error("file-tab pinning lost the project panel");
-        }
-        assert.equal(tabPinnedProject.files.at(1)?.pinned, true);
-
         const canonicalNestedPath = realpathSync(nestedPath);
         sendCommand({
           type: "change-workspace-root",
@@ -896,7 +827,8 @@ export const projectTree = describe("the project tree", () => {
           throw new Error("changing the root lost the project panel");
         }
         assert.equal(changedProject.workspaceRootPath, canonicalNestedPath);
-        assert.equal(changedProject.files.length, 2);
+        // a new root leaves the open file where it is
+        assert.equal(changedProject.filePath, canonicalOtherFilePath);
 
         const nestedIgnoredDecoration = await visibleGitDecoration({
           relativePath: "nested.ignored",
@@ -913,27 +845,24 @@ export const projectTree = describe("the project tree", () => {
           description: "an ancestor ignore rule to refresh a subdirectory root",
         });
 
-        for (const openFile of changedProject.files) {
-          const closing = waitForEvent(
-            (event) =>
-              event.type === "file-closed" && event.path === openFile.path,
-          );
-          sendCommand({
-            type: "close-file",
-            projectTabId: opened.id,
-            path: openFile.path,
-          });
-          await closing;
-        }
+        const closing = waitForEvent(
+          (event) =>
+            event.type === "file-closed" &&
+            event.path === canonicalOtherFilePath,
+        );
+        sendCommand({
+          type: "close-file",
+          projectTabId: opened.id,
+        });
+        await closing;
         const emptiedProject = findProjectInfo({
           state: lmuxState,
           id: opened.id,
         });
         if (emptiedProject === undefined) {
-          throw new Error("closing files closed the project panel");
+          throw new Error("closing the file closed the project panel");
         }
-        assert.equal(emptiedProject.activeFilePath, null);
-        assert.equal(emptiedProject.files.length, 0);
+        assert.equal(emptiedProject.filePath, null);
         assert.equal(countTabs(lmuxState), tabCount);
       } finally {
         const workspaceClosed = waitForEvent(
