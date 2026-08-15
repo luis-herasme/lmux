@@ -3,9 +3,9 @@
 // exists to ask.
 import { app, screen } from "electron";
 import type { Rectangle } from "electron";
-import { readFileSync, writeFileSync } from "fs";
 import * as path from "path";
 import { z } from "zod";
+import { readJsonFile, writeJsonFile } from "./json-file.ts";
 
 const STATE_FILE_PATH = path.join(app.getPath("userData"), "window.json");
 
@@ -34,15 +34,7 @@ function isOnAScreen(bounds: Rectangle): boolean {
 }
 
 export function savedWindowBounds(): Rectangle | undefined {
-  let stored: unknown;
-  try {
-    // JSON.parse stays inside the try: a half-written file must fail like a
-    // missing one
-    stored = JSON.parse(readFileSync(STATE_FILE_PATH, "utf8"));
-  } catch {
-    return undefined;
-  }
-  const parsed = boundsSchema.safeParse(stored);
+  const parsed = boundsSchema.safeParse(readJsonFile(STATE_FILE_PATH));
   if (!parsed.success) {
     return undefined;
   }
@@ -53,9 +45,5 @@ export function savedWindowBounds(): Rectangle | undefined {
 }
 
 export function saveWindowBounds(bounds: Rectangle): void {
-  try {
-    writeFileSync(STATE_FILE_PATH, JSON.stringify(bounds));
-  } catch {
-    // best effort: a window that forgets its size is not worth failing a quit over
-  }
+  writeJsonFile(STATE_FILE_PATH, bounds);
 }
