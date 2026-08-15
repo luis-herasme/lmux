@@ -1,47 +1,31 @@
 import { THEMES } from "../theme.ts";
 import { getSettings } from "./settings.ts";
 import { executeCommand, focusWorkspace } from "./tabs/index.ts";
-import { requireElement } from "./dom.ts";
+import { requireElement, requireElementOfType } from "./dom.ts";
+import type { Settings } from "../api.ts";
 
-const dialogElement = requireElement("settings-dialog");
-if (!(dialogElement instanceof HTMLDialogElement)) {
-  throw new Error("#settings-dialog is not a <dialog>");
-}
-const dialog: HTMLDialogElement = dialogElement;
-const themeSelectElement = requireElement("settings-theme");
-if (!(themeSelectElement instanceof HTMLSelectElement)) {
-  throw new Error("#settings-theme is not a <select>");
-}
-const themeSelect: HTMLSelectElement = themeSelectElement;
-const fontFamilyInputElement = requireElement("settings-font-family");
-if (!(fontFamilyInputElement instanceof HTMLInputElement)) {
-  throw new Error("#settings-font-family is not an <input>");
-}
-const fontFamilyInput: HTMLInputElement = fontFamilyInputElement;
-const fontSizeInputElement = requireElement("settings-font-size");
-if (!(fontSizeInputElement instanceof HTMLInputElement)) {
-  throw new Error("#settings-font-size is not an <input>");
-}
-const fontSizeInput: HTMLInputElement = fontSizeInputElement;
-const uiFontFamilyInputElement = requireElement("settings-ui-font-family");
-if (!(uiFontFamilyInputElement instanceof HTMLInputElement)) {
-  throw new Error("#settings-ui-font-family is not an <input>");
-}
-const uiFontFamilyInput: HTMLInputElement = uiFontFamilyInputElement;
-const markdownFontFamilyInputElement = requireElement(
+const dialog = requireElementOfType("settings-dialog", HTMLDialogElement);
+const themeSelect = requireElementOfType("settings-theme", HTMLSelectElement);
+const fontFamilyInput = requireElementOfType(
+  "settings-font-family",
+  HTMLInputElement,
+);
+const fontSizeInput = requireElementOfType(
+  "settings-font-size",
+  HTMLInputElement,
+);
+const uiFontFamilyInput = requireElementOfType(
+  "settings-ui-font-family",
+  HTMLInputElement,
+);
+const markdownFontFamilyInput = requireElementOfType(
   "settings-markdown-font-family",
+  HTMLInputElement,
 );
-if (!(markdownFontFamilyInputElement instanceof HTMLInputElement)) {
-  throw new Error("#settings-markdown-font-family is not an <input>");
-}
-const markdownFontFamilyInput: HTMLInputElement = markdownFontFamilyInputElement;
-const markdownFontSizeInputElement = requireElement(
+const markdownFontSizeInput = requireElementOfType(
   "settings-markdown-font-size",
+  HTMLInputElement,
 );
-if (!(markdownFontSizeInputElement instanceof HTMLInputElement)) {
-  throw new Error("#settings-markdown-font-size is not an <input>");
-}
-const markdownFontSizeInput: HTMLInputElement = markdownFontSizeInputElement;
 
 for (const name of Object.keys(THEMES)) {
   const option = document.createElement("option");
@@ -69,52 +53,37 @@ requireElement("settings-button").addEventListener("click", () => {
   dialog.showModal();
 });
 
-themeSelect.addEventListener("change", () => {
+// the schema corrects what it has to, so redisplay what actually stuck
+function saveSettings(settings: Partial<Settings>): void {
   executeCommand({
     type: "update-settings",
-    settings: { theme: themeSelect.value },
+    settings,
   });
   showCurrentSettings();
+}
+
+themeSelect.addEventListener("change", () => {
+  saveSettings({ theme: themeSelect.value });
 });
 
 fontFamilyInput.addEventListener("change", () => {
-  executeCommand({
-    type: "update-settings",
-    settings: { fontFamily: fontFamilyInput.value },
-  });
-  showCurrentSettings();
+  saveSettings({ fontFamily: fontFamilyInput.value });
 });
 
 fontSizeInput.addEventListener("change", () => {
-  executeCommand({
-    type: "update-settings",
-    settings: { fontSize: Number(fontSizeInput.value) },
-  });
-  showCurrentSettings();
+  saveSettings({ fontSize: Number(fontSizeInput.value) });
 });
 
 uiFontFamilyInput.addEventListener("change", () => {
-  executeCommand({
-    type: "update-settings",
-    settings: { uiFontFamily: uiFontFamilyInput.value },
-  });
-  showCurrentSettings();
+  saveSettings({ uiFontFamily: uiFontFamilyInput.value });
 });
 
 markdownFontFamilyInput.addEventListener("change", () => {
-  executeCommand({
-    type: "update-settings",
-    settings: { markdownFontFamily: markdownFontFamilyInput.value },
-  });
-  showCurrentSettings();
+  saveSettings({ markdownFontFamily: markdownFontFamilyInput.value });
 });
 
 markdownFontSizeInput.addEventListener("change", () => {
-  executeCommand({
-    type: "update-settings",
-    settings: { markdownFontSize: Number(markdownFontSizeInput.value) },
-  });
-  showCurrentSettings();
+  saveSettings({ markdownFontSize: Number(markdownFontSizeInput.value) });
 });
 
 requireElement("settings-done").addEventListener("click", () => {
