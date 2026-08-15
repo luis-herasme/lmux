@@ -278,8 +278,9 @@ shows the working-tree status when both exist.
 ## Project panel / file tab
 
 A **project panel** is the workspace's one file viewer, and the only place
-files open. It contains the file tree, a file-tab strip and one read-only
-Monaco editor, under a header naming the workspace root folder. It is not a
+files open. It contains a file-tab strip and one read-only Monaco editor,
+beside the file tree on the panel's outer edge, under a header naming the
+workspace root folder. It is not a
 tab: there is exactly one per workspace, it lives in its own region beside the
 pane layout, and it cannot be dragged, split, reordered or moved to another
 workspace, the same way the workspace list itself cannot. Opening another file

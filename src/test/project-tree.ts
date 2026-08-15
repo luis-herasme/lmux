@@ -197,16 +197,17 @@ async function visibleProjectTreeAppearance(): Promise<ProjectTreeAppearance> {
         rootPaddingLeft: Number.parseFloat(
           getComputedStyle(rootElement).paddingLeft,
         ),
+        // the tree's separator is on its left, against the editor region, so
+        // its right edge is the panel's own and a row runs the whole way to it
         rowEdgeGap:
           treeElement.getBoundingClientRect().right -
-          Number.parseFloat(getComputedStyle(treeElement).borderRightWidth) -
           directoryElement.getBoundingClientRect().right,
         // what a native scrollbar would hold back from the rows, and what
         // Chromium would then clip them at
         reservedScrollbarWidth:
           treeElement.offsetWidth -
           treeElement.clientWidth -
-          Number.parseFloat(getComputedStyle(treeElement).borderRightWidth),
+          Number.parseFloat(getComputedStyle(treeElement).borderLeftWidth),
         disclosureUsesCodicon:
           disclosureStyle.fontFamily.includes("codicon") &&
           disclosureStyle.content !== "none" &&
@@ -413,11 +414,12 @@ export const projectTree = describe("the project tree", () => {
             }
             const paneBounds = paneElement.getBoundingClientRect();
             const initialWidth = treeElement.getBoundingClientRect().width;
-            const targetClientX = paneBounds.left + initialWidth + 48;
+            // the tree hangs off the pane's right edge, so it widens leftwards
+            const targetClientX = paneBounds.right - initialWidth - 48;
             resizeHandleElement.dispatchEvent(new MouseEvent("mousedown", {
               bubbles: true,
               button: 0,
-              clientX: paneBounds.left + initialWidth,
+              clientX: paneBounds.right - initialWidth,
             }));
             document.dispatchEvent(new MouseEvent("mousemove", {
               bubbles: true,
@@ -430,7 +432,7 @@ export const projectTree = describe("the project tree", () => {
             const pointerWidth = treeElement.getBoundingClientRect().width;
             resizeHandleElement.dispatchEvent(new KeyboardEvent("keydown", {
               bubbles: true,
-              key: "ArrowLeft",
+              key: "ArrowRight",
             }));
             return {
               found: true,
@@ -458,7 +460,7 @@ export const projectTree = describe("the project tree", () => {
       );
       assert.ok(
         resizeResult.keyboardWidth < resizeResult.pointerWidth,
-        "ArrowLeft did not narrow the file tree",
+        "ArrowRight did not narrow the file tree",
       );
       assert.equal(resizeResult.role, "separator");
       assert.equal(resizeResult.orientation, "vertical");

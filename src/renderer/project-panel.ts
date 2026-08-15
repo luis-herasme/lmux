@@ -128,7 +128,8 @@ function mountProjectTreeResizeHandle({
   function resizeProjectTree(event: MouseEvent): void {
     event.preventDefault();
     const paneBounds = paneElement.getBoundingClientRect();
-    applyProjectTreeWidth(event.clientX - paneBounds.left);
+    // the tree hangs off the pane's right edge, so it grows leftwards
+    applyProjectTreeWidth(paneBounds.right - event.clientX);
   }
 
   function endProjectTreeResize(): void {
@@ -151,10 +152,11 @@ function mountProjectTreeResizeHandle({
 
   resizeHandleElement.addEventListener("keydown", (event) => {
     let requestedWidth = Math.round(treeElement.getBoundingClientRect().width);
+    // the arrows move the handle, and the tree is the side to its right
     if (event.key === "ArrowLeft") {
-      requestedWidth -= PROJECT_TREE_KEYBOARD_RESIZE_STEP_PX;
-    } else if (event.key === "ArrowRight") {
       requestedWidth += PROJECT_TREE_KEYBOARD_RESIZE_STEP_PX;
+    } else if (event.key === "ArrowRight") {
+      requestedWidth -= PROJECT_TREE_KEYBOARD_RESIZE_STEP_PX;
     } else if (event.key === "Home") {
       requestedWidth = MIN_PROJECT_TREE_WIDTH_PX;
     } else if (event.key === "End") {
@@ -252,10 +254,10 @@ function buildProjectPanelElements(): ProjectPanelElements {
     `${DEFAULT_PROJECT_TREE_WIDTH_PX}px`,
   );
   paneElement.append(
+    editorRegionElement,
     treeElement,
     treeScrollbarElement,
     resizeHandleElement,
-    editorRegionElement,
   );
   mountProjectTreeResizeHandle({
     paneElement,
