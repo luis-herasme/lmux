@@ -1,6 +1,6 @@
 // One workspace's file experience: its stable root, tree, file tabs and
-// editor. Not a tab: a workspace has exactly one of these, it lives in the
-// panel beside the pane layout, and hiding it leaves every file open.
+// read-only editor. Not a tab: a workspace has exactly one of these, it lives
+// in the panel beside the pane layout, and hiding it leaves every file open.
 import { bridge } from "./bridge.ts";
 import {
   createCodeEditor,
@@ -11,7 +11,6 @@ import type { Monaco } from "./code.ts";
 import {
   projectTreeChangeMessageSchema,
   readProjectTreeGitDecorationsResultSchema,
-  saveNewFileResultSchema,
   watchProjectTreeResultSchema,
 } from "../ipc/bridge.ts";
 import type {
@@ -36,12 +35,8 @@ import type { MarkdownMode } from "../api.ts";
 import type { editor as monacoEditor } from "monaco-editor";
 
 export type ProjectFileBuffer = {
-  resourceKey: string;
-  filePath: string | undefined;
-  untitledId: number | undefined;
+  filePath: string; // canonical, and the key its panel holds it under
   model: monacoEditor.ITextModel | undefined;
-  mtimeMs: number | undefined;
-  dirty: boolean;
   pinned: boolean;
   error: string | undefined;
   // only a markdown buffer ever leaves "raw"; the editor is its raw face
@@ -61,7 +56,6 @@ export type ProjectPanel = {
   treeElement: HTMLElement;
   editorElement: HTMLElement;
   fileTabsElement: HTMLElement;
-  statusElement: HTMLElement;
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
   markdownElement: HTMLElement;
@@ -71,10 +65,10 @@ export type ProjectPanel = {
   projectTree: ProjectTree | undefined;
   monaco: Monaco;
   editor: monacoEditor.IStandaloneCodeEditor;
-  files: Map<string, ProjectFileBuffer>;
-  activeFileKey: string | undefined;
-  previewFileKey: string | undefined;
-  draggedFileKey: string | undefined;
+  files: Map<string, ProjectFileBuffer>; // by canonical path
+  activeFilePath: string | undefined;
+  previewFilePath: string | undefined;
+  draggedFilePath: string | undefined;
   latestFileRequest: number;
   latestTreeRequest: number;
   latestGitRequest: number;
@@ -89,7 +83,6 @@ type ProjectPanelElements = {
   treeElement: HTMLElement;
   editorElement: HTMLElement;
   fileTabsElement: HTMLElement;
-  statusElement: HTMLElement;
   emptyElement: HTMLElement;
   errorElement: HTMLElement;
   markdownElement: HTMLElement;
@@ -211,9 +204,6 @@ function buildProjectPanelElements(): ProjectPanelElements {
   fileTabsElement.setAttribute("role", "tablist");
   fileTabsElement.setAttribute("aria-label", "Open files");
 
-  const statusElement = document.createElement("div");
-  statusElement.className = "code-status";
-
   const emptyElement = document.createElement("div");
   emptyElement.className = "project-empty";
   emptyElement.textContent = "Select a file from the workspace tree.";
@@ -253,7 +243,6 @@ function buildProjectPanelElements(): ProjectPanelElements {
   editorRegionElement.className = "project-editor-region";
   editorRegionElement.append(
     fileTabsElement,
-    statusElement,
     markdownToolbarElement,
     editorBodyElement,
   );
@@ -308,7 +297,6 @@ function buildProjectPanelElements(): ProjectPanelElements {
     treeElement,
     editorElement,
     fileTabsElement,
-    statusElement,
     emptyElement,
     errorElement,
     markdownElement,
@@ -317,30 +305,9 @@ function buildProjectPanelElements(): ProjectPanelElements {
   };
 }
 
-let nextUntitledId = 1;
-
 function fileNameForPath(filePath: string): string {
   const separatorPosition = filePath.lastIndexOf("/");
   return filePath.slice(separatorPosition + 1);
-}
-
-type WorkspaceRelativePathOptions = {
-  workspaceRootPath: string;
-  filePath: string;
-};
-
-function workspaceRelativePath({
-  workspaceRootPath,
-  filePath,
-}: WorkspaceRelativePathOptions): string | undefined {
-  let workspacePrefix = workspaceRootPath;
-  if (!workspacePrefix.endsWith("/")) {
-    workspacePrefix += "/";
-  }
-  if (!filePath.startsWith(workspacePrefix)) {
-    return undefined;
-  }
-  return filePath.slice(workspacePrefix.length);
 }
 
 function clearFileTabDropIndicators(panel: ProjectPanel): void {
@@ -352,24 +319,16 @@ function clearFileTabDropIndicators(panel: ProjectPanel): void {
 
 type AddProjectFileBufferOptions = {
   panel: ProjectPanel;
-  resourceKey: string;
-  filePath: string | undefined;
-  untitledId: number | undefined;
+  filePath: string;
   model: monacoEditor.ITextModel | undefined;
-  mtimeMs: number | undefined;
-  dirty: boolean;
   pinned: boolean;
   error: string | undefined;
 };
 
 function addProjectFileBuffer({
   panel,
-  resourceKey,
   filePath,
-  untitledId,
   model,
-  mtimeMs,
-  dirty,
   pinned,
   error,
 }: AddProjectFileBufferOptions): ProjectFileBuffer {
@@ -386,16 +345,12 @@ function addProjectFileBuffer({
   tabElement.tabIndex = -1;
   tabElement.draggable = true;
   tabElement.setAttribute("role", "panel");
-  tabElement.dataset.resourceKey = resourceKey;
+  tabElement.dataset.filePath = filePath;
   tabElement.append(titleElement, closeElement);
 
   const buffer: ProjectFileBuffer = {
-    resourceKey,
     filePath,
-    untitledId,
     model,
-    mtimeMs,
-    dirty,
     pinned,
     error,
     markdownMode: "raw",
@@ -404,33 +359,27 @@ function addProjectFileBuffer({
     closeElement,
     viewState: null,
   };
-  // handlers read the identity off the buffer: saving swaps one for the other
   const activate = () => {
     executeCommand({
       type: "activate-file",
       projectTabId: panel.id,
-      path: buffer.filePath,
-      untitledId: buffer.untitledId,
+      path: filePath,
     });
   };
 
   closeElement.addEventListener("click", (event) => {
     event.stopPropagation();
-    bridge.closeFile({
+    executeCommand({
+      type: "close-file",
       projectTabId: panel.id,
-      filePath: buffer.filePath,
-      untitledId: buffer.untitledId,
+      path: filePath,
     });
   });
   tabElement.addEventListener("click", activate);
-  // a double click pins the tab, so an untitled buffer has nothing to do here
   tabElement.addEventListener("dblclick", () => {
-    if (buffer.filePath === undefined) {
-      return;
-    }
     executeCommand({
       type: "open-file",
-      path: buffer.filePath,
+      path: filePath,
       preview: false,
     });
   });
@@ -442,37 +391,29 @@ function addProjectFileBuffer({
     activate();
   });
   tabElement.addEventListener("dragstart", (event) => {
-    panel.draggedFileKey = buffer.resourceKey;
+    panel.draggedFilePath = filePath;
     if (event.dataTransfer !== null) {
       event.dataTransfer.effectAllowed = "move";
-      event.dataTransfer.setData("text/plain", buffer.resourceKey);
+      event.dataTransfer.setData("text/plain", filePath);
     }
   });
   tabElement.addEventListener("dragend", () => {
-    panel.draggedFileKey = undefined;
+    panel.draggedFilePath = undefined;
     clearFileTabDropIndicators(panel);
   });
 
   updateFileTab(buffer);
-  panel.files.set(resourceKey, buffer);
+  panel.files.set(filePath, buffer);
   panel.fileTabsElement.append(tabElement);
   return buffer;
 }
 
 function updateFileTab(buffer: ProjectFileBuffer): void {
-  let title = "Untitled";
-  buffer.tabElement.title = "Untitled";
-  if (buffer.filePath !== undefined) {
-    title = fileNameForPath(buffer.filePath);
-    buffer.tabElement.title = buffer.filePath;
-  }
+  const title = fileNameForPath(buffer.filePath);
+  buffer.tabElement.title = buffer.filePath;
   buffer.closeElement.ariaLabel = `Close ${title}`;
-  if (buffer.dirty) {
-    title = `● ${title}`;
-  }
   buffer.titleElement.textContent = title;
   buffer.tabElement.classList.toggle("preview", !buffer.pinned);
-  buffer.tabElement.classList.toggle("dirty", buffer.dirty);
 }
 
 const PROJECT_TREE_WATCH_RETRY_LIMIT = 3;
@@ -680,12 +621,11 @@ bridge.onProjectTreeChanged(async (unvalidatedMessage) => {
 });
 
 function showEmptyEditor(panel: ProjectPanel): void {
-  panel.activeFileKey = undefined;
+  panel.activeFilePath = undefined;
   panel.editor.setModel(null);
   panel.emptyElement.classList.add("visible");
   panel.errorElement.classList.remove("visible");
   panel.editorElement.classList.remove("visible");
-  panel.statusElement.classList.remove("visible");
   hideMarkdownView(panel);
   for (const buffer of panel.files.values()) {
     buffer.tabElement.classList.remove("active");
@@ -702,16 +642,15 @@ function activateBuffer({
   panel,
   buffer,
 }: ActivateBufferOptions): void {
-  if (panel.activeFileKey !== undefined) {
-    const activeBuffer = panel.files.get(panel.activeFileKey);
+  if (panel.activeFilePath !== undefined) {
+    const activeBuffer = panel.files.get(panel.activeFilePath);
     if (activeBuffer !== undefined && activeBuffer.model !== undefined) {
       activeBuffer.viewState = panel.editor.saveViewState();
     }
   }
 
-  panel.activeFileKey = buffer.resourceKey;
+  panel.activeFilePath = buffer.filePath;
   panel.emptyElement.classList.remove("visible");
-  panel.statusElement.classList.remove("visible");
   for (const candidate of panel.files.values()) {
     const active = candidate === buffer;
     candidate.tabElement.classList.toggle("active", active);
@@ -760,9 +699,8 @@ type ShowActiveFileViewOptions = {
 
 // The visible buffer's face: its model in the editor or, for a markdown
 // buffer switched to rendered, the same text drawn as a document. The model
-// stays on the (hidden) editor either way, so view state, dirty tracking and
-// the save path never notice the swap. The rendering reads the buffer, not
-// the disk, so unsaved edits show and there is nothing to reload.
+// stays on the (hidden) editor either way, so view state never notices the
+// swap. The rendering reads the buffer, so there is nothing to reload.
 function showActiveFileView({
   panel,
   buffer,
@@ -773,7 +711,7 @@ function showActiveFileView({
   panel.markdownToolbarElement.classList.toggle("visible", markdown);
   if (markdown && buffer.markdownMode === "rendered") {
     // the button names the mode it would switch to, like a play button
-    panel.markdownModeButton.textContent = "Edit";
+    panel.markdownModeButton.textContent = "Source";
     panel.editorElement.classList.remove("visible");
     const { view } = renderMarkdown(model.getValue());
     panel.markdownElement.replaceChildren(view);
@@ -802,8 +740,8 @@ function pinProjectFile({
     return;
   }
   buffer.pinned = true;
-  if (panel.previewFileKey === filePath) {
-    panel.previewFileKey = undefined;
+  if (panel.previewFilePath === filePath) {
+    panel.previewFilePath = undefined;
   }
   updateFileTab(buffer);
 }
@@ -814,79 +752,45 @@ type DisposeBufferOptions = {
 };
 
 function disposeBuffer({ panel, buffer }: DisposeBufferOptions): void {
-  if (panel.previewFileKey === buffer.resourceKey) {
-    panel.previewFileKey = undefined;
+  if (panel.previewFilePath === buffer.filePath) {
+    panel.previewFilePath = undefined;
   }
-  panel.files.delete(buffer.resourceKey);
+  panel.files.delete(buffer.filePath);
   buffer.tabElement.remove();
   buffer.model?.dispose();
 }
 
-type FindProjectFileBufferOptions = {
-  panel: ProjectPanel;
-  filePath: string | undefined;
-  untitledId: number | undefined;
-};
-
-function findProjectFileBuffer({
-  panel,
-  filePath,
-  untitledId,
-}: FindProjectFileBufferOptions): ProjectFileBuffer | undefined {
-  if (filePath !== undefined) {
-    return panel.files.get(filePath);
-  }
-  if (untitledId === undefined) {
-    return undefined;
-  }
-  for (const buffer of panel.files.values()) {
-    if (buffer.untitledId === untitledId) {
-      return buffer;
-    }
-  }
-  return undefined;
-}
-
 type CloseProjectFileOptions = {
   panel: ProjectPanel;
-  filePath: string | undefined;
-  untitledId: number | undefined;
+  filePath: string;
 };
 
 export function closeProjectFile({
   panel,
   filePath,
-  untitledId,
 }: CloseProjectFileOptions): void {
-  const buffer = findProjectFileBuffer({
-    panel,
-    filePath,
-    untitledId,
-  });
+  const buffer = panel.files.get(filePath);
   if (buffer === undefined) {
     return;
   }
-  const resourceKeys = Array.from(panel.files.keys());
-  const closingPosition = resourceKeys.indexOf(buffer.resourceKey);
-  const wasActive = panel.activeFileKey === buffer.resourceKey;
-  const closedPath = buffer.filePath;
-  const closedUntitledId = buffer.untitledId;
+  const closingPosition = Array.from(panel.files.keys()).indexOf(filePath);
+  const wasActive = panel.activeFilePath === filePath;
   disposeBuffer({
     panel,
     buffer,
   });
 
   if (wasActive) {
-    const remainingKeys = Array.from(panel.files.keys());
+    const remainingPaths = Array.from(panel.files.keys());
     let nextPosition = closingPosition;
-    if (nextPosition >= remainingKeys.length) {
-      nextPosition = remainingKeys.length - 1;
+    if (nextPosition >= remainingPaths.length) {
+      nextPosition = remainingPaths.length - 1;
     }
-    const nextKey = remainingKeys.at(nextPosition);
-    if (nextKey === undefined) {
+    const nextPath = remainingPaths.at(nextPosition);
+    if (nextPath === undefined) {
       showEmptyEditor(panel);
     } else {
-      const nextBuffer = panel.files.get(nextKey);
+      const nextBuffer = panel.files.get(nextPath);
       if (nextBuffer !== undefined) {
         activateBuffer({
           panel,
@@ -896,35 +800,24 @@ export function closeProjectFile({
     }
   }
 
-  let eventPath: string | null = null;
-  if (closedPath !== undefined) {
-    eventPath = closedPath;
-  }
   bridge.emitEvent({
     type: "file-closed",
     id: panel.id,
-    path: eventPath,
-    untitledId: closedUntitledId,
+    path: filePath,
     state: snapshot(),
   });
 }
 
 type ActivateProjectFileOptions = {
   panel: ProjectPanel;
-  filePath: string | undefined;
-  untitledId: number | undefined;
+  filePath: string;
 };
 
 export function activateProjectFile({
   panel,
   filePath,
-  untitledId,
 }: ActivateProjectFileOptions): void {
-  const buffer = findProjectFileBuffer({
-    panel,
-    filePath,
-    untitledId,
-  });
+  const buffer = panel.files.get(filePath);
   if (buffer === undefined) {
     return;
   }
@@ -932,15 +825,10 @@ export function activateProjectFile({
     panel,
     buffer,
   });
-  let eventPath: string | null = null;
-  if (buffer.filePath !== undefined) {
-    eventPath = buffer.filePath;
-  }
   bridge.emitEvent({
     type: "file-activated",
     id: panel.id,
-    path: eventPath,
-    untitledId: buffer.untitledId,
+    path: filePath,
     state: snapshot(),
   });
 }
@@ -958,24 +846,23 @@ export function setProjectFileMarkdownMode({
   filePath,
   mode,
 }: SetProjectFileMarkdownModeOptions): void {
-  let resourceKey = filePath;
-  if (resourceKey === undefined) {
-    resourceKey = panel.activeFileKey;
+  let targetPath = filePath;
+  if (targetPath === undefined) {
+    targetPath = panel.activeFilePath;
   }
-  if (resourceKey === undefined) {
+  if (targetPath === undefined) {
     return;
   }
-  const buffer = panel.files.get(resourceKey);
+  const buffer = panel.files.get(targetPath);
   if (
     buffer === undefined ||
-    buffer.filePath === undefined ||
     buffer.model?.getLanguageId() !== "markdown" ||
     buffer.markdownMode === mode
   ) {
     return;
   }
   buffer.markdownMode = mode;
-  if (panel.activeFileKey === buffer.resourceKey) {
+  if (panel.activeFilePath === buffer.filePath) {
     showActiveFileView({
       panel,
       buffer,
@@ -992,10 +879,10 @@ export function setProjectFileMarkdownMode({
 // A drawn diagram has the theme and the font baked into its SVG, so a
 // rendered buffer follows a settings change by being drawn again.
 export function redrawProjectMarkdown(panel: ProjectPanel): void {
-  if (panel.activeFileKey === undefined) {
+  if (panel.activeFilePath === undefined) {
     return;
   }
-  const buffer = panel.files.get(panel.activeFileKey);
+  const buffer = panel.files.get(panel.activeFilePath);
   if (buffer === undefined || buffer.markdownMode !== "rendered") {
     return;
   }
@@ -1005,50 +892,18 @@ export function redrawProjectMarkdown(panel: ProjectPanel): void {
   });
 }
 
-export function createUntitledProjectFile(panel: ProjectPanel): void {
-  const untitledId = nextUntitledId++;
-  const resourceKey = `untitled:${untitledId}`;
-  const buffer = addProjectFileBuffer({
-    panel,
-    resourceKey,
-    filePath: undefined,
-    untitledId,
-    model: panel.monaco.editor.createModel("", "plaintext"),
-    mtimeMs: undefined,
-    dirty: false,
-    pinned: true,
-    error: undefined,
-  });
-  activateBuffer({
-    panel,
-    buffer,
-  });
-  bridge.emitEvent({
-    type: "file-created",
-    id: panel.id,
-    untitledId,
-    state: snapshot(),
-  });
-}
-
 type MoveProjectFileOptions = {
   panel: ProjectPanel;
-  filePath: string | undefined;
-  untitledId: number | undefined;
+  filePath: string;
   index: number;
 };
 
 export function moveProjectFile({
   panel,
   filePath,
-  untitledId,
   index,
 }: MoveProjectFileOptions): void {
-  const buffer = findProjectFileBuffer({
-    panel,
-    filePath,
-    untitledId,
-  });
+  const buffer = panel.files.get(filePath);
   if (buffer === undefined) {
     return;
   }
@@ -1069,19 +924,14 @@ export function moveProjectFile({
   panel.files.clear();
   const tabElements: HTMLElement[] = [];
   for (const orderedBuffer of orderedBuffers) {
-    panel.files.set(orderedBuffer.resourceKey, orderedBuffer);
+    panel.files.set(orderedBuffer.filePath, orderedBuffer);
     tabElements.push(orderedBuffer.tabElement);
   }
   panel.fileTabsElement.replaceChildren(...tabElements);
-  let eventPath: string | null = null;
-  if (buffer.filePath !== undefined) {
-    eventPath = buffer.filePath;
-  }
   bridge.emitEvent({
     type: "file-moved",
     id: panel.id,
-    path: eventPath,
-    untitledId: buffer.untitledId,
+    path: filePath,
     state: snapshot(),
   });
 }
@@ -1136,8 +986,8 @@ export async function openProjectFile({
     return;
   }
 
-  if (preview && panel.previewFileKey !== undefined) {
-    const previousPreview = panel.files.get(panel.previewFileKey);
+  if (preview && panel.previewFilePath !== undefined) {
+    const previousPreview = panel.files.get(panel.previewFilePath);
     if (previousPreview !== undefined) {
       disposeBuffer({
         panel,
@@ -1147,7 +997,6 @@ export async function openProjectFile({
   }
 
   let model: monacoEditor.ITextModel | undefined;
-  let mtimeMs: number | undefined;
   let error: string | undefined;
   if ("error" in result) {
     error = result.error;
@@ -1159,21 +1008,16 @@ export async function openProjectFile({
         filePath: resolvedPath,
       }),
     );
-    mtimeMs = result.mtimeMs;
   }
   const buffer = addProjectFileBuffer({
     panel,
-    resourceKey: resolvedPath,
     filePath: resolvedPath,
-    untitledId: undefined,
     model,
-    mtimeMs,
-    dirty: false,
     pinned: !preview,
     error,
   });
   if (preview) {
-    panel.previewFileKey = resolvedPath;
+    panel.previewFilePath = resolvedPath;
   }
   activateBuffer({
     panel,
@@ -1183,193 +1027,6 @@ export async function openProjectFile({
     type: "file-opened",
     id: panel.id,
     path: resolvedPath,
-    state: snapshot(),
-  });
-}
-
-type SaveProjectFileOptions = {
-  panel: ProjectPanel;
-  filePath: string | undefined;
-  untitledId: number | undefined;
-  destinationPath: string | undefined;
-};
-
-export async function saveProjectFile({
-  panel,
-  filePath,
-  untitledId,
-  destinationPath,
-}: SaveProjectFileOptions): Promise<boolean> {
-  let buffer = findProjectFileBuffer({
-    panel,
-    filePath,
-    untitledId,
-  });
-  if (
-    filePath === undefined &&
-    untitledId === undefined &&
-    panel.activeFileKey !== undefined
-  ) {
-    buffer = panel.files.get(panel.activeFileKey);
-  }
-  if (buffer === undefined || buffer.model === undefined) {
-    return false;
-  }
-
-  if (buffer.filePath === undefined) {
-    if (buffer.untitledId === undefined) {
-      return false;
-    }
-    const excludedPaths: string[] = [];
-    for (const openBuffer of panel.files.values()) {
-      if (openBuffer.filePath !== undefined) {
-        excludedPaths.push(openBuffer.filePath);
-      }
-    }
-    const result = saveNewFileResultSchema.parse(
-      await bridge.saveNewFile({
-        directoryPath: panel.workspaceRootPath,
-        suggestedName: "Untitled",
-        content: buffer.model.getValue(),
-        destinationPath,
-        excludedPaths,
-      }),
-    );
-    if ("canceled" in result) {
-      bridge.emitEvent({
-        type: "file-save-canceled",
-        id: panel.id,
-        untitledId: buffer.untitledId,
-        state: snapshot(),
-      });
-      return false;
-    }
-    if ("error" in result) {
-      panel.statusElement.textContent = result.error;
-      panel.statusElement.classList.add("visible");
-      bridge.emitEvent({
-        type: "file-save-failed",
-        id: panel.id,
-        path: null,
-        untitledId: buffer.untitledId,
-        error: result.error,
-        state: snapshot(),
-      });
-      return false;
-    }
-
-    const previousResourceKey = buffer.resourceKey;
-    const previousUntitledId = buffer.untitledId;
-    const orderedBuffers = Array.from(panel.files.values());
-    buffer.resourceKey = result.resolvedPath;
-    buffer.filePath = result.resolvedPath;
-    buffer.untitledId = undefined;
-    buffer.mtimeMs = result.mtimeMs;
-    buffer.dirty = false;
-    buffer.tabElement.dataset.resourceKey = result.resolvedPath;
-    panel.monaco.editor.setModelLanguage(
-      buffer.model,
-      languageForPath({
-        monaco: panel.monaco,
-        filePath: result.resolvedPath,
-      }),
-    );
-    panel.files.clear();
-    for (const orderedBuffer of orderedBuffers) {
-      panel.files.set(orderedBuffer.resourceKey, orderedBuffer);
-    }
-    if (panel.activeFileKey === previousResourceKey) {
-      panel.activeFileKey = result.resolvedPath;
-    }
-    panel.statusElement.classList.remove("visible");
-    updateFileTab(buffer);
-    const relativePath = workspaceRelativePath({
-      workspaceRootPath: panel.workspaceRootPath,
-      filePath: result.resolvedPath,
-    });
-    if (panel.projectTree !== undefined && relativePath !== undefined) {
-      await refreshProjectTreePaths({
-        projectTree: panel.projectTree,
-        paths: [relativePath],
-      });
-    }
-    await refreshProjectTreeGitDecorations(panel);
-    bridge.emitEvent({
-      type: "file-saved",
-      id: panel.id,
-      path: result.resolvedPath,
-      previousUntitledId,
-      state: snapshot(),
-    });
-    return true;
-  }
-
-  if (buffer.mtimeMs === undefined) {
-    return false;
-  }
-  const result = await bridge.writeFile({
-    path: buffer.filePath,
-    expectedMtimeMs: buffer.mtimeMs,
-    content: buffer.model.getValue(),
-  });
-  if ("error" in result) {
-    panel.statusElement.textContent = result.error;
-    panel.statusElement.classList.add("visible");
-    bridge.emitEvent({
-      type: "file-save-failed",
-      id: panel.id,
-      path: buffer.filePath,
-      error: result.error,
-      state: snapshot(),
-    });
-    return false;
-  }
-  panel.statusElement.classList.remove("visible");
-  buffer.mtimeMs = result.mtimeMs;
-  buffer.dirty = false;
-  updateFileTab(buffer);
-  await refreshProjectTreeGitDecorations(panel);
-  bridge.emitEvent({
-    type: "file-saved",
-    id: panel.id,
-    path: buffer.filePath,
-    state: snapshot(),
-  });
-  return true;
-}
-
-export async function saveAllProjectFiles(panel: ProjectPanel): Promise<void> {
-  const failedPaths: string[] = [];
-  const failedUntitledIds: number[] = [];
-  const buffers = Array.from(panel.files.values());
-  for (const buffer of buffers) {
-    if (!buffer.dirty) {
-      continue;
-    }
-    const filePath = buffer.filePath;
-    const untitledId = buffer.untitledId;
-    const saved = await saveProjectFile({
-      panel,
-      filePath,
-      untitledId,
-      destinationPath: undefined,
-    });
-    if (saved) {
-      continue;
-    }
-    if (filePath !== undefined) {
-      failedPaths.push(filePath);
-      continue;
-    }
-    if (untitledId !== undefined) {
-      failedUntitledIds.push(untitledId);
-    }
-  }
-  bridge.emitEvent({
-    type: "files-save-finished",
-    id: panel.id,
-    failedPaths,
-    failedUntitledIds,
     state: snapshot(),
   });
 }
@@ -1494,7 +1151,6 @@ export async function createProjectPanel({
     treeElement: pane.treeElement,
     editorElement: pane.editorElement,
     fileTabsElement: pane.fileTabsElement,
-    statusElement: pane.statusElement,
     emptyElement: pane.emptyElement,
     errorElement: pane.errorElement,
     markdownElement: pane.markdownElement,
@@ -1505,9 +1161,9 @@ export async function createProjectPanel({
     monaco,
     editor,
     files: new Map(),
-    activeFileKey: undefined,
-    previewFileKey: undefined,
-    draggedFileKey: undefined,
+    activeFilePath: undefined,
+    previewFilePath: undefined,
+    draggedFilePath: undefined,
     latestFileRequest: 0,
     latestTreeRequest: 0,
     latestGitRequest: 0,
@@ -1518,10 +1174,10 @@ export async function createProjectPanel({
   showEmptyEditor(panel);
 
   pane.markdownModeButton.addEventListener("click", () => {
-    if (panel.activeFileKey === undefined) {
+    if (panel.activeFilePath === undefined) {
       return;
     }
-    const buffer = panel.files.get(panel.activeFileKey);
+    const buffer = panel.files.get(panel.activeFilePath);
     if (buffer === undefined) {
       return;
     }
@@ -1536,17 +1192,8 @@ export async function createProjectPanel({
     });
   });
 
-  pane.fileTabsElement.addEventListener("dblclick", (event) => {
-    if (event.target !== pane.fileTabsElement) {
-      return;
-    }
-    executeCommand({
-      type: "new-file",
-      projectTabId: panel.id,
-    });
-  });
   pane.fileTabsElement.addEventListener("dragover", (event) => {
-    if (panel.draggedFileKey === undefined) {
+    if (panel.draggedFilePath === undefined) {
       return;
     }
     event.preventDefault();
@@ -1562,7 +1209,7 @@ export async function createProjectPanel({
     if (
       !(targetTabElement instanceof HTMLElement) ||
       targetTabElement.parentElement !== pane.fileTabsElement ||
-      targetTabElement.dataset.resourceKey === panel.draggedFileKey
+      targetTabElement.dataset.filePath === panel.draggedFilePath
     ) {
       return;
     }
@@ -1584,12 +1231,12 @@ export async function createProjectPanel({
     clearFileTabDropIndicators(panel);
   });
   pane.fileTabsElement.addEventListener("drop", (event) => {
-    const draggedFileKey = panel.draggedFileKey;
-    if (draggedFileKey === undefined) {
+    const draggedFilePath = panel.draggedFilePath;
+    if (draggedFilePath === undefined) {
       return;
     }
     event.preventDefault();
-    const draggedBuffer = panel.files.get(draggedFileKey);
+    const draggedBuffer = panel.files.get(draggedFilePath);
     const target = event.target;
     let targetTabElement: HTMLElement | undefined;
     if (target instanceof Element) {
@@ -1601,23 +1248,23 @@ export async function createProjectPanel({
         targetTabElement = closestTabElement;
       }
     }
-    if (targetTabElement?.dataset.resourceKey === draggedFileKey) {
-      panel.draggedFileKey = undefined;
+    if (targetTabElement?.dataset.filePath === draggedFilePath) {
+      panel.draggedFilePath = undefined;
       clearFileTabDropIndicators(panel);
       return;
     }
 
     const candidateBuffers: ProjectFileBuffer[] = [];
     for (const candidateBuffer of panel.files.values()) {
-      if (candidateBuffer.resourceKey !== draggedFileKey) {
+      if (candidateBuffer.filePath !== draggedFilePath) {
         candidateBuffers.push(candidateBuffer);
       }
     }
     let targetIndex = candidateBuffers.length;
     if (targetTabElement !== undefined) {
-      const targetResourceKey = targetTabElement.dataset.resourceKey;
+      const targetFilePath = targetTabElement.dataset.filePath;
       for (let position = 0; position < candidateBuffers.length; position++) {
-        if (candidateBuffers[position].resourceKey !== targetResourceKey) {
+        if (candidateBuffers[position].filePath !== targetFilePath) {
           continue;
         }
         targetIndex = position;
@@ -1627,7 +1274,7 @@ export async function createProjectPanel({
         break;
       }
     }
-    panel.draggedFileKey = undefined;
+    panel.draggedFilePath = undefined;
     clearFileTabDropIndicators(panel);
     if (draggedBuffer === undefined) {
       return;
@@ -1636,44 +1283,7 @@ export async function createProjectPanel({
       type: "move-file",
       projectTabId: panel.id,
       path: draggedBuffer.filePath,
-      untitledId: draggedBuffer.untitledId,
       index: targetIndex,
-    });
-  });
-
-  editor.onDidChangeModelContent(() => {
-    if (panel.activeFileKey === undefined) {
-      return;
-    }
-    const buffer = panel.files.get(panel.activeFileKey);
-    if (buffer === undefined || buffer.model !== editor.getModel()) {
-      return;
-    }
-    let dirty = true;
-    if (buffer.filePath === undefined && buffer.model.getValue() === "") {
-      dirty = false;
-    }
-    if (buffer.dirty === dirty) {
-      return;
-    }
-    buffer.dirty = dirty;
-    if (buffer.filePath !== undefined) {
-      pinProjectFile({
-        panel,
-        filePath: buffer.filePath,
-      });
-    }
-    updateFileTab(buffer);
-    let eventPath: string | null = null;
-    if (buffer.filePath !== undefined) {
-      eventPath = buffer.filePath;
-    }
-    bridge.emitEvent({
-      type: "dirty-changed",
-      id: panel.id,
-      path: eventPath,
-      untitledId: buffer.untitledId,
-      state: snapshot(),
     });
   });
 
@@ -1706,8 +1316,8 @@ export async function changeProjectWorkspaceRoot({
 }
 
 export function focusProjectPanel(panel: ProjectPanel): void {
-  if (panel.activeFileKey !== undefined) {
-    const buffer = panel.files.get(panel.activeFileKey);
+  if (panel.activeFilePath !== undefined) {
+    const buffer = panel.files.get(panel.activeFilePath);
     if (buffer !== undefined && buffer.model !== undefined) {
       // a rendered buffer's editor is hidden; keys should scroll the document
       if (buffer.markdownMode === "rendered") {

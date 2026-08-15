@@ -608,35 +608,16 @@ function describeProject(panel: ProjectPanel | undefined): ProjectInfo | null {
   }
   const files: ProjectFileInfo[] = [];
   for (const file of panel.files.values()) {
-    if (file.filePath !== undefined) {
-      files.push({
-        path: file.filePath,
-        dirty: file.dirty,
-        pinned: file.pinned,
-      });
-      continue;
-    }
-    if (file.untitledId !== undefined) {
-      files.push({
-        path: null,
-        title: "Untitled",
-        untitledId: file.untitledId,
-        dirty: file.dirty,
-        pinned: true,
-      });
-    }
+    files.push({
+      path: file.filePath,
+      pinned: file.pinned,
+    });
   }
   let activeFilePath: string | null = null;
-  let activeUntitledId: number | undefined;
-  if (panel.activeFileKey !== undefined) {
-    const activeFile = panel.files.get(panel.activeFileKey);
-    if (activeFile?.filePath !== undefined) {
-      activeFilePath = activeFile.filePath;
-    } else {
-      activeUntitledId = activeFile?.untitledId;
-    }
+  if (panel.activeFilePath !== undefined) {
+    activeFilePath = panel.activeFilePath;
   }
-  const project: ProjectInfo = {
+  return {
     id: panel.id,
     name: panel.name,
     workspaceRootPath: panel.workspaceRootPath,
@@ -644,10 +625,6 @@ function describeProject(panel: ProjectPanel | undefined): ProjectInfo | null {
     activeFilePath,
     files,
   };
-  if (activeUntitledId !== undefined) {
-    project.activeUntitledId = activeUntitledId;
-  }
-  return project;
 }
 
 function describeWorkspace(workspace: Workspace): WorkspaceInfo {

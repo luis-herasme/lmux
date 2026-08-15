@@ -20,9 +20,10 @@ page around the terminal, which buys three things:
    grid. Anything the web can render, a view in this app can render.
 2. **Integrated browser views.** Embedding a live web page next to the
    terminal is nearly free in Electron; in a TUI it's impossible.
-3. **Integrated project editing.** A project panel combines a lazy file
+3. **Integrated project reading.** A project panel combines a lazy file
    tree, file buffers and a Monaco editor without turning the terminal into
-   an editor.
+   an editor. The editor is read-only: lmux shows files, it does not write
+   them.
 
 These capabilities exist as terminal and Markdown tab kinds, plus the project
 panel a workspace keeps beside its panes. Each owns its renderer-side content
@@ -62,12 +63,9 @@ showTabMenu(id)              renderer → main   "right-click on tab `id`: show 
 onRenameRequest((id))        main → renderer   "the user picked Rename in tab `id`'s menu"
 showWorkspaceMenu(id)        renderer → main   "right-click on workspace `id`: show its native menu"
 onWorkspaceRenameRequest((id)) main → renderer "the user picked Rename in workspace `id`'s menu"
-closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: guard its shells and dirty files"
-closeTab(id)                 renderer → main   "the outer ×: guard every dirty file in that tab"
-closeFile({projectTabId, filePath/untitledId}) renderer → main "the inner ×: guard that one buffer"
+closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: guard the shells it would kill"
+closeTab(id)                 renderer → main   "the outer ×: main decides what closing means"
 readFile({path, baseTabId})  renderer → main   "read a document or project buffer" (request/response)
-writeFile({...})             renderer → main   "save one buffer with its expected mtime" (request/response)
-saveNewFile({...})           renderer → main   "pick a path and write an untitled buffer" (request/response)
 readProjectTree({...})       renderer → main   "resolve a root and list one directory" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
 onScreenRead({readId, ...})  main → renderer   "what is tab `id` showing?" (request/response, the only one this way)
@@ -180,7 +178,7 @@ it.
 **Main owns the machine.** It boots the window and the app lifecycle, keeps one
 PTY per tab and relays its bytes, builds the app and context menus, dispatches
 Commands into the renderer and keeps the read model Events arrive in, serves the
-API socket, reads and writes files under the mtime guard, reads directories with
+API socket, reads files, reads directories with
 their Git status and watches them, and writes the window geometry and the last
 session to disk.
 
@@ -243,14 +241,12 @@ change it and update this list.
   and one Monaco editor, under a header carrying the root folder's name and
   the × that hides it. `open-file` and `open-project` create it on first use
   and show it; `close-project` hides it, and hiding is not closing: every
-  buffer, its dirty text and the tree watcher stay alive behind it, so nothing
-  is asked and nothing is lost. Its width is a setting with a drag handle, like
-  the sidebar's. A tree single-click replaces one clean preview file, while
-  editing or double-clicking pins it. File tabs drag to reorder through a
-  `move-file` Command, so their visual, public-state and restored-session
-  orders agree. Double-clicking empty strip space issues `new-file` and opens a
-  clean, pinned `Untitled` buffer. Each file owns a Monaco model, so dirty
-  text, undo, cursor and scroll state survive file switches. Files outside the
+  buffer and the tree watcher stay alive behind it, so nothing is lost. Its
+  width is a setting with a drag handle, like the sidebar's. A tree
+  single-click replaces one preview file, while double-clicking pins it. File
+  tabs drag to reorder through a `move-file` Command, so their visual,
+  public-state and restored-session orders agree. Each file owns a Monaco
+  model, so cursor and scroll state survive file switches. Files outside the
   workspace root are ordinary file tabs and leave the tree unchanged. Changing
   the root is an explicit folder-picker action and keeps every file tab open.
 - **The keyboard belongs to one half of the window at a time.** A workspace
@@ -259,17 +255,14 @@ change it and update this list.
   focus (after a dialog, a resize, a workspace switch) reads that, and ⌘W
   closes the visible file when the panel has the keyboard and the active tab
   when it does not.
-- **File buffers save through one guarded path.** The page writes through the
-  same bridge `read` uses. Each buffer carries the mtime from its last read or
-  write, and a stale save is refused rather than burying a disk change. ⌘S
-  saves the visible buffer; Save All and close guards can save every dirty
-  buffer. An untitled buffer has a hidden identity because its visible title
-  stays `Untitled`; its first save opens the native Save As dialog and turns
-  that same buffer into a guarded disk file. Closing a dirty file offers Save,
-  Don't Save and Cancel; bulk closes offer Save All. Dirty state is a ● in the
-  file tab and rides in `WorkspaceInfo.project` for main and agents. The tree instead shows
-  Git state. Sessions restore pinned paths from disk, never unsaved model
-  contents, untitled buffers or the preview file.
+- **Files are read, never written.** (Replaces the guarded save path: ⌘S, Save
+  All, Save As, untitled buffers, dirty state and the close-time Save / Don't
+  Save / Cancel dialogs.) The panel's Monaco editors are `readOnly`, the bridge
+  carries no write at all, and main registers only `file:read`, so nothing the
+  page holds can reach disk: a buffer cannot diverge from the file, which is
+  why closing anything now asks about running programs only. Editing files is
+  what the terminal beside the panel is for. Sessions restore pinned paths from
+  disk, never the preview file.
 - **The workspace tree loads one directory at a time.** (Replaces the eager
   Pierre Trees implementation.) Main resolves the root from the first file or
   named terminal, then returns only one directory's immediate children. Native
@@ -279,25 +272,23 @@ change it and update this list.
   Retry after filesystem failures. Root changes show one loading state and
   commit the root, title and tree together. Row virtualization and paged reads
   remain in #44; tree mutation controls remain out of scope.
-- **Explorer decorations are Git state, not editor dirty state.** Main reads
+- **Explorer decorations are Git state.** Main reads
   NUL-delimited porcelain status and the Git index after the tree commits its
   root. The result is compared with the current `HEAD`, not specifically the
   repository's main branch. Working-tree status replaces staged status for the
   same path, matching VS Code; ignored paths have color without a badge,
   submodules use `S`, and changed descendants give folders a generic bubble.
   Both the filename and badge use the matching `gitDecoration.*` color from
-  VS Code's Git extension. Saving clears the buffer's dirty dot but leaves `M`
-  until Git reports the file clean.
+  VS Code's Git extension. Every change to a decorated file comes from outside
+  lmux, so the watcher below is the only thing that refreshes them.
 - **Filesystem events invalidate the tree; they are never treated as truth.** A
   debounced recursive watcher covers the workspace and, for worktrees, Git
   metadata outside it. Each event makes the renderer reread Git and reconcile
   only loaded parent directories, retaining unchanged `<details>` nodes and
-  their expansion state. Saves also refresh explicitly, so a coalesced watcher
-  event cannot hide an lmux-owned change. Root replacement and project disposal
-  close the watcher, and request generations discard late results. Missing Git
-  leaves an undecorated tree; unavailable recursive watching leaves explicit
-  save refreshes working. A stopped workspace watcher triggers one full refresh
-  and up to three delayed rebind attempts. Incoming remote arrows, an SCM view
+  their expansion state. Root replacement and project disposal close the
+  watcher, and request generations discard late results. Missing Git leaves an
+  undecorated tree. A stopped workspace watcher triggers one full refresh and
+  up to three delayed rebind attempts. Incoming remote arrows, an SCM view
   and editor-tab Git decorations are separate VS
   Code features and remain out of scope.
 - **The IPC contract is a type.** One module declares `Bridge`;
@@ -682,16 +673,16 @@ change it and update this list.
   behind the same one-button toolbar, surfacing only while the visible
   buffer's Monaco language is `markdown`. The rendered face is a sibling
   of the editor element that swaps visibility with it; the model stays on
-  the hidden editor, so view state, dirty tracking and the save path never
-  notice the swap, and the rendering reads the buffer rather than the disk
-  — unsaved edits show, and there is no Reload button to need. The button
-  is a Command source like every other affordance (`set-file-markdown-mode`,
-  idempotent like `set-markdown-mode`, defaulting to the visible file),
-  and the change announces itself as `file-markdown-mode-changed`. The
-  mode is per open buffer but deliberately not part of `ProjectFileInfo`
-  or the session: a restart brings files back in the editor, the same way
-  cursor positions don't return. The way back from rendered reads *Edit*,
-  not *Raw*, because the panel's raw face is the editor itself.
+  the hidden editor, so view state never notices the swap, and the
+  rendering reads the buffer rather than the disk, so there is no Reload
+  button to need. The button is a Command source like every other
+  affordance (`set-file-markdown-mode`, idempotent like
+  `set-markdown-mode`, defaulting to the visible file), and the change
+  announces itself as `file-markdown-mode-changed`. The mode is per open
+  buffer but deliberately not part of `ProjectFileInfo` or the session: a
+  restart brings files back in the editor, the same way cursor positions
+  don't return. The way back from rendered reads *Source*, because that is
+  what the editor face shows now that it cannot be typed into.
   2026-08.) A workspace is a whole lmux of its own inside the window: its
   own pane layout, its own tabs, its own shells (see the glossary). The
   sidebar, which held only the settings gear, becomes their list: one row

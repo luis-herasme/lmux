@@ -154,6 +154,12 @@ export function createCodeEditor({
     fontSize: settings.fontSize,
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
+    // lmux shows files, it does not write them: nothing here can reach disk,
+    // so the editor refuses the edit rather than holding work it cannot save
+    readOnly: true,
+    // and the textarea Monaco keeps behind the view refuses it too, so an
+    // input method or a paste cannot get in around the option above
+    domReadOnly: true,
     // the panel is resized by a drag handle, which tells it nothing
     automaticLayout: true,
   });

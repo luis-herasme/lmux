@@ -1,9 +1,7 @@
-// Only main can show a native dialog or inspect processes and files.
+// Only main can show a native dialog or inspect processes.
 import { dialog } from "electron";
 import type { BrowserWindow } from "electron";
-import * as path from "path";
 import { runningProcessNames } from "./shells.ts";
-import type { ProjectInfo } from "../api.ts";
 
 type ConfirmKillingOptions = {
   window: BrowserWindow;
@@ -34,107 +32,4 @@ export function confirmKilling({
     cancelId: 0,
   });
   return choice === 1;
-}
-
-export type DirtyCloseChoice = "save" | "discard" | "cancel";
-
-type DirtyFile = {
-  path: string | null;
-  untitledId: number | undefined;
-  title: string;
-  detail: string;
-};
-
-type ChooseDirtyCloseOptions = {
-  window: BrowserWindow;
-  // one workspace's panel, or every panel in the window
-  projects: ProjectInfo[];
-  action: string;
-  onlyFilePath?: string;
-  onlyUntitledId?: number;
-};
-
-function dirtyFilesForProjects(projects: ProjectInfo[]): DirtyFile[] {
-  const dirtyFiles: DirtyFile[] = [];
-  for (const project of projects) {
-    for (const file of project.files) {
-      if (!file.dirty) {
-        continue;
-      }
-      if (file.path === null) {
-        dirtyFiles.push({
-          path: null,
-          untitledId: file.untitledId,
-          title: file.title,
-          detail: file.title,
-        });
-        continue;
-      }
-      dirtyFiles.push({
-        path: file.path,
-        untitledId: undefined,
-        title: path.basename(file.path),
-        detail: file.path,
-      });
-    }
-  }
-  return dirtyFiles;
-}
-
-export function chooseDirtyClose({
-  window,
-  projects,
-  action,
-  onlyFilePath,
-  onlyUntitledId,
-}: ChooseDirtyCloseOptions): DirtyCloseChoice {
-  let dirtyFiles = dirtyFilesForProjects(projects);
-  if (onlyFilePath !== undefined || onlyUntitledId !== undefined) {
-    const matchingFiles: DirtyFile[] = [];
-    for (const dirtyFile of dirtyFiles) {
-      let matches = false;
-      if (onlyFilePath !== undefined && dirtyFile.path === onlyFilePath) {
-        matches = true;
-      }
-      if (
-        onlyUntitledId !== undefined &&
-        dirtyFile.untitledId === onlyUntitledId
-      ) {
-        matches = true;
-      }
-      if (matches) {
-        matchingFiles.push(dirtyFile);
-      }
-    }
-    dirtyFiles = matchingFiles;
-  }
-  if (dirtyFiles.length === 0) {
-    return "discard";
-  }
-
-  const dirtyDetails: string[] = [];
-  for (const dirtyFile of dirtyFiles) {
-    dirtyDetails.push(dirtyFile.detail);
-  }
-  let message = `${dirtyFiles.length} files have unsaved changes.`;
-  let saveLabel = "Save All";
-  if (dirtyFiles.length === 1) {
-    message = `"${dirtyFiles[0].title}" has unsaved changes.`;
-    saveLabel = "Save";
-  }
-  const choice = dialog.showMessageBoxSync(window, {
-    type: "warning",
-    message,
-    detail: `${action} affects ${dirtyDetails.join(", ")}.`,
-    buttons: ["Cancel", "Don't Save", saveLabel],
-    defaultId: 0,
-    cancelId: 0,
-  });
-  if (choice === 1) {
-    return "discard";
-  }
-  if (choice === 2) {
-    return "save";
-  }
-  return "cancel";
 }

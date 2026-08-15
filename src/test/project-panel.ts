@@ -161,7 +161,6 @@ export const projectPanel = describe("the project panel", () => {
       assert.deepEqual(project.files, [
         {
           path: SOURCE_FILE_PATH,
-          dirty: false,
           pinned: true,
         },
       ]);
@@ -239,7 +238,6 @@ export const projectPanel = describe("the project panel", () => {
         assert.deepEqual(hiddenProject?.files, [
           {
             path: SOURCE_FILE_PATH,
-            dirty: false,
             pinned: true,
           },
         ]);
@@ -319,7 +317,7 @@ export const projectPanel = describe("the project panel", () => {
         "A document with a diagram in it",
         "the rendering shows headings as headings",
       );
-      assert.equal(rendered.buttonLabel, "Edit");
+      assert.equal(rendered.buttonLabel, "Source");
 
       sendCommand({
         type: "set-file-markdown-mode",

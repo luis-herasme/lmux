@@ -28,42 +28,8 @@ export type ReadFileRequest = {
 };
 
 export type ReadFileResult =
-  // mtimeMs is the file's modification time at read, so a save can refuse to
-  // overwrite a file that changed on disk in between.
-  | { resolvedPath: string; content: string; mtimeMs: number }
+  | { resolvedPath: string; content: string }
   | { error: string };
-
-// expectedMtimeMs is what read reported; a write whose file no longer has it
-// is refused, because it would bury a change someone else made.
-export type WriteFileRequest = {
-  path: string;
-  expectedMtimeMs: number;
-  content: string;
-};
-
-export type WriteFileResult =
-  // the file's mtime after the write, which a subsequent save guards against
-  | { mtimeMs: number }
-  | { error: string };
-
-export const saveNewFileRequestSchema = z.object({
-  directoryPath: z.string(),
-  suggestedName: z.string(),
-  content: z.string(),
-  destinationPath: z.string().optional(),
-  excludedPaths: z.array(z.string()),
-});
-export type SaveNewFileRequest = z.infer<typeof saveNewFileRequestSchema>;
-
-export const saveNewFileResultSchema = z.union([
-  z.object({
-    resolvedPath: z.string(),
-    mtimeMs: z.number(),
-  }),
-  z.object({ canceled: z.literal(true) }),
-  z.object({ error: z.string() }),
-]);
-export type SaveNewFileResult = z.infer<typeof saveNewFileResultSchema>;
 
 // A live project can derive its workspace root from a terminal or its first
 // file. A restored project already knows the root and asks for it directly.
@@ -159,12 +125,6 @@ export type ProjectTreeChangeMessage = z.infer<
   typeof projectTreeChangeMessageSchema
 >;
 
-export type CloseFileRequest = {
-  projectTabId: number;
-  filePath?: string;
-  untitledId?: number;
-};
-
 // Electron has no invoke in this direction, so main asks with an id and the
 // page answers with it: the only question main ever puts to the page.
 export type ScreenReadMessage = {
@@ -197,12 +157,8 @@ export type Bridge = {
   closeWorkspace: (id: number) => void;
   // a person's tab ×: routed to main, which decides what closing means
   closeTab: (id: number) => void;
-  // the inner file-tab × has the same guard for its one buffer
-  closeFile: (request: CloseFileRequest) => void;
   // request/response pairs on the cable (ipcRenderer.invoke)
   readFile: (request: ReadFileRequest) => Promise<ReadFileResult>;
-  writeFile: (request: WriteFileRequest) => Promise<WriteFileResult>;
-  saveNewFile: (request: SaveNewFileRequest) => Promise<unknown>;
   readProjectTree: (
     request: ReadProjectTreeRequest,
   ) => Promise<ReadProjectTreeResult>;

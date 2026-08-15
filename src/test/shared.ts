@@ -166,18 +166,21 @@ export const screenSchema = z.object({
 
 const editorTypingSchema = z.object({
   editorFound: z.boolean(),
+  readOnly: z.boolean(),
   edited: z.boolean(),
 });
 
-type EditOpenEditorOptions = {
+type TypeIntoOpenEditorOptions = {
   expectedContent: string;
   addedContent: string;
 };
 
-export async function editOpenEditor({
+// Types through the real editor, the way a person would, and reports what
+// came of it: the panel's editors refuse the keystrokes.
+export async function typeIntoOpenEditor({
   expectedContent,
   addedContent,
-}: EditOpenEditorOptions): Promise<z.infer<typeof editorTypingSchema>> {
+}: TypeIntoOpenEditorOptions): Promise<z.infer<typeof editorTypingSchema>> {
   const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
     const expected = ${JSON.stringify(expectedContent)};
     let target = null;
@@ -191,6 +194,7 @@ export async function editOpenEditor({
     if (target === null) {
       return {
         editorFound: false,
+        readOnly: false,
         edited: false,
       };
     }
@@ -200,6 +204,7 @@ export async function editOpenEditor({
     });
     return {
       editorFound: true,
+      readOnly: target.getRawOptions().readOnly === true,
       edited: target.getValue() !== expected,
     };
   })()`);
