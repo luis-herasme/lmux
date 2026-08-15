@@ -9,7 +9,7 @@
 // which is the definition of untrusted here: a session written by an older
 // version, or half-written by a crash, must read as "no session" rather than
 // as a shape the renderer then trips over.
-import { z } from "../node_modules/zod/index.js";
+import { z } from "zod";
 import { markdownModeSchema } from "./api.ts";
 import type { LmuxState } from "./api.ts";
 

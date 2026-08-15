@@ -205,16 +205,33 @@ change it and update this list.
   own: stripping isn't checking, and the renderer runs in Chromium, which
   can't run TypeScript at all. So the one tool is the official compiler:
   `tsc` type-checks the whole source tree and emits plain JS. Cost we
-  accept: a compile step inside `npm start`. The no-bundler rule stands for
-  our own code: the output mirrors the source one to one, nothing is fused or
-  minified. (Amended 2026-08-08: the rule no longer extends to every
-  dependency — see the bundler entry below.)
-- **Only browser-incompatible dependencies are bundled.** (Narrows "no
-  bundler", which held until Monaco.) Most libraries expose files the page can
-  load directly. Monaco instead uses bare specifiers, so a small
-  vendor-bundling script writes its browser bundle beside the compiled output.
-  The app's own modules remain one-to-one `tsc` output, and another dependency
-  joins the bundle only when a feature demonstrates the same need.
+  accept: a compile step inside `npm start`. (Amended 2026-08-08: the
+  no-bundler rule no longer extends to every dependency. Amended 2026-08-15:
+  it no longer covers the page either — see the entry below. `tsc` is still
+  the type checker for the whole tree, and still the compiler for main, the
+  preload and the tests, whose output mirrors their source one to one.)
+- **The page is built by Vite; everything else stays `tsc`'s.** (Decided
+  2026-08-15. Replaces "only browser-incompatible dependencies are bundled",
+  which held until the page had three different ways of reaching a package.)
+  Dependencies arrived as page globals from classic `<script>` tags (xterm,
+  Dockview), as hand-written `../../node_modules/...` paths (markdown-it,
+  mermaid, DOMPurify, highlight.js, zod), and through a vendor-bundling
+  script of our own (Monaco). Every one of those was a workaround for the
+  same missing thing: the browser has no resolver for a bare `"react"` or
+  `"zod"`. A bundler is that resolver, so now every dependency is imported by
+  name, including its stylesheet and Monaco's worker, and the three
+  workarounds are gone with the script that served the third. `npm run build`
+  is `tsc && vite build`; the window loads `dist/page/index.html`. Costs we
+  accept: what runs in the window is fused and minified rather than the file
+  you wrote, with sourcemaps to carry the debugger back; and CSS order is now
+  import order, so `index.ts` imports our own stylesheet last, after the ones
+  its dependencies bring, because ours is the one that overrides them.
+- **Vite builds the page, and does not serve it.** (Decided 2026-08-15,
+  with the entry above.) A dev server would buy hot reloading, and cost a
+  second way for the window to find a page — `loadURL` in development,
+  `loadFile` in the packaged app — plus a CSP loose enough for the dev
+  server's own injected scripts, which means the policy we test under is not
+  the policy we ship. One code path and a restart instead.
 - **Monaco is loaded when the first project panel opens, not at boot.** It is
   about 4MB with every language grammar it ships. A dynamic `import()` where
   the editor is set up keeps that cost off the boot path entirely: a session
@@ -229,7 +246,10 @@ change it and update this list.
   reaches for when left to itself — is refused by the page's
   `default-src 'self'`. The renderer therefore hands Monaco a real
   file URL through `MonacoEnvironment.getWorker`, so the fallback never
-  happens and the CSP stays exactly as strict as it was.
+  happens and the CSP stays exactly as strict as it was. (Amended
+  2026-08-15: the file is the one Vite builds from Monaco's worker entry
+  point — the `?worker` import in `code.ts` — emitted as a classic script,
+  which is what `worker: { format: "iife" }` in the config is for.)
 - **Each workspace has one project panel, beside its panes rather than
   inside them.** (Replaces the composite project *tab*, which replaced the
   separate code and tree panels of #34 and #35.) The panel is workspace state
@@ -425,13 +445,11 @@ change it and update this list.
   `require()`. That wart is the smell of a missing module system, and the
   platform ships one: `"type": "module"` in the package manifest makes
   Electron run our output as ES modules, and the browser loads the renderer with
-  `<script type="module">`, still no bundler. The one exception is
+  `<script type="module">`. The one exception is
   preload: Electron's sandbox requires it to be CommonJS, so its source carries
   the `.cts` extension, which tells tsc to emit that single file as `.cjs`
-  while the source still reads as `import`. Costs we accept: import
-  paths must spell out the compiled `.js` extension (Node ESM and browsers
-  both demand it), and xterm.js still arrives as classic-script globals
-  because that's how the package ships.
+  while the source still reads as `import`. Cost we accept: import paths must
+  spell out the compiled `.js` extension, which Node ESM demands.
 - **Tab titles come from the programs inside, via OSC.** A terminal doesn't
   name its own tabs: the shell (or vim, or ssh) emits an OSC title sequence
   (see glossary) mixed into its ordinary output, and the emulator displays
@@ -597,15 +615,11 @@ change it and update this list.
   the IPC contract stays compile-checked only, until an outside caller
   (the future API server) makes those inputs untrusted too. (Amended
   2026-08-07: one such caller turned out to exist already, and `Command` is
-  now a schema. See the next entry.) Delivery
-  quirk worth knowing: with no bundler, the browser resolves every
-  import itself, and a bare `"zod"` means nothing to it. Import maps are
-  the web's fix, but inline ones are blocked by our CSP and external
-  ones aren't supported by Chromium yet, so zod is imported by a relative
-  `node_modules` path, the same way the page reaches xterm's files. Costs we
-  accept: one ugly import path, and a dependency whose
-  ESM build must stay browser-loadable (zod's is: fully relative,
-  extension-qualified imports).
+  now a schema. See the next entry.) It is imported by both sides, which for
+  a long time meant importing it by a relative `node_modules` path: the
+  browser resolves every import itself, and a bare `"zod"` meant nothing to
+  it. (Amended 2026-08-15: the page is built by Vite, which resolves the
+  name, so both sides import `"zod"` like anything else.)
 - **Markdown views: a second tab kind, opened from terminal links.**
   (Decided 2026-08.) Cmd+clicking a `*.md` path in any terminal opens the
   file rendered in a new tab: an xterm link provider matches the paths
@@ -779,12 +793,13 @@ change it and update this list.
   and a zip. Two settings carry the whole configuration and both exist
   because of decisions made earlier in this document. `asarUnpack` for
   node-pty: a native `.node` cannot be loaded from inside the asar
-  archive, and node-pty is the one native dependency. And `files` lists
-  the page's HTML and CSS alongside the compiled output, because the
-  no-bundler rule means the page loads xterm, Dockview, zod and the
-  markdown libraries by relative `node_modules` path, so the packaged app
-  needs those files sitting in the same relative position they occupy in
-  the source tree. The packaged app gets a directory of its own rather than
+  archive, and node-pty is the one native dependency. And `files` is now
+  just the compiled output minus the tests: the page and everything it
+  depends on is inside `dist/page`, so nothing has to be packed from the
+  source tree beside it. (Amended 2026-08-15: it used to list the page's
+  HTML and CSS too, and worked only because the packaged `node_modules` sat
+  in the same relative position as in the source tree.) The packaged app
+  gets a directory of its own rather than
   the compiler's; sharing one would package the app inside itself on the
   next build.
   Signing is off (`identity: null`) because it needs a paid Apple

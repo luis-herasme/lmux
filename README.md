@@ -94,9 +94,9 @@ Two sides and a cable between them, the same split the diagrams above show.
 ARCHITECTURE.md walks through it: what main owns, what the renderer owns, and
 what the command bus adds on top.
 
-Application modules stay as one-to-one TypeScript output, without a framework
-or an application bundler. Monaco and its worker are the one vendor-bundling
-exception. Features and abstractions get added only when needed.
+Main, the preload and the tests stay as one-to-one TypeScript output. The page
+is built by Vite, which is what lets it import a package by name the way any
+other JavaScript does. Features and abstractions get added only when needed.
 
 ## Driving lmux
 

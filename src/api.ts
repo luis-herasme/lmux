@@ -5,9 +5,7 @@
 // a caller from outside our own compiled code can be checked against the
 // same one definition the compiler uses. Everything else here is types
 // only; Events and state travel outwards, where the receiver is us.
-// zod by path, not by name: this module is loaded by both the page, which
-// cannot resolve a bare specifier, and by main.
-import { z } from "../node_modules/zod/index.js";
+import { z } from "zod";
 
 const splitSideSchema = z.enum(["left", "right", "top", "bottom"]);
 

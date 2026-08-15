@@ -10,29 +10,21 @@ import {
 } from "../workspaces.ts";
 import type { Workspace } from "../workspaces.ts";
 import type { ScreenResult } from "../../api.ts";
-import type { ITheme, Terminal as XtermTerminal } from "@xterm/xterm";
-import type { FitAddon as XtermFitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
+import type { ITheme } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+// the terminal's own stylesheet: the grid, the cursor, the selection
+import "@xterm/xterm/css/xterm.css";
 import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
-
-// xterm ships classic scripts, so its constructors arrive as page globals
-// rather than as modules (see the script tags in index.html).
-const Terminal: typeof XtermTerminal = Reflect.get(window, "Terminal");
-const FitAddon: { FitAddon: typeof XtermFitAddon } = Reflect.get(
-  window,
-  "FitAddon",
-);
-if (!Terminal || !FitAddon) {
-  throw new Error("xterm's scripts did not load: window.Terminal is missing");
-}
 
 export type TerminalTab = {
   kind: "terminal";
   panel: IDockviewPanel;
   titleElement: HTMLElement;
   titlePinned: boolean;
-  terminal: XtermTerminal;
+  terminal: Terminal;
   observer: ResizeObserver;
-  fitAddon: XtermFitAddon;
+  fitAddon: FitAddon;
 };
 
 type OpenTerminalTabOptions = {
@@ -108,7 +100,7 @@ export function openTerminalTab({
     cursorBlink: true,
     theme: xtermTheme(),
   });
-  const fitAddon = new FitAddon.FitAddon();
+  const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
 
   const observer = new ResizeObserver(() => {

@@ -2,31 +2,21 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <!-- Dockview and xterm inject styles; Monaco embeds the Codicon font.
-         Electron warns because a file:// page has no response CSP header;
-         the equivalent meta policy below is enforced (ARCHITECTURE.md). -->
+    <!-- Mermaid injects a <style> per diagram and this page has style
+         attributes of its own; Monaco brings the Codicon font, which the
+         build may emit inline. Electron warns because a file:// page has no
+         response CSP header; the equivalent meta policy below is enforced
+         (ARCHITECTURE.md). -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
     />
     <title>lmux</title>
-    <link
-      rel="stylesheet"
-      href="../../node_modules/@xterm/xterm/css/xterm.css"
-    />
-    <link rel="stylesheet" href="style.css" />
-    <!-- code token colors: VS Code's dark palette (vs2015); settings.ts
-         swaps the light file in for light themes -->
-    <link
-      rel="stylesheet"
-      href="../../node_modules/@highlightjs/cdn-assets/styles/vs2015.min.css"
-      id="highlight-css"
-    />
-    <!-- Monaco's stylesheet, emitted beside its bundle by the vendor build
-         (scripts/bundle-vendor.mjs). Linked here rather than loaded with the
-         editor: a stylesheet arriving after the first paint would show the
-         editor unstyled for a frame. -->
-    <link rel="stylesheet" href="../../dist/vendor/monaco.css" />
+    <!-- code token colors, one file of the two highlight.js ships for VS
+         Code's palettes; settings.ts picks the one this theme wants and puts
+         its URL here, at boot and on every theme change. Every other
+         stylesheet the app needs is imported by the module that needs it. -->
+    <link rel="stylesheet" id="highlight-css" />
   </head>
   <body>
     <!-- <dialog> + showModal(): real modality (backdrop, focus trap,
@@ -116,11 +106,8 @@
         <div id="project-resizer"></div>
       </div>
     </div>
-    <!-- classic scripts providing globals (how these packages ship);
-         the app itself is a native ES module -->
-    <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
-    <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
-    <script src="../../node_modules/dockview/dist/dockview.js"></script>
-    <script type="module" src="../../dist/renderer/index.js"></script>
+    <!-- The page's one entry. Vite follows its imports from here and writes
+         the bundle the window actually loads (vite.config.ts). -->
+    <script type="module" src="./index.ts"></script>
   </body>
 </html>

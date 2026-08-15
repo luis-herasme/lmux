@@ -374,3 +374,23 @@ children and its own scrollback, and none of that can be brought back from a
 file. What a restart can do is start a new shell in a new tab in the same
 position, which is why a session records the position and nothing else about a
 terminal.
+
+## Bare specifier / bundler / Vite
+
+`import { z } from "zod"` names a package rather than a file. That is a *bare
+specifier*, and it is not a URL: Node knows to go looking in `node_modules` for
+it, but a browser has no such rule, because on the web an import is a URL and
+nothing else. So a page either spells out the path to the file it wants
+(`../../node_modules/zod/index.js`), or something rewrites the imports before
+the page ever sees them.
+
+A *bundler* is that something. It starts at an entry file, follows every
+import — packages by name, stylesheets, workers, images — and writes out files
+a browser can load, with the names resolved, the modules fused together and the
+result minified. *Vite* is the one lmux uses, for the page only; main runs on
+Node, which resolves package names by itself and needs no help.
+
+The cost of a bundler is that what runs is no longer what you wrote: one
+`assets/index-HASH.js` instead of your files. A *sourcemap*, emitted beside it,
+is the table that maps a position in the built file back to the line of source
+it came from, which is what lets the debugger show you your own code.

@@ -1,18 +1,10 @@
 import { currentTheme, getSettings } from "../settings.ts";
-import DOMPurify from "../../../node_modules/dompurify/dist/purify.es.mjs";
-import type MarkdownIt from "markdown-it";
-// @ts-expect-error no declaration file next to the browser bundle
-import markdownitUntyped from "../../../node_modules/markdown-it/dist/browser/markdown-it.esm.min.mjs";
-const markdownit: typeof MarkdownIt = markdownitUntyped;
-import type mermaidModule from "mermaid";
-// @ts-expect-error no declaration file next to the browser bundle
-import mermaidUntyped from "../../../node_modules/mermaid/dist/mermaid.esm.min.mjs";
-const mermaid: typeof mermaidModule = mermaidUntyped;
-// highlight.js main is CommonJS-only, kept as dev dependency for types
-import type hljsModule from "highlight.js";
-// @ts-expect-error no declaration file next to the browser bundle
-import hljsUntyped from "../../../node_modules/@highlightjs/cdn-assets/es/highlight.min.js";
-const hljs: typeof hljsModule = hljsUntyped;
+import DOMPurify from "dompurify";
+import markdownit from "markdown-it";
+import mermaid from "mermaid";
+// The common languages, which is every one worth having in a fence; the
+// package's own entry registers all two hundred it ships.
+import hljs from "highlight.js/lib/common";
 
 const parser = new markdownit({
   html: true,

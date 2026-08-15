@@ -1,5 +1,10 @@
-import { z } from "../../node_modules/zod/index.js";
+import { z } from "zod";
 import { THEMES, DEFAULT_SETTINGS } from "../theme.ts";
+// The two code palettes highlight.js ships for VS Code's themes, as URLs:
+// the page keeps one link element and points it at whichever this theme
+// wants (applyCssVariables, below).
+import darkCodeStyleUrl from "highlight.js/styles/vs2015.min.css?url";
+import lightCodeStyleUrl from "highlight.js/styles/vs.min.css?url";
 import { requireElement } from "./dom.ts";
 import type { Theme } from "../theme.ts";
 import type { Settings } from "../api.ts";
@@ -131,11 +136,10 @@ export function applyCssVariables(): void {
     "--markdown-font-size",
     `${settings.markdownFontSize}px`,
   );
-  let highlightFile = "vs.min.css";
+  let highlightHref = lightCodeStyleUrl;
   if (currentTheme().colorScheme === "dark") {
-    highlightFile = "vs2015.min.css";
+    highlightHref = darkCodeStyleUrl;
   }
-  const highlightHref = `../../node_modules/@highlightjs/cdn-assets/styles/${highlightFile}`;
   const highlightCss = requireElement("highlight-css");
   if (highlightCss.getAttribute("href") !== highlightHref) {
     highlightCss.setAttribute("href", highlightHref);

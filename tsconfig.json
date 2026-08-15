@@ -1,4 +1,9 @@
 {
+  // tsc type-checks the whole tree and emits everything under dist/. The
+  // window does not run dist/renderer: Vite builds the page from the same
+  // sources into dist/page (vite.config.ts). The renderer's emitted JS is
+  // kept because it is the type check, and because src/test imports one
+  // renderer module (tabs/links.ts) into the test process.
   "compilerOptions": {
     // Where source lives and where compiled JS goes
     "rootDir": "src",
@@ -21,8 +26,10 @@
 
     // The renderer needs browser types (DOM); main needs Node types.
     // One config serves both — the unneeded types are just ignored.
+    // vite/client is what makes the page's non-JavaScript imports type:
+    // a stylesheet, a "?url" asset, a "?worker" constructor.
     "lib": ["es2022", "dom"],
-    "types": ["node"],
+    "types": ["node", "vite/client"],
 
     // The whole point: maximum checking
     "strict": true,

@@ -13,13 +13,16 @@ import type {
   TabInfo,
   WorkspaceInfo,
 } from "../api.ts";
+import { DockviewComponent, Orientation, themeDark } from "dockview";
 import type {
   AddPanelPositionOptions,
-  DockviewComponent,
   DockviewGroupPanel,
   IDockviewPanel,
   SerializedDockview,
 } from "dockview";
+// the layout engine's own stylesheet: the tab strip, the drop overlays, the
+// sashes between groups
+import "dockview/dist/styles/dockview.css";
 import { bridge } from "./bridge.ts";
 import { requireElement } from "./dom.ts";
 
@@ -60,16 +63,6 @@ const layoutElement = requireElement("layout");
 const projectHostElement = requireElement("project");
 const workspaceListElement = requireElement("workspace-list");
 
-// dockview is a classic script too, so it arrives as a page global; see
-// renderer/bridge.ts for why these are read rather than declared.
-const dockviewLibrary: typeof import("dockview") = Reflect.get(
-  window,
-  "dockview",
-);
-if (!dockviewLibrary) {
-  throw new Error("dockview's script did not load: window.dockview is missing");
-}
-
 // The element a panel shows is built by the caller of addPanel; Dockview's
 // factories only ever hand it over.
 let handOffPaneElement: HTMLElement | undefined;
@@ -78,7 +71,7 @@ let handOffTabElement: HTMLElement | undefined;
 // One options object for every instance: a workspace's identity lives in
 // its own store entry, never in the layout engine's configuration.
 const DOCKVIEW_OPTIONS = {
-  theme: dockviewLibrary.themeDark,
+  theme: themeDark,
   disableFloatingGroups: true,
   disableTabsOverflowList: true,
   createComponent: () => {
@@ -187,7 +180,7 @@ export function createWorkspace(): Workspace {
     element,
     rowElement,
     nameElement,
-    dockview: new dockviewLibrary.DockviewComponent(element, DOCKVIEW_OPTIONS),
+    dockview: new DockviewComponent(element, DOCKVIEW_OPTIONS),
     tabs: new Map(),
     activeId: -1,
     namePinned: false,
@@ -721,7 +714,7 @@ function describeWorkspace(workspace: Workspace): WorkspaceInfo {
   }
   const serialized = workspace.dockview.api.toJSON();
   let rootDirection: "row" | "column" = "column";
-  if (serialized.grid.orientation === dockviewLibrary.Orientation.HORIZONTAL) {
+  if (serialized.grid.orientation === Orientation.HORIZONTAL) {
     rootDirection = "row";
   }
   const layout = buildLayout({

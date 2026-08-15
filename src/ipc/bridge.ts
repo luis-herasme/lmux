@@ -8,7 +8,7 @@ import type {
   ScreenResult,
 } from "../api.ts";
 import type { Session } from "../session.ts";
-import { z } from "../../node_modules/zod/index.js";
+import { z } from "zod";
 
 export type ShellSizeMessage = {
   id: number;

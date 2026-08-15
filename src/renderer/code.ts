@@ -3,6 +3,9 @@
 // filename. The project panel that uses all this is project-panel.ts.
 import { currentTheme, getSettings } from "./settings.ts";
 import type * as monacoModule from "monaco-editor";
+// "?worker" is Vite's: it builds that entry point into a file of its own and
+// hands back the constructor for it (vite.config.ts).
+import EditorWorker from "monaco-editor/editor/editor.worker.start.js?worker";
 
 export type Monaco = typeof monacoModule;
 
@@ -16,13 +19,8 @@ const THEME_NAME = "lmux";
 //   - a Worker does start from a file:// page in Electron, so lmux does not
 //     need to be served over a custom protocol to use one;
 //   - left to itself Monaco reaches for a blob: URL, which the page's CSP
-//     (`default-src 'self'`) refuses. Handing it a real file URL avoids the
+//     (`default-src 'self'`) refuses. Handing it a real file avoids the
 //     fallback entirely, so the CSP stays as strict as it was.
-//
-// Resolved against this module rather than against whoever calls in: this
-// file is dist/renderer/code.js and the worker is in dist/vendor/.
-const workerUrl = new URL("../vendor/editor.worker.js", import.meta.url);
-
 type MonacoEnvironment = {
   getWorker: () => Worker;
 };
@@ -45,12 +43,10 @@ export function loadMonaco(): Promise<Monaco> {
 // pay for one.
 async function importMonaco(): Promise<Monaco> {
   const environment: MonacoEnvironment = {
-    getWorker: () => new Worker(workerUrl, { type: "classic" }),
+    getWorker: () => new EditorWorker(),
   };
   Reflect.set(self, "MonacoEnvironment", environment);
-  // @ts-expect-error no declaration file beside the bundle; the types come
-  // from the monaco-editor package above, the values from here
-  const monaco: Monaco = await import("../vendor/monaco.js");
+  const monaco: Monaco = await import("monaco-editor");
   // the console door: an agent (or a driver) can reach the editors through
   // Monaco's own registry, the way window.lmux is the command door
   Reflect.set(self, "monaco", monaco);
