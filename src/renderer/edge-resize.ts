@@ -1,6 +1,5 @@
 // A panel's width is a setting, so a drag ends as one update-settings
-// Command; the pixels moving under the cursor are a preview, the way a
-// split's divider moves without announcing anything.
+// Command; the pixels moving under the cursor until then are a preview.
 import { executeCommand, focusWorkspace } from "./tabs/index.ts";
 import {
   MAX_PROJECT_WIDTH_PX,
@@ -12,70 +11,55 @@ import { requireElement } from "./dom.ts";
 
 type EdgeResizeOptions = {
   resizerId: string;
-  // the window edge the panel is anchored to, which decides what width a
-  // pointer position is asking for
-  edge: "left" | "right";
+  requestedWidth: (event: MouseEvent) => number;
   minWidthPx: number;
   maxWidthPx: number;
   cssVariable: string;
-  settingsKey: "sidebarWidth" | "projectWidth";
-  // for a handle that sits inside its own panel: grabbing the edge is not
-  // the same as working in the panel, so the keyboard stays where it was
+  commitWidth: (width: number) => void;
+  // grabbing a handle inside its own panel must not move the keyboard into it
   stopMousedownPropagation: boolean;
 };
 
 function installEdgeResize(options: EdgeResizeOptions): void {
   const resizer = requireElement(options.resizerId);
 
-  // set only once the pointer actually moves, so a click that resizes
-  // nothing issues no Command
-  let draggedWidth: number | undefined;
-
-  function resize(event: MouseEvent): void {
-    // a panel anchored left starts at the window's left edge, so the
-    // pointer's x is the width; one anchored right runs to the opposite
-    // edge, so what is left of the pointer is the width
-    let requestedWidth = event.clientX;
-    if (options.edge === "right") {
-      requestedWidth = window.innerWidth - event.clientX;
-    }
-    draggedWidth = Math.min(
-      options.maxWidthPx,
-      Math.max(options.minWidthPx, Math.round(requestedWidth)),
-    );
-    document.documentElement.style.setProperty(
-      options.cssVariable,
-      `${draggedWidth}px`,
-    );
-  }
-
-  function endResize(): void {
-    document.removeEventListener("mousemove", resize, true);
-    document.removeEventListener("mouseup", endResize, true);
-    document.body.classList.remove("resizing");
-    resizer.classList.remove("dragging");
-    if (draggedWidth === undefined) {
-      return;
-    }
-    executeCommand({
-      type: "update-settings",
-      settings: { [options.settingsKey]: draggedWidth },
-    });
-    draggedWidth = undefined;
-    focusWorkspace();
-  }
-
-  resizer.addEventListener("mousedown", (event) => {
-    event.preventDefault();
+  resizer.addEventListener("mousedown", (mousedownEvent) => {
+    mousedownEvent.preventDefault();
     if (options.stopMousedownPropagation) {
-      event.stopPropagation();
+      mousedownEvent.stopPropagation();
     }
-    draggedWidth = undefined;
     resizer.classList.add("dragging");
     document.body.classList.add("resizing");
+
+    // stays undefined until the pointer moves, so a click that resizes
+    // nothing issues no Command
+    let draggedWidth: number | undefined;
+
+    function resize(event: MouseEvent): void {
+      draggedWidth = Math.min(
+        options.maxWidthPx,
+        Math.max(options.minWidthPx, Math.round(options.requestedWidth(event))),
+      );
+      document.documentElement.style.setProperty(
+        options.cssVariable,
+        `${draggedWidth}px`,
+      );
+    }
+
+    function endResize(): void {
+      document.removeEventListener("mousemove", resize, true);
+      document.removeEventListener("mouseup", endResize, true);
+      resizer.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      if (draggedWidth === undefined) {
+        return;
+      }
+      options.commitWidth(draggedWidth);
+      focusWorkspace();
+    }
+
     // on the document, in the capture phase: the pointer spends the drag
-    // over the terminal or Monaco, both of which handle mouse events on the
-    // way down
+    // over the terminal or Monaco, which handle mouse events on the way down
     document.addEventListener("mousemove", resize, true);
     document.addEventListener("mouseup", endResize, true);
   });
@@ -83,20 +67,30 @@ function installEdgeResize(options: EdgeResizeOptions): void {
 
 installEdgeResize({
   resizerId: "sidebar-resizer",
-  edge: "left",
+  // the sidebar starts at the window's left edge
+  requestedWidth: (event) => event.clientX,
   minWidthPx: MIN_SIDEBAR_WIDTH_PX,
   maxWidthPx: MAX_SIDEBAR_WIDTH_PX,
   cssVariable: "--sidebar-width",
-  settingsKey: "sidebarWidth",
+  commitWidth: (width) =>
+    executeCommand({
+      type: "update-settings",
+      settings: { sidebarWidth: width },
+    }),
   stopMousedownPropagation: false,
 });
 
 installEdgeResize({
   resizerId: "project-resizer",
-  edge: "right",
+  // the panel runs to the window's right edge
+  requestedWidth: (event) => window.innerWidth - event.clientX,
   minWidthPx: MIN_PROJECT_WIDTH_PX,
   maxWidthPx: MAX_PROJECT_WIDTH_PX,
   cssVariable: "--project-width",
-  settingsKey: "projectWidth",
+  commitWidth: (width) =>
+    executeCommand({
+      type: "update-settings",
+      settings: { projectWidth: width },
+    }),
   stopMousedownPropagation: true,
 });
