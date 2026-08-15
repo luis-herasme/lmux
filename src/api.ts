@@ -10,7 +10,6 @@
 import { z } from "../node_modules/zod/index.js";
 
 const splitSideSchema = z.enum(["left", "right", "top", "bottom"]);
-export type SplitSide = z.infer<typeof splitSideSchema>;
 
 // A markdown tab shows the file rendered, or its source as it is on disk.
 export const markdownModeSchema = z.enum(["rendered", "raw"]);

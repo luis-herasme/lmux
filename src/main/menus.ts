@@ -163,15 +163,6 @@ export async function saveDirtyProjects(
   return true;
 }
 
-// A workspace's panel, as the list chooseDirtyClose and the save above
-// both take; empty when it has never been opened.
-function projectsOfWorkspace(workspace: WorkspaceInfo): ProjectInfo[] {
-  if (workspace.project === null) {
-    return [];
-  }
-  return [workspace.project];
-}
-
 // Closing a workspace kills every shell and guards every dirty file in it.
 async function closeWorkspace({
   window,
@@ -196,16 +187,22 @@ async function closeWorkspace({
   if (!killingConfirmed) {
     return;
   }
+  // the panel, as the list chooseDirtyClose and the save below both take;
+  // empty when the workspace has never opened one.
+  const projects: ProjectInfo[] = [];
+  if (workspace.project !== null) {
+    projects.push(workspace.project);
+  }
   const dirtyChoice = chooseDirtyClose({
     window,
-    projects: projectsOfWorkspace(workspace),
+    projects,
     action: "Closing the workspace",
   });
   if (dirtyChoice === "cancel") {
     return;
   }
   if (dirtyChoice === "save") {
-    const saved = await saveDirtyProjects(projectsOfWorkspace(workspace));
+    const saved = await saveDirtyProjects(projects);
     if (!saved) {
       return;
     }
@@ -242,15 +239,6 @@ function cycleWorkspace(step: number): void {
     }
   }
   activateWorkspaceAt((active + step + workspaces.length) % workspaces.length);
-}
-
-// Every tab is a terminal or a document now, and neither holds an unsaved
-// file: only the project panel does, and it is not closed by closing a tab.
-function closeTab(tabId: number | undefined): void {
-  dispatch({
-    type: "close-tab",
-    id: tabId,
-  });
 }
 
 type CloseFileOptions = {
@@ -336,7 +324,12 @@ function closeActiveFileOrTab(window: BrowserWindow | null): void {
       return;
     }
   }
-  closeTab(undefined);
+  // Every tab is a terminal or a document, and neither holds an unsaved file:
+  // only the project panel does, and it is not closed by closing a tab.
+  dispatch({
+    type: "close-tab",
+    id: undefined, // the active tab
+  });
 }
 
 // One menu item for both directions: the panel is state, so main can read
@@ -472,7 +465,11 @@ ipcMain.on("tab:menu", (event, tabId: number) => {
     },
     {
       label: "Close Tab",
-      click: () => closeTab(tabId),
+      click: () =>
+        dispatch({
+          type: "close-tab",
+          id: tabId,
+        }),
     },
     { type: "separator" },
     {
@@ -490,7 +487,10 @@ ipcMain.on("workspace:close", (event, workspaceId: number) => {
 });
 
 ipcMain.on("tab:close", (_event, tabId: number) => {
-  closeTab(tabId);
+  dispatch({
+    type: "close-tab",
+    id: tabId,
+  });
 });
 
 ipcMain.on("file:close", (event, request: CloseFileRequest) => {
