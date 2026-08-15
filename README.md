@@ -9,7 +9,7 @@ drive. The project's vocabulary is defined in [GLOSSARY.md](GLOSSARY.md).
 ```sh
 npm install
 npm run rebuild   # recompile node-pty for Electron (see "Native module" in the glossary)
-npm start         # type-checks + compiles src/ to dist/, then launches
+npm start         # type-checks, compiles, then launches
 ```
 
 `npm run check` type-checks without launching. `npm test` drives the command
@@ -19,7 +19,7 @@ window while it runs, and exits non-zero if a case fails.
 ## Build it
 
 ```sh
-npm run package   # release/mac-arm64/lmux.app, fastest
+npm run package   # a runnable lmux.app, fastest
 npm run dist      # also a .dmg and a .zip
 ```
 
@@ -60,18 +60,18 @@ flowchart LR
     ptyend <--> zsh
 ```
 
-All arrows between the processes pass through `window.bridge`, which
-`src/ipc/preload.cts` exposes to the page. (The bridge also carries the
-command bus and the tab and workspace context menus; the full contract is
-`src/ipc/bridge.ts`.)
+All arrows between the processes pass through `window.bridge`, which the
+preload script exposes to the page. The bridge also carries the command bus
+and the tab and workspace context menus; its full contract is declared as a
+type both sides are compiled against, and written out in ARCHITECTURE.md.
 
 Life of a keystroke, starting when you press `l`:
 
 ```mermaid
 sequenceDiagram
     participant You
-    participant X as xterm.js<br/>(renderer/tabs/terminal-tab.ts)
-    participant M as main process<br/>(main/shells.ts)
+    participant X as xterm.js<br/>(renderer)
+    participant M as main process
     participant P as PTY
     participant Z as zsh
 
@@ -88,45 +88,11 @@ sequenceDiagram
 The character you see is drawn in the *last* step, not the first: nothing
 appears on screen until the program on the other end echoes it back.
 
-## Files
+## Where the code lives
 
-| File                           | Role                                                         |
-| ------------------------------ | ------------------------------------------------------------ |
-| `src/api.ts`                   | **The public interface**: every Command in, every Event out  |
-| `src/theme.ts`                 | The theme palettes (`THEMES`) and the default settings       |
-| `src/session.ts`               | What a restart brings back: the session schema, read off the state |
-| `src/ipc/bridge.ts`            | The IPC contract as a type (`window.bridge`)                 |
-| `src/ipc/preload.cts`          | Security bridge: implements `window.bridge`, nothing else    |
-| `src/main/index.ts`            | Main boot: the window and the app lifecycle                  |
-| `src/main/shells.ts`           | One PTY per tab: spawn/write/resize/kill, relays data/exit   |
-| `src/main/menus.ts`            | App menu + tab context menu (menu items issue Commands)      |
-| `src/main/bus.ts`              | Commands in via `dispatch()`; Events out into the read model |
-| `src/main/window-state.ts`     | Where the window was last time (size and position)           |
-| `src/main/session-state.ts`    | The last session on disk: workspaces, tabs, documents        |
-| `src/renderer/index.html`      | The page: title bar, sidebar, tab bar, panes, project panel, the modals |
-| `src/renderer/style.css`       | The page's stylesheet (theme values arrive as CSS variables) |
-| `src/renderer/index.ts`        | Renderer boot: settings → CSS, cable wiring, first workspace |
-| `src/renderer/bridge.ts`       | Picks `window.bridge` up off the page once, typed, and exports it |
-| `src/renderer/workspaces.ts`   | Workspace store: one layout and one project panel each, the sidebar, the snapshot |
-| `src/renderer/tabs/index.ts`   | Tab store + operations + `executeCommand` (the consumer)     |
-| `src/renderer/tabs/terminal-tab.ts` | Terminal pane, xterm lifecycle and terminal screen reads |
-| `src/renderer/tabs/markdown-tab.ts` | A document's pane: toolbar, rendered/raw, reload, its links |
-| `src/renderer/tabs/markdown.ts` | GitHub-look Markdown rendering (markdown-it + DOMPurify)    |
-| `src/renderer/tabs/links.ts`   | Terminal link provider: Cmd+click opens a source path or URL |
-| `src/renderer/project-panel.ts` | The workspace's editor: resizable tree, file buffers, tabs and editor lifecycle |
-| `src/renderer/project-tree.ts` | Lazy tree rows, reconciliation and Git decorations           |
-| `src/renderer/code.ts`         | Monaco loading, theming and language selection               |
-| `src/renderer/rename-dialog.ts`| The rename modal (tabs and workspaces)                       |
-| `src/renderer/settings.ts`     | Current settings: value, localStorage persistence, → CSS     |
-| `src/renderer/settings-dialog.ts`| The settings modal (each control issues a Command)         |
-| `src/renderer/sidebar-resize.ts`| The sidebar's drag handle; a drag ends as one Command       |
-| `src/renderer/project-resize.ts`| The project panel's drag handle, the same way               |
-| `src/main/files.ts`            | File reads, guarded writes and Save As                       |
-| `src/main/project-tree.ts`     | Lazy directory reads, Git status and filesystem watchers     |
-| `src/renderer/dom.ts`          | `requireElement`: strict, typed lookups of the page's fixed elements |
-| `src/test/harness.ts`          | Boots the real app for the suite, waits for Events, tallies failures |
-| `src/test/suite.ts`            | The cases: Commands in, state snapshots asserted on           |
-| `tsconfig.json`                | Compiler settings; `tsc` mirrors `src/` into `dist/` 1:1     |
+Two sides and a cable between them, the same split the diagrams above show.
+ARCHITECTURE.md walks through it: what main owns, what the renderer owns, and
+what the command bus adds on top.
 
 Application modules stay as one-to-one TypeScript output, without a framework
 or an application bundler. Monaco and its worker are the one vendor-bundling
@@ -135,9 +101,8 @@ exception. Features and abstractions get added only when needed.
 ## Driving lmux
 
 Everything lmux can do is a Command, and everything that happens is
-an Event. The unions in [src/api.ts](src/api.ts) are the whole public
-interface, and the UI itself is just its first client. Try it from the
-devtools console (⌥⌘I):
+an Event. Those two unions are the whole public interface, and the UI
+itself is just its first client. Try it from the devtools console (⌥⌘I):
 
 ```js
 lmux.command({ type: "new-tab" })

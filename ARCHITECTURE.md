@@ -46,8 +46,8 @@ does this belong on, and does the cable need to change?**
 
 ## The boundary
 
-The entire contract between the two halves is `window.bridge`, typed in
-`ipc/bridge.ts` and implemented in `ipc/preload.cts`:
+The entire contract between the two halves is `window.bridge`, declared once as
+a type and implemented by the preload script:
 
 ```
 spawnShell(id, cols, rows)   renderer → main   "start a shell for tab `id` at this size"
@@ -80,15 +80,15 @@ Rules that keep this boundary healthy:
    file paths, no structured objects. The renderer never knows what shell
    is running; the main process never knows how the screen is drawn. The
    one deliberate exception is the command bus (next section): a pair of
-   channels carrying typed `Command`/`LmuxEvent` objects, whose shapes live
-   in `api.ts` and are compile-checked on both sides. The screen query is
+   channels carrying typed `Command`/`LmuxEvent` objects, whose shapes are
+   declared once and compile-checked on both sides. The screen query is
    the same exception in the other direction, and for the same reason: the
    answer is characters, which only the renderer holds.
 2. **The renderer stays a dumb screen.** Anything that touches the OS
    (processes, files, clipboard writes are the one pragmatic exception)
    belongs in main.
 3. **Grow the protocol, don't bypass it.** A new capability means a new,
-   explicitly named message in `preload.cts`, never widening the sandbox or
+   explicitly named message in the preload script, never widening the sandbox or
    exposing Node.js to the page.
 
 This is also the security model (see "Preload script" in the glossary): the
@@ -105,7 +105,7 @@ at every launch. **The warning is a false positive and the policy is
 enforced.** Electron's check reads the *response headers*, and a `file://`
 page has none: the only headers our page comes back with are
 `Content-Type` and `Last-Modified`. It therefore cannot see the `<meta
-http-equiv>` policy in `index.html` and assumes there is none. Measured
+http-equiv>` policy the page itself carries and assumes there is none. Measured
 against the running app, that policy is doing its job: `eval` and `new
 Function` both throw `EvalError`, an injected inline `<script>` never
 runs, and `fetch` to a remote host is refused. The warning also only
@@ -122,8 +122,7 @@ The most important seam in the project. Everything lmux can do is
 expressible as a **Command** (an imperative request: "open a tab", "type
 this text"), and everything that happens is announced as an **Event** (a
 fact: "tab 3 opened", with a snapshot of the resulting state). The two
-unions in `api.ts` *are* lmux's public API; that file is the one
-to read first.
+unions *are* lmux's public API, and they are where to start reading.
 
 ```mermaid
 flowchart LR
@@ -166,59 +165,37 @@ Two consequences worth naming:
   switch. Adding the socket cost no change to the bus at all: it is a
   second caller of `dispatch`, which is exactly what this design was for.
 
-## Map of the code
+## The parts
 
-Directories mirror this document: two sides, the cable between them, and
-the public interface at the top.
+The layout mirrors this document: two sides, the cable between them, and the
+public interface above both.
 
-```
-src/
-  api.ts             the public interface: Command / LmuxEvent / LmuxState / Settings
-  session.ts         what a restart brings back: the schema, and how it is read off the state
-  theme.ts           the theme palettes (THEMES) and default settings, imported by both sides
-  ipc/               the cable
-    bridge.ts          the contract type (window.bridge)
-    preload.cts        its implementation, the one CommonJS file
-  main/
-    index.ts           boot: the window and the app lifecycle
-    shells.ts          Map<tab id, PTY>: spawn/write/resize/kill + relaying data/exit
-    menus.ts           app menu + tab context menu; menu items are Command sources
-    bus.ts             dispatch() into the renderer; Event intake (the read model); the screen query
-    mcp.ts             the API socket: MCP over a unix socket, tools generated from commandSchema
-    files.ts           file:read and file:write for project buffers; both resolve against a shell's cwd
-    project-tree.ts    workspace roots, bounded directory reads and Git/tree watchers
-    session-state.ts   the last session on disk: written while closing, read before the page exists
-  renderer/
-    index.html         the page: title bar, sidebar, the layout root, the project host, the modals
-    style.css          the page's stylesheet; theme values arrive as custom properties
-    index.ts           boot: settings → CSS, cable wiring, the first workspace
-    bridge.ts          the page's globals picked up: window.bridge, once, typed
-    workspaces.ts      Workspace store: one Dockview and one project panel each, the sidebar, the state snapshot
-    project-panel.ts   the workspace's editor: resizable file tree, file tabs, buffers and Monaco
-    project-tree.ts    native lazy directories, Git decorations and file activation
-    code.ts            Monaco: loaded on demand, themed from THEMES, language by filename
-    project-resize.ts  the project panel's drag handle; a drag ends as one Command
-    tabs/
-      index.ts         Tab store + executeCommand (the consumer), kept behind the bus
-      terminal-tab.ts  terminal pane, xterm lifecycle and terminal screen reads
-      links.ts         terminal link provider: Cmd+click a *.md or source path, or a URL
-      markdown-tab.ts  a document's pane: the toolbar, the two modes, reload, its links
-      markdown.ts      GitHub-look rendering (markdown-it + DOMPurify)
-    rename-dialog.ts   the rename modal
-    settings.ts        the current settings: value, persistence, hand-off to CSS
-    settings-dialog.ts the settings modal; controls are Command sources
-    sidebar-resize.ts  the sidebar's drag handle; a drag ends as one Command
-    dom.ts             requireElement: strict lookups of index.html's fixed elements
-  test/
-    index.ts           the entry Electron starts; hands over once the app is ready
-    harness.ts         boots the real app, waits for Events, tallies failures
-    suite.ts           the cases: Commands in, state snapshots asserted on
-    fixtures/          files the cases open, kept identical between runs
-```
+**The public interface** is the Command and Event unions, the state and settings
+shapes they carry, the session schema a restart is rebuilt from, and the theme
+palettes both sides import.
 
-A reader who knows the architecture can predict where anything lives; a
-file that stops fitting its one-line description above is a file that
-wants splitting.
+**The cable** is one declared contract type and the preload script implementing
+it.
+
+**Main owns the machine.** It boots the window and the app lifecycle, keeps one
+PTY per tab and relays its bytes, builds the app and context menus, dispatches
+Commands into the renderer and keeps the read model Events arrive in, serves the
+API socket, reads and writes files under the mtime guard, reads directories with
+their Git status and watches them, and writes the window geometry and the last
+session to disk.
+
+**The renderer owns the screen.** It boots settings into CSS and wires the
+cable, keeps the workspace store (one layout and one project panel each) and the
+tab store whose single switch consumes every Command, draws terminal and
+Markdown panes, hosts the project panel with its lazy tree, its file buffers and
+Monaco, and owns the modals, the settings and the drag handles.
+
+**The tests** boot the real app, drive the bus, and assert on the state that
+comes back.
+
+A reader who knows the architecture can predict where anything lives; a module
+that stops fitting a one-line description of its job is a module that wants
+splitting.
 
 ## Decisions so far
 
@@ -231,20 +208,20 @@ change it and update this list.
   natively by stripping the type annotations, but that gets us nothing on its
   own: stripping isn't checking, and the renderer runs in Chromium, which
   can't run TypeScript at all. So the one tool is the official compiler:
-  `tsc` type-checks all of `src/` and emits plain JS into `dist/`. Cost we
+  `tsc` type-checks the whole source tree and emits plain JS. Cost we
   accept: a compile step inside `npm start`. The no-bundler rule stands for
-  our own code: `dist/` files map 1:1 to `src/` files, nothing is fused or
+  our own code: the output mirrors the source one to one, nothing is fused or
   minified. (Amended 2026-08-08: the rule no longer extends to every
   dependency — see the bundler entry below.)
 - **Only browser-incompatible dependencies are bundled.** (Narrows "no
   bundler", which held until Monaco.) Most libraries expose files the page can
-  load directly. Monaco instead uses bare specifiers, so
-  `scripts/bundle-vendor.mjs` writes its browser bundle to `dist/vendor/`.
+  load directly. Monaco instead uses bare specifiers, so a small
+  vendor-bundling script writes its browser bundle beside the compiled output.
   The app's own modules remain one-to-one `tsc` output, and another dependency
   joins the bundle only when a feature demonstrates the same need.
 - **Monaco is loaded when the first project panel opens, not at boot.** It is
-  about 4MB with every language grammar it ships. A dynamic `import()` in
-  `renderer/code.ts` keeps that cost off the boot path entirely: a session
+  about 4MB with every language grammar it ships. A dynamic `import()` where
+  the editor is set up keeps that cost off the boot path entirely: a session
   that never opens a project never pays it. Cost we accept: the first project
   tab of a session is slower than the ones after it.
 - **A Worker is loaded from a file, never from a blob.** Two things we
@@ -254,7 +231,7 @@ change it and update this list.
   Electron, so lmux does not need to be served over a custom protocol to use
   one. But a worker created from a `blob:` URL — which is what Monaco
   reaches for when left to itself — is refused by the page's
-  `default-src 'self'`. `renderer/code.ts` therefore hands Monaco a real
+  `default-src 'self'`. The renderer therefore hands Monaco a real
   file URL through `MonacoEnvironment.getWorker`, so the fallback never
   happens and the CSP stays exactly as strict as it was.
 - **Each workspace has one project panel, beside its panes rather than
@@ -323,15 +300,16 @@ change it and update this list.
   and up to three delayed rebind attempts. Incoming remote arrows, an SCM view
   and editor-tab Git decorations are separate VS
   Code features and remain out of scope.
-- **The IPC contract is a type.** `src/ipc/bridge.ts` declares `Bridge`;
-  preload implements it and the renderer consumes it, so the two sides of the
+- **The IPC contract is a type.** One module declares `Bridge`;
+  the preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.
 - **Types are modules, not declaration files.** (Replaced the earlier
   ambient-`.d.ts` pattern.) This will eventually be a large codebase, and at
   scale every name should have a greppable `import type` stating where it
   comes from; ambient types that "appear from nowhere" don't pay their way
-  once "where is this defined?" becomes a real question. `api.ts` and
-  `bridge.ts` are ordinary modules exporting types. (Amended 2026-08-07:
+  once "where is this defined?" becomes a real question. The public interface
+  and the bridge contract are ordinary modules exporting types. (Amended
+  2026-08-07:
   `declare global` used to be the exception, for names that genuinely exist
   on the global scope at runtime. It is now gone too, and for the same
   reason it was introduced against: a declared global is still a name that
@@ -339,12 +317,12 @@ change it and update this list.
   runtime really does have one. The page's globals are read where they are
   used, through `Reflect.get`, with a presence check so a preload that never
   ran or a script tag that never loaded says which one is missing instead of
-  failing at the first call. `window.bridge` is read once, in
-  `renderer/bridge.ts`, and imported from there like any other module.) Cost
-  we accept: tsc emits an
-  empty `dist/ipc/bridge.js` that nothing ever loads. (`api.ts` was the same
-  until 2026-08-07, when `Command` became a schema and the file gained a
-  runtime half; the types in it are still ordinary exports.)
+  failing at the first call. `window.bridge` is read once, in the
+  renderer's own bridge module, and imported from there like any other module.)
+  Cost we accept: tsc emits an empty JavaScript file for a types-only module,
+  which nothing ever loads. (The public interface was the same until
+  2026-08-07, when `Command` became a schema and it gained a runtime half; the
+  types in it are still ordinary exports.)
 - **Tabs: a tab id on every message.** (Replaced "one window, one shell,
   no session abstraction"; the predicted ~15-line rewrite arrived when tabs
   did.) One tab = one xterm.js instance in the renderer = one PTY in main's
@@ -362,8 +340,8 @@ change it and update this list.
   in terms of the one resource it happens to own, and it broke as soon as a
   tab could exist without a shell: exiting the last terminal closed the
   window out from under a Markdown tab, or from under an entire other
-  workspace. Main now reads the condition off the snapshot it already keeps
-  (`bus.ts`): on a `tab-closed` or `workspace-closed` Event, if no workspace
+  workspace. Main now reads the condition off the snapshot it already keeps:
+  on a `tab-closed` or `workspace-closed` Event, if no workspace
   has any tabs left, the window closes. No other Event counts, because a new
   workspace is legitimately empty for the instant between its own Event and
   its first tab's.
@@ -413,7 +391,7 @@ change it and update this list.
   behind the UI; every state change emits an Event carrying a full
   snapshot, so observers need no query protocol. Costs we accept: one
   structured channel pierces the bytes-and-ids rule (typed and
-  compile-checked in `api.ts`), and UI clicks take one extra hop through
+  compile-checked on both sides), and UI clicks take one extra hop through
   the switch.
 - **The window remembers where it was; main owns that file.** (Decided
   2026-08.) Size and position persist in `window.json` under Electron's
@@ -434,7 +412,7 @@ change it and update this list.
   PTY syscalls are decades-deep rabbit holes. We own the wiring, not the
   emulation.
 
-- **Visual settings live in `src/theme.ts`, a plain-script global.** The
+- **Visual settings are defined once and imported by both sides.** The
   background color had quietly spread to three places in three languages:
   the window (main), the page (CSS), and xterm's theme (renderer); all
   three had to agree by hand. Now `THEME` is defined
@@ -447,17 +425,17 @@ change it and update this list.
   so the visible mismatch came back until the page painted the theme color
   itself.
 - **Native ES modules: no CommonJS, no `require`, in our source.**
-  (Replaced the original CommonJS emit; decided together with theme.ts.)
+  (Replaced the original CommonJS emit; decided together with the theme module.)
   Sharing the first runtime value between browser and Node exposed the cost
   of CommonJS output: a shared file needed the hand-rolled UMD trick, a
   plain-script global for the page plus a `module.exports` guard for
   `require()`. That wart is the smell of a missing module system, and the
-  platform ships one: `"type": "module"` in package.json makes Electron run
-  our output as ES modules, and the browser loads the renderer with
+  platform ships one: `"type": "module"` in the package manifest makes
+  Electron run our output as ES modules, and the browser loads the renderer with
   `<script type="module">`, still no bundler. The one exception is
-  preload: Electron's sandbox requires it to be CommonJS, so it is named
-  `preload.cts`; the extension tells tsc to emit that single file as
-  `.cjs`, while its source still reads as `import`. Costs we accept: import
+  preload: Electron's sandbox requires it to be CommonJS, so its source carries
+  the `.cts` extension, which tells tsc to emit that single file as `.cjs`
+  while the source still reads as `import`. Costs we accept: import
   paths must spell out the compiled `.js` extension (Node ESM and browsers
   both demand it), and xterm.js still arrives as classic-script globals
   because that's how the package ships.
@@ -474,8 +452,8 @@ change it and update this list.
   plain "Untitled" label: a title is display text, not an identifier, so
   it doesn't need to be unique and gets no number.
 - **Directories mirror the architecture; names say what things are.**
-  (Replaced the original flat `src/` with two catch-all files.) The layout
-  in "Map of the code" exists because the last several features all landed
+  (Replaced the original flat source directory with two catch-all files.) The
+  layout in "The parts" exists because the last several features all landed
   in the same two files; growth was making them junk drawers. Two naming
   rules came with the split: a name must describe the thing as it is *now*
   (`window.terminal` became `window.bridge` when it outgrew terminals;
@@ -509,18 +487,18 @@ change it and update this list.
   drag-a-tab-between-splits, the genuinely hard 20% of that feature. The
   condition of entry was keeping the command bus as the single write path,
   and Dockview supports it: every drop fires a cancelable `onWillDrop`
-  *before* any mutation, so tabs.ts cancels the drop, re-issues it as a
+  *before* any mutation, so the renderer cancels the drop, re-issues it as a
   `move-tab` Command, and the consumer performs the identical move through
   `panel.api.moveTo()`. A drag therefore enters lmux through the same
   door as a menu click (see "Drag-and-drop interception" in the glossary).
-  Dockview is confined to workspaces.ts (which owns the instances) and the
-  few layout calls left in tabs.ts; `api.ts`, the bridge, and
+  Dockview is confined to the workspace store, which owns the instances, and the
+  few layout calls left in the tab store; the public interface, the bridge and
   main know nothing about it, which is what keeps the provider swappable.
   Two costs we accept: clicking a tab is activation (focus, not layout) and
   is applied by Dockview first, announced on the bus afterwards, because
   blocking that click would also block the drag that starts on the same
   mousedown; and the library arrives as a classic-script global like
-  xterm.js, plus its stylesheet, retinted from theme.ts by overriding its
+  xterm.js, plus its stylesheet, retinted from the theme module by overriding its
   CSS custom properties. Splits shipped through the same door (2026-08):
   `LmuxState.layout` models the pane tree as groups (leaves) and splits
   (branches), built by walking Dockview's own layout serialization, so
@@ -557,10 +535,10 @@ change it and update this list.
   killed double-click-to-open-a-tab. Cost we accept: one strip of
   vertical space a merged design would save.
 - **Settings: themes and fonts, runtime-changeable, behind the bus.**
-  (Extends the theme.ts decision: the single `THEME` const became `THEMES`,
+  (Extends the theme decision: the single `THEME` const became `THEMES`,
   a set of named palettes, plus `Settings`: which palette is active, the
   terminal's font family and size, and the UI font used by everything
-  else.) The current value lives in `renderer/settings.ts`
+  else.) The current value lives in the renderer
   and persists in localStorage: settings are renderer-only state, so no
   IPC message was needed; the first entry from the "renderer-only"
   feature list to ship. Changes enter as an `update-settings` Command
@@ -576,7 +554,7 @@ change it and update this list.
   main can't read localStorage at window-creation time, so the pre-paint
   window color is the default theme's (one wrong-colored frame on a
   non-default theme; a config file would fix this if one ever lands),
-  and a second app instance finds the storage locked, so settings.ts
+  and a second app instance finds the storage locked, so the renderer
   treats persistence as best-effort rather than crashing.
 - **The rendered document has its own font, and the dialog has sections.**
   (Decided 2026-08.) A Markdown view is prose, not chrome: reading it
@@ -630,9 +608,9 @@ change it and update this list.
   quirk worth knowing: with no bundler, the browser resolves every
   import itself, and a bare `"zod"` means nothing to it. Import maps are
   the web's fix, but inline ones are blocked by our CSP and external
-  ones aren't supported by Chromium yet, so settings.ts imports zod by
-  relative `node_modules` path, the same way index.html reaches xterm's
-  files. Costs we accept: one ugly import path, and a dependency whose
+  ones aren't supported by Chromium yet, so zod is imported by a relative
+  `node_modules` path, the same way the page reaches xterm's files. Costs we
+  accept: one ugly import path, and a dependency whose
   ESM build must stay browser-loadable (zod's is: fully relative,
   extension-qualified imports).
 - **Markdown views: a second tab kind, opened from terminal links.**
@@ -642,7 +620,7 @@ change it and update this list.
   `open-markdown` Command, the same door every gesture uses. Rendering is
   markdown-it (GFM task lists are a small DOM pass of our own; the
   plugin for them ships no browser build), sanitized by DOMPurify because
-  Markdown may embed raw HTML, and styled by our own rules in style.css:
+  Markdown may embed raw HTML, and styled by our own rules:
   GitHub's *layout* (headings, tables, task lists, spacing) but the
   lmux's palette, every surface derived from the theme variables.
   (github-markdown-css was tried first and removed: its hardcoded GitHub
@@ -666,8 +644,8 @@ change it and update this list.
   (terminal | markdown) sharing one removal path; a markdown tab's ×
   removes it directly, there being no shell exit to wait for. Costs we
   accept: the page can now ask main to read any file (acceptable while lmux
-  is local and single-user; revisit before any remote surface exists), the last *shell*
-  exiting still closes the window even if markdown tabs remain, and the
+  is local and single-user; revisit before any remote surface exists), the
+  last *shell* exiting still closes the window even if markdown tabs remain, and the
   wrapped-row index math assumes single-width characters. Links *inside* a
   rendered document (added 2026-08 with the navigation guard above) follow
   the same door: a relative `*.md` link issues `open-markdown` resolved
@@ -790,15 +768,15 @@ change it and update this list.
 
   | Assumption | Where | What another platform needs |
   | --- | --- | --- |
-  | `lsof` to read a shell's cwd | `main/shells.ts` | `/proc/<pid>/cwd` on Linux; no direct equivalent on Windows |
-  | `git` on `PATH` for repository roots and decorations | `main/project-tree.ts` | install or bundle Git; failure already leaves an undecorated tree |
-  | `titleBarStyle: "hiddenInset"`, and a 36px strip sized for the traffic lights | `main/index.ts`, `style.css` | a non-inset title bar, or the native one |
-  | `/bin/zsh` fallback, spawned `-l` | `main/shells.ts` | `$SHELL` is usually right; Windows needs a different shell entirely |
-  | `Menlo` as the default terminal font | `theme.ts` | a font that exists there |
-  | `role: "appMenu"` | `main/menus.ts` | macOS puts the app menu first; other platforms do not have one |
-  | A unix socket for the API, and `nc -U` as the documented client | `main/mcp.ts`, `README.md` | Windows has no unix sockets in the same sense; a named pipe, and a different client |
-  | `/` used to derive file labels and workspace-relative headers | `renderer/project-panel.ts` | path-aware values supplied by main instead of slicing renderer paths |
-  | ⌘/⇧⌘/⌃ typed into tooltips and menu labels | `api.ts`, `tabs.ts`, `workspaces.ts`, `index.html` | labels computed per platform (the accelerators themselves already use `CmdOrCtrl`) |
+  | `lsof` to read a shell's cwd | shell spawning | `/proc/<pid>/cwd` on Linux; no direct equivalent on Windows |
+  | `git` on `PATH` for repository roots and decorations | main's tree reads | install or bundle Git; failure already leaves an undecorated tree |
+  | `titleBarStyle: "hiddenInset"`, and a 36px strip sized for the traffic lights | window creation, the page's styles | a non-inset title bar, or the native one |
+  | `/bin/zsh` fallback, spawned `-l` | shell spawning | `$SHELL` is usually right; Windows needs a different shell entirely |
+  | `Menlo` as the default terminal font | the theme defaults | a font that exists there |
+  | `role: "appMenu"` | the app menu | macOS puts the app menu first; other platforms do not have one |
+  | A unix socket for the API, and `nc -U` as the documented client | the API socket, and the README | Windows has no unix sockets in the same sense; a named pipe, and a different client |
+  | `/` used to derive file labels and workspace-relative headers | the project panel's labels | path-aware values supplied by main instead of slicing renderer paths |
+  | ⌘/⇧⌘/⌃ typed into tooltips and menu labels | Command descriptions, tab and workspace chrome, the page | labels computed per platform (the accelerators themselves already use `CmdOrCtrl`) |
 
   Note the last row's asymmetry: the *behavior* is already portable because
   menu accelerators are declared `CmdOrCtrl`, and only the *text* people
@@ -810,12 +788,13 @@ change it and update this list.
   because of decisions made earlier in this document. `asarUnpack` for
   node-pty: a native `.node` cannot be loaded from inside the asar
   archive, and node-pty is the one native dependency. And `files` lists
-  `src/renderer/*.html` and `*.css` alongside `dist/`, because the
+  the page's HTML and CSS alongside the compiled output, because the
   no-bundler rule means the page loads xterm, Dockview, zod and the
   markdown libraries by relative `node_modules` path, so the packaged app
   needs those files sitting in the same relative position they occupy in
-  the source tree. Output goes to `release/`, not `dist/`, which tsc owns;
-  sharing them would package the app inside itself on the next build.
+  the source tree. The packaged app gets a directory of its own rather than
+  the compiler's; sharing one would package the app inside itself on the
+  next build.
   Signing is off (`identity: null`) because it needs a paid Apple
   developer account: the build runs locally, and a copy that arrives by
   download needs its quarantine attribute cleared (README).
@@ -847,12 +826,12 @@ change it and update this list.
   covers only official VS Code builds).
 
 - **`Command` is a schema, and the doors check it.** (Decided 2026-08-07,
-  amending the zod entry above.) The Commands in `api.ts` are declared as a
+  amending the zod entry above.) The Commands are declared as a
   zod `discriminatedUnion` and their TypeScript type is derived from it with
   `z.infer`, so there is still exactly one definition and it cannot drift
   from the checker. `Settings` moved the same way, since the
-  `update-settings` payload has to describe it. Everything else in `api.ts`
-  stays plain types: Events and state travel outwards, where the receiver is
+  `update-settings` payload has to describe it. Everything else in the public
+  interface stays plain types: Events and state travel outwards, where the receiver is
   us. The check is applied at the door outside code enters through, not on
   the path the page's own affordances take. Today that door is
   `window.lmux.command`, the console API, which now throws instead of
@@ -870,15 +849,15 @@ change it and update this list.
   that is what the entry above decided and what the renderer's schema does;
   a field of the wrong *type* is not a value at all, and now gets a refusal
   with a reason instead. The import path is the ugly one the entry above
-  describes, and had to move from `settings.ts` into `api.ts`, since this
-  module is now loaded by both the page (which cannot resolve a bare
-  specifier) and main.
+  describes, and had to move next to the Command schema, since that module is
+  now loaded by both the page (which cannot resolve a bare specifier) and
+  main.
 
 - **The API socket: lmux speaks MCP itself.** (Designed and built
   2026-08-07, replacing the HTTP design written the same day, which is kept
   below as the road not taken.) The endgame named at the top of this
-  document, now shipped: `src/main/mcp.ts` listens on `api.sock` in
-  `userData` and feeds the same bus the menu does. Six decisions:
+  document, now shipped: main listens on `api.sock` in `userData` and feeds the
+  same bus the menu does. Six decisions:
 
   1. **A unix domain socket, not a TCP port.** A loopback port is reachable
      by every process on the machine and by any page that can be tricked
@@ -909,7 +888,7 @@ change it and update this list.
      Command.** Its input schema is `z.toJSONSchema` of `commandSchema`, so
      the agent's capabilities are generated from the same definition the
      compiler checks our own code against: a new Command reaches the agent
-     with nothing in `mcp.ts` to update, and the one-door rule holds by
+     with nothing in the socket server to update, and the one-door rule holds by
      construction rather than by discipline. Twenty flat tools would also
      avoid drift, but they would sit in the agent's context forever, and the
      generated `oneOf` was verified against the real client, which produced
@@ -952,7 +931,7 @@ change it and update this list.
   when `executeCommand` returned would be a lie for exactly the commands
   whose answer matters most, and it would have cost a change to the IPC
   protocol to say it.
-  `runCommand` in `bus.ts` instead dispatches and then waits for 50ms with
+  `runCommand` instead dispatches and then waits for 50ms with
   no Event, capped at 500ms, and answers with the read model that left
   behind. A no-op Command returns the unchanged state, which is the correct
   answer for a no-op. The cap is there because a human clicking around
@@ -1013,7 +992,7 @@ change it and update this list.
   "restore is not a Command".
   This is the first question main asks the page. Electron has no
   `webContents.invoke`, so `screen:read` carries an id and `screen:answer`
-  carries it back, with a pending map in `bus.ts` and a two second timeout
+  carries it back, with a pending map on main's side and a two second timeout
   that throws rather than answering, because a page that has gone silent is
   a broken app and not a missing tab. `executeJavaScript` would have been a
   native round trip and was rejected: the harness uses it because nothing
@@ -1056,8 +1035,7 @@ change it and update this list.
   clean close.
 
 - **Tests drive the bus from inside the real app.** (Decided 2026-08.)
-  `npm test` starts Electron with `src/test/` as its entry, which imports
-  `main/index.ts` for the ordinary boot: the same window, preload, menu and
+  `npm test` starts Electron with the test entry, which imports the ordinary boot: the same window, preload, menu and
   shells `npm start` produces, with no mock anywhere. A case is then
   "send these Commands, assert on the state that comes back", using the
   snapshot main already keeps as its read model, which is the same thing the
@@ -1085,8 +1063,8 @@ change it and update this list.
   is the only evidence that a passing suite means anything. Two things the
   harness still cannot drive stay manual, for the reasons in the decisions
   above: native HTML5 drags and pointer capture. The menu path is a third,
-  since it depends on OS focus. CI does not run this yet: `check.yml` runs on
-  Linux, where Electron needs a window server.
+  since it depends on OS focus. CI does not run this yet: the check workflow runs
+  on Linux, where Electron needs a window server.
 
 ## Where future features will live
 
@@ -1097,7 +1075,7 @@ A quick map so features land on the right side of the cable:
   this list; see the settings decision.)
 - **Main-only** (no protocol change): default working directory, shell
   choice, window size persistence.
-- **New capabilities** now usually mean new Commands/Events in `api.ts`;
+- **New capabilities** now usually mean new Commands and Events;
   the bus is the protocol growing point. A new Command needs nothing at all
   from the API socket: the agent's tool schema is generated from
   `commandSchema`, so it grows on its own.

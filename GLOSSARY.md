@@ -78,11 +78,10 @@ in, `event` out); the full list is "The boundary" in ARCHITECTURE.md.
 
 ## Command / Event
 
-The two halves of lmux's public interface (defined in `api.ts`). A **command**
-is an imperative request flowing *into* lmux ("open a tab", "type this text"),
-named in the imperative mood. An **event** is a fact flowing *out* ("tab 3
-opened"), named in the past tense, and carrying a snapshot of the resulting
-state. Keeping the two directions as two words (borrowed from the CQRS pattern)
+The two halves of lmux's public interface. A **command** is an imperative
+request flowing *into* lmux ("open a tab", "type this text"), named in the
+imperative mood. An **event** is a fact flowing *out* ("tab 3 opened"), named in
+the past tense, and carrying a snapshot of the resulting state. Keeping the two directions as two words (borrowed from the CQRS pattern)
 matters because an external driver, like an agent, needs both: send commands,
 observe events. One word would muddle which way the arrow points.
 
@@ -167,7 +166,8 @@ the box the theme's background color is painted on, but it only spans the grid,
 cols × rows cells. Whatever the grid does not cover, the inset around it and the
 fit remainder past the last row and column, shows the viewport behind it, so
 unless the app restyles the viewport, that surround is black no matter what
-theme the terminal draws with (style.css overrides it to the theme background).
+theme the terminal draws with (our own stylesheet overrides it to the theme
+background).
 
 ## Resize handle
 
@@ -252,8 +252,8 @@ it is explicit and does not close file tabs. Resolving it to its real path and
 refusing to follow symbolic links keeps directory reads inside that boundary.
 
 A **file tree** is the hierarchical view of every directory and file below the
-workspace root. The paths are its identities: `src/main/index.ts` names the same
-item in the renderer, the public state and main's filesystem reads.
+workspace root. The paths are its identities: one path names the same item in the
+renderer, the public state and main's filesystem reads.
 
 The tree loads lazily: it reads the root first, then a directory's immediate
 children only when a person expands it, so collapsed subtrees cost no filesystem
@@ -379,9 +379,9 @@ A server answers `initialize` with what it can do, `tools/list` with each tool's
 name, description and a JSON Schema for its arguments, and `tools/call` by
 running one. It is JSON-RPC, so a unix socket is a complete transport and `nc
 -U` is a complete client: lmux speaks MCP on its socket directly, and there is
-no separate server to install. lmux's tool schemas are generated from
-`commandSchema` in `api.ts`, so a new Command becomes a new agent capability
-with nothing to update by hand.
+no separate server to install. lmux's tool schemas are generated from the same
+schema the Command union itself is declared as, so a new Command becomes a new
+agent capability with nothing to update by hand.
 
 ## Session (what survives a quit)
 
