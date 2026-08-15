@@ -1,8 +1,8 @@
 # lmux
 
-A minimal terminal emulator for macOS, built with [Electron](https://www.electronjs.org/)
-and [xterm.js](https://xtermjs.org/) as a learning project. Unfamiliar terms are
-defined in [GLOSSARY.md](GLOSSARY.md).
+A terminal emulator for macOS, built with [Electron](https://www.electronjs.org/)
+and [xterm.js](https://xtermjs.org/), with a public command API an agent can
+drive. The project's vocabulary is defined in [GLOSSARY.md](GLOSSARY.md).
 
 ## Run it
 
@@ -85,9 +85,8 @@ sequenceDiagram
     X->>X: parse escape sequences, draw "l"
 ```
 
-The character you see is drawn in the *last* step, not the first: like the
-original hardware terminals, nothing appears on screen until the program on
-the other end echoes it back.
+The character you see is drawn in the *last* step, not the first: nothing
+appears on screen until the program on the other end echoes it back.
 
 ## Files
 

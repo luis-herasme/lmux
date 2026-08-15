@@ -432,8 +432,7 @@ change it and update this list.
   identical to Terminal.app on first launch: same prompt, same PATH.
 - **xterm.js and node-pty do the hard parts.** Escape-sequence parsing and
   PTY syscalls are decades-deep rabbit holes. We own the wiring, not the
-  emulation. (If we ever want to *learn* the parsing, we can write a toy
-  parser on the side without touching the app.)
+  emulation.
 
 - **Visual settings live in `src/theme.ts`, a plain-script global.** The
   background color had quietly spread to three places in three languages:
@@ -666,8 +665,8 @@ change it and update this list.
   shell configuration is needed. `Tab` became a discriminated union
   (terminal | markdown) sharing one removal path; a markdown tab's ×
   removes it directly, there being no shell exit to wait for. Costs we
-  accept: the page can now ask main to read any file (fine for a personal
-  tool; revisit before any remote surface exists), the last *shell*
+  accept: the page can now ask main to read any file (acceptable while lmux
+  is local and single-user; revisit before any remote surface exists), the last *shell*
   exiting still closes the window even if markdown tabs remain, and the
   wrapped-row index math assumes single-width characters. Links *inside* a
   rendered document (added 2026-08 with the navigation guard above) follow
@@ -782,8 +781,8 @@ change it and update this list.
   once at startup and a name can change while it is on screen. A position
   with no workspace behind it does nothing.
 - **macOS only for now, and the debt is written down.** (Decided 2026-08.)
-  Supporting one platform well beats three badly while this is a learning
-  project, and every assumption below was the simplest thing that worked.
+  Supporting one platform well beats three badly at this size, and every
+  assumption below was the simplest thing that worked.
   The intent is still to run elsewhere eventually, so the rule (in
   AGENTS.md) is that a change relying on something another platform lacks
   gets called out when it is made rather than discovered later. The
@@ -835,8 +834,8 @@ change it and update this list.
 - **VS Code view: embed openvscode-server, when we build it.** (Decided
   2026-08 after research; not built yet.) The full VS Code experience comes
   from spawning [openvscode-server](https://github.com/gitpod-io/openvscode-server)
-  (a fork of Code - OSS, see glossary, that serves the editor over HTTP) as
-  a child process in main, and showing `http://localhost:<port>` in an
+  (a fork of the MIT-licensed Code - OSS behind VS Code, serving the editor
+  over HTTP) as a child process in main, and showing `http://localhost:<port>` in an
   `<iframe>` beside xterm.js. This is the terminal design repeated: main owns
   a process, the renderer is a dumb screen for it, and the server's lifecycle
   is symmetric with the window, spawned only when the view is first opened.

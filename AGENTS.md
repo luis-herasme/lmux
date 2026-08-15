@@ -4,12 +4,12 @@ Compiled from feedback Luis has given across all Claude Code sessions and projec
 
 ## What this project is
 
-A terminal emulator built with xterm.js + Electron. It is explicitly a **learning project**: the goal is to understand how terminal applications work, not just to ship one. Features are added incrementally, only when actually needed. The trajectory has shifted from "toy" toward a large codebase with a public command API (the command bus) so an agent can drive lmux (see ARCHITECTURE.md).
+A terminal emulator built with xterm.js + Electron, with a public command API (the command bus) so an agent can drive it (see ARCHITECTURE.md). It is heading for a large codebase, and features are added incrementally, only when actually needed.
 
 ## Workflow
 
 - **Plan before code.** Discuss and scope before implementation begins; don't jump from scoping straight into writing files.
-- **Teach while building.** Define every domain term (TTY, PTY, escape sequence, IPC, ...) for someone unfamiliar with terminal applications. Add new terms to `GLOSSARY.md` as they appear, and explain new concepts in responses.
+- **Keep GLOSSARY.md current.** It holds the project's vocabulary: terminal-domain terms (TTY, PTY, escape sequence, OSC), the libraries the app depends on directly, and the concepts lmux defines itself. A new domain term or concept gets an entry as it lands; general programming and web concepts do not belong there.
 - **Keep ARCHITECTURE.md current.** It is the living document recording structure and decisions; update it as features land. The aim is "simple but with very good architecture."
 - **Mermaid for diagrams.** Documentation diagrams are Mermaid blocks, not ASCII art.
 - **Brief responses.** Keep answers terse by default; expand only when asked.
