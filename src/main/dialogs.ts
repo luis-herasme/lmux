@@ -3,7 +3,7 @@ import { dialog } from "electron";
 import type { BrowserWindow } from "electron";
 import * as path from "path";
 import { runningProcessNames } from "./shells.ts";
-import type { TabInfo } from "../api.ts";
+import type { ProjectInfo } from "../api.ts";
 
 type ConfirmKillingOptions = {
   window: BrowserWindow;
@@ -47,19 +47,17 @@ type DirtyFile = {
 
 type ChooseDirtyCloseOptions = {
   window: BrowserWindow;
-  tabs: TabInfo[];
+  // one workspace's panel, or every panel in the window
+  projects: ProjectInfo[];
   action: string;
   onlyFilePath?: string;
   onlyUntitledId?: number;
 };
 
-function dirtyFilesForTabs(tabs: TabInfo[]): DirtyFile[] {
+function dirtyFilesForProjects(projects: ProjectInfo[]): DirtyFile[] {
   const dirtyFiles: DirtyFile[] = [];
-  for (const tab of tabs) {
-    if (tab.kind !== "project") {
-      continue;
-    }
-    for (const file of tab.files) {
+  for (const project of projects) {
+    for (const file of project.files) {
       if (!file.dirty) {
         continue;
       }
@@ -85,12 +83,12 @@ function dirtyFilesForTabs(tabs: TabInfo[]): DirtyFile[] {
 
 export function chooseDirtyClose({
   window,
-  tabs,
+  projects,
   action,
   onlyFilePath,
   onlyUntitledId,
 }: ChooseDirtyCloseOptions): DirtyCloseChoice {
-  let dirtyFiles = dirtyFilesForTabs(tabs);
+  let dirtyFiles = dirtyFilesForProjects(projects);
   if (onlyFilePath !== undefined || onlyUntitledId !== undefined) {
     const matchingFiles: DirtyFile[] = [];
     for (const dirtyFile of dirtyFiles) {

@@ -10,6 +10,11 @@ const STORAGE_KEY = "settings";
 export const MIN_SIDEBAR_WIDTH_PX = 120;
 export const MAX_SIDEBAR_WIDTH_PX = 400;
 
+// wide enough for the tree beside a readable editor; the window's own width
+// is the ceiling the drag actually runs into
+export const MIN_PROJECT_WIDTH_PX = 320;
+export const MAX_PROJECT_WIDTH_PX = 1600;
+
 // every font size in the app, terminal and document alike
 const MIN_FONT_SIZE_PX = 8;
 const MAX_FONT_SIZE_PX = 32;
@@ -56,6 +61,15 @@ const settingsSchema = z
         ),
       )
       .catch(DEFAULT_SETTINGS.sidebarWidth),
+    projectWidth: z
+      .number()
+      .transform((width) =>
+        Math.min(
+          MAX_PROJECT_WIDTH_PX,
+          Math.max(MIN_PROJECT_WIDTH_PX, Math.round(width)),
+        ),
+      )
+      .catch(DEFAULT_SETTINGS.projectWidth),
   })
   .catch({ ...DEFAULT_SETTINGS });
 
@@ -108,6 +122,10 @@ export function applyCssVariables(): void {
   document.documentElement.style.setProperty(
     "--sidebar-width",
     `${settings.sidebarWidth}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--project-width",
+    `${settings.projectWidth}px`,
   );
   document.documentElement.style.setProperty(
     "--markdown-font-size",

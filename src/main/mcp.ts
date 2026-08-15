@@ -49,8 +49,9 @@ const TOOLS = [
       "Drive lmux, the terminal emulator this shell may be running inside. " +
       "One Command per call: open, close, activate, move, split and rename " +
       "tabs; type into a tab's shell; open a markdown document or a file in " +
-      "the workspace's project tab; manage its file tabs; create, " +
-      "switch and rename workspaces; change settings. Answers with lmux's " +
+      "the workspace's project panel; show or hide that panel; manage its " +
+      "file tabs; create, switch and rename workspaces; change settings. " +
+      "Answers with lmux's " +
       "whole state once the command settled, so the id of a tab you just " +
       "opened comes back in the reply. Where `id` is optional it means the " +
       "active tab. Tab ids are unique across workspaces, group ids only " +
@@ -66,7 +67,8 @@ const TOOLS = [
     name: "state",
     description:
       "lmux's whole state: every workspace, the tabs it holds in visual " +
-      "order, its pane layout, and which tab and workspace are active. " +
+      "order, its pane layout, its project panel and the files open in it, " +
+      "and which tab and workspace are active. " +
       "Takes no arguments. For starting cold, since the command tool " +
       "already answers with the state it produced.",
     inputSchema: {
@@ -83,8 +85,9 @@ const TOOLS = [
       "ask for more `rows` to reach back into scrollback. A tab running a " +
       "full-screen program (vim, htop) answers with that program's painted " +
       "screen and `alternate: true`, and has no scrollback behind it. A " +
-      "markdown or project tab answers with the path it shows rather than " +
-      "any text, since the file on disk is that text.",
+      "markdown tab, or the project panel asked for by its own id, answers " +
+      "with the path it shows rather than any text, since the file on disk " +
+      "is that text.",
     inputSchema: z.toJSONSchema(screenRequestSchema, { io: "input" }),
   },
 ];

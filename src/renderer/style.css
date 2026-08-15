@@ -430,9 +430,100 @@ dialog select:focus {
   background: var(--background);
 }
 
-/* A project is one Dockview panel: a resizable tree beside one editor region. */
-.project-pane {
+/* The workspace's editor, beside the pane layout rather than inside it.
+   Holds one panel per workspace; workspaces.ts displays the active one and
+   hides the host itself while that panel is closed. */
+#project {
+  flex: none;
+  width: var(--project-width);
+  min-width: 0;
+  position: relative; /* the resizer is placed against this box */
+  border-left: 1px solid var(--separator);
+  background: var(--background);
+}
+
+/* Rides over the panel's inner edge, the way the sidebar's handle does */
+#project-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 5px;
+  z-index: 2; /* over Monaco's own chrome */
+  cursor: col-resize;
+}
+
+#project-resizer:hover::after,
+#project-resizer.dragging::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--accent);
+}
+
+/* Mid-drag the panel ignores the pointer too, so crossing Monaco does not
+   start a selection under the cursor. */
+body.resizing #project .project-panel {
+  pointer-events: none;
+}
+
+/* its header over the tree and the editor region */
+.project-panel {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+
+/* what the Dockview tab used to say and do, for a panel that has none:
+   which project this is, and the × that takes it off screen */
+.project-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  /* the tab strip's height, so the two line up across the window: Dockview
+     counts its own underline inside that 35px, so this has to as well */
+  box-sizing: border-box;
+  height: 35px;
+  background: var(--tab-bar-background);
+  border-bottom: 1px solid var(--separator);
+  color: var(--tab-active-foreground);
+  font-family: var(--ui-font-family);
+  font-size: 12px;
+}
+
+.project-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-hide {
+  flex: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--tab-foreground);
+  font-size: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.project-hide:hover {
+  color: var(--tab-active-foreground);
+}
+
+/* a resizable tree beside one editor region */
+.project-pane {
+  flex: 1;
+  min-height: 0;
   min-width: 0;
   position: relative;
   display: grid;

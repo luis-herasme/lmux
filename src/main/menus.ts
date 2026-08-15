@@ -4,7 +4,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import { dispatch, lmuxState, runCommandUntil } from "./bus.ts";
 import { chooseDirtyClose, confirmKilling } from "./dialogs.ts";
 import type { CloseFileRequest } from "../ipc/bridge.ts";
-import type { TabInfo, WorkspaceInfo } from "../api.ts";
+import type { ProjectInfo, WorkspaceInfo } from "../api.ts";
 
 const FILE_WRITE_TIMEOUT_MS = 5000; // 5 seconds
 
@@ -30,36 +30,31 @@ function workspaceInfo(
   return undefined;
 }
 
-// projectTabId defaults to the active tab, matching the Commands it forwards.
-function tabInfo(projectTabId: number | undefined): TabInfo | undefined {
+// projectTabId defaults to the active workspace's panel, matching the
+// Commands it forwards.
+function projectInfo(projectTabId: number | undefined): ProjectInfo | null {
   if (projectTabId === undefined) {
     const workspace = workspaceInfo(undefined);
     if (workspace === undefined) {
-      return undefined;
+      return null;
     }
-    for (const tab of workspace.tabs) {
-      if (tab.id === workspace.activeId) {
-        return tab;
-      }
-    }
-    return undefined;
+    return workspace.project;
   }
   for (const workspace of lmuxState.workspaces) {
-    for (const tab of workspace.tabs) {
-      if (tab.id === projectTabId) {
-        return tab;
-      }
+    if (workspace.project?.id === projectTabId) {
+      return workspace.project;
     }
   }
-  return undefined;
+  return null;
 }
 
 async function saveProjectFiles(projectTabId: number): Promise<boolean> {
   let timeoutMs: number | undefined = FILE_WRITE_TIMEOUT_MS;
-  const tab = tabInfo(projectTabId);
-  if (tab?.kind === "project") {
-    for (const file of tab.files) {
+  const project = projectInfo(projectTabId);
+  if (project !== null) {
+    for (const file of project.files) {
       if (file.dirty && file.path === null) {
+        // an untitled buffer opens a save dialog, which waits on a person
         timeoutMs = undefined;
         break;
       }
@@ -146,13 +141,12 @@ async function saveOneFile({
   };
 }
 
-export async function saveDirtyTabs(tabs: TabInfo[]): Promise<boolean> {
-  for (const tab of tabs) {
-    if (tab.kind !== "project") {
-      continue;
-    }
+export async function saveDirtyProjects(
+  projects: ProjectInfo[],
+): Promise<boolean> {
+  for (const project of projects) {
     let dirty = false;
-    for (const file of tab.files) {
+    for (const file of project.files) {
       if (file.dirty) {
         dirty = true;
         break;
@@ -161,12 +155,21 @@ export async function saveDirtyTabs(tabs: TabInfo[]): Promise<boolean> {
     if (!dirty) {
       continue;
     }
-    const saved = await saveProjectFiles(tab.id);
+    const saved = await saveProjectFiles(project.id);
     if (!saved) {
       return false;
     }
   }
   return true;
+}
+
+// A workspace's panel, as the list chooseDirtyClose and the save above
+// both take; empty when it has never been opened.
+function projectsOfWorkspace(workspace: WorkspaceInfo): ProjectInfo[] {
+  if (workspace.project === null) {
+    return [];
+  }
+  return [workspace.project];
 }
 
 // Closing a workspace kills every shell and guards every dirty file in it.
@@ -195,14 +198,14 @@ async function closeWorkspace({
   }
   const dirtyChoice = chooseDirtyClose({
     window,
-    tabs: workspace.tabs,
+    projects: projectsOfWorkspace(workspace),
     action: "Closing the workspace",
   });
   if (dirtyChoice === "cancel") {
     return;
   }
   if (dirtyChoice === "save") {
-    const saved = await saveDirtyTabs(workspace.tabs);
+    const saved = await saveDirtyProjects(projectsOfWorkspace(workspace));
     if (!saved) {
       return;
     }
@@ -241,32 +244,9 @@ function cycleWorkspace(step: number): void {
   activateWorkspaceAt((active + step + workspaces.length) % workspaces.length);
 }
 
-type CloseTabOptions = {
-  window: BrowserWindow | null;
-  tabId?: number;
-};
-
-async function closeTab({ window, tabId }: CloseTabOptions): Promise<void> {
-  const tab = tabInfo(tabId);
-  if (tab !== undefined && tab.kind === "project") {
-    if (!window) {
-      return;
-    }
-    const dirtyChoice = chooseDirtyClose({
-      window,
-      tabs: [tab],
-      action: "Closing the project tab",
-    });
-    if (dirtyChoice === "cancel") {
-      return;
-    }
-    if (dirtyChoice === "save") {
-      const saved = await saveProjectFiles(tab.id);
-      if (!saved) {
-        return;
-      }
-    }
-  }
+// Every tab is a terminal or a document now, and neither holds an unsaved
+// file: only the project panel does, and it is not closed by closing a tab.
+function closeTab(tabId: number | undefined): void {
   dispatch({
     type: "close-tab",
     id: tabId,
@@ -282,8 +262,8 @@ async function closeFile({
   window,
   request,
 }: CloseFileOptions): Promise<void> {
-  const tab = tabInfo(request.projectTabId);
-  if (tab === undefined || tab.kind !== "project") {
+  const project = projectInfo(request.projectTabId);
+  if (project === null) {
     return;
   }
   if (!window) {
@@ -291,7 +271,7 @@ async function closeFile({
   }
   const dirtyChoice = chooseDirtyClose({
     window,
-    tabs: [tab],
+    projects: [project],
     action: "Closing the file",
     onlyFilePath: request.filePath,
     onlyUntitledId: request.untitledId,
@@ -323,31 +303,51 @@ async function closeFile({
   });
 }
 
+// ⌘W means the file you are looking at while the keyboard is in the panel,
+// and the tab you are looking at otherwise.
 function closeActiveFileOrTab(window: BrowserWindow | null): void {
-  const tab = tabInfo(undefined);
-  if (tab !== undefined && tab.kind === "project") {
-    if (tab.activeFilePath !== null) {
+  const workspace = workspaceInfo(undefined);
+  const project = workspace?.project;
+  if (
+    workspace !== undefined &&
+    project !== null &&
+    project !== undefined &&
+    project.visible &&
+    workspace.focus === "project"
+  ) {
+    if (project.activeFilePath !== null) {
       closeFile({
         window,
         request: {
-          projectTabId: tab.id,
-          filePath: tab.activeFilePath,
+          projectTabId: project.id,
+          filePath: project.activeFilePath,
         },
       });
       return;
     }
-    if (tab.activeUntitledId !== undefined) {
+    if (project.activeUntitledId !== undefined) {
       closeFile({
         window,
         request: {
-          projectTabId: tab.id,
-          untitledId: tab.activeUntitledId,
+          projectTabId: project.id,
+          untitledId: project.activeUntitledId,
         },
       });
       return;
     }
   }
-  closeTab({ window });
+  closeTab(undefined);
+}
+
+// One menu item for both directions: the panel is state, so main can read
+// whether it is on screen and ask for the other one.
+function toggleProjectPanel(): void {
+  const workspace = workspaceInfo(undefined);
+  if (workspace?.project?.visible === true) {
+    dispatch({ type: "close-project" });
+    return;
+  }
+  dispatch({ type: "open-project" });
 }
 
 async function chooseWorkspaceRoot(): Promise<void> {
@@ -395,8 +395,9 @@ export function installAppMenu(): void {
             click: () => dispatch({ type: "new-tab" }),
           },
           {
-            label: "Open Project Tab",
-            click: () => dispatch({ type: "open-project" }),
+            label: "Project Panel",
+            accelerator: "CmdOrCtrl+B",
+            click: () => toggleProjectPanel(),
           },
           {
             label: "Change Workspace Root…",
@@ -471,12 +472,7 @@ ipcMain.on("tab:menu", (event, tabId: number) => {
     },
     {
       label: "Close Tab",
-      click: () => {
-        closeTab({
-          window: BrowserWindow.getFocusedWindow(),
-          tabId,
-        });
-      },
+      click: () => closeTab(tabId),
     },
     { type: "separator" },
     {
@@ -493,11 +489,8 @@ ipcMain.on("workspace:close", (event, workspaceId: number) => {
   });
 });
 
-ipcMain.on("tab:close", (event, tabId: number) => {
-  closeTab({
-    window: BrowserWindow.fromWebContents(event.sender),
-    tabId,
-  });
+ipcMain.on("tab:close", (_event, tabId: number) => {
+  closeTab(tabId);
 });
 
 ipcMain.on("file:close", (event, request: CloseFileRequest) => {

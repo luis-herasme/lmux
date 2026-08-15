@@ -34,7 +34,7 @@ import {
 } from "./harness.ts";
 import { lmuxState } from "../main/bus.ts";
 import { sessionFromState } from "../session.ts";
-import type { LmuxState, TabInfo, WorkspaceInfo } from "../api.ts";
+import type { LmuxState, ProjectInfo, WorkspaceInfo } from "../api.ts";
 import { readProjectTreeGitDecorationsResultSchema } from "../ipc/bridge.ts";
 import { matchTerminalLinks } from "../renderer/tabs/links.ts";
 
@@ -51,7 +51,7 @@ const FIXTURE_PATH = path.join(
 const SOURCE_FILE_PATH = realpathSync(
   path.join(
     import.meta.dirname,
-    "../../src/renderer/tabs/code.ts",
+    "../../src/renderer/code.ts",
   ),
 );
 
@@ -246,23 +246,26 @@ function findWorkspace({
   return undefined;
 }
 
-function findTabInfo({ state, id }: StateLookupOptions): TabInfo | undefined {
-  for (const workspace of state.workspaces) {
-    for (const tab of workspace.tabs) {
-      if (tab.id === id) {
-        return tab;
-      }
-    }
-  }
-  return undefined;
-}
-
 function findTabTitle({ state, id }: StateLookupOptions): string | undefined {
   for (const workspace of state.workspaces) {
     for (const tab of workspace.tabs) {
       if (tab.id === id) {
         return tab.title;
       }
+    }
+  }
+  return undefined;
+}
+
+// The panel is workspace state, so its id is looked for beside the tabs
+// rather than among them.
+function findProjectInfo({
+  state,
+  id,
+}: StateLookupOptions): ProjectInfo | undefined {
+  for (const workspace of state.workspaces) {
+    if (workspace.project?.id === id) {
+      return workspace.project;
     }
   }
   return undefined;
@@ -277,16 +280,16 @@ function findProjectFileDirty({
   id,
   filePath,
 }: FindProjectFileDirtyOptions): boolean | undefined {
-  for (const workspace of state.workspaces) {
-    for (const tab of workspace.tabs) {
-      if (tab.id !== id || tab.kind !== "project") {
-        continue;
-      }
-      for (const file of tab.files) {
-        if (file.path === filePath) {
-          return file.dirty;
-        }
-      }
+  const project = findProjectInfo({
+    state,
+    id,
+  });
+  if (project === undefined) {
+    return undefined;
+  }
+  for (const file of project.files) {
+    if (file.path === filePath) {
+      return file.dirty;
     }
   }
   return undefined;
@@ -494,6 +497,49 @@ async function clickVisibleTreeFile({
     return { clicked: false, gitVisible: false };
   })()`);
   return treeClickSchema.parse(probed);
+}
+
+const stripAlignmentSchema = z.object({
+  stripBottom: z.number(),
+  headerBottom: z.number(),
+});
+
+// Both are 35px tall, but only one of them counts its own underline inside
+// that: the strip is border-box and the header had to be told to be.
+async function visibleStripAlignment(): Promise<
+  z.infer<typeof stripAlignmentSchema>
+> {
+  const probed = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    const bottomOf = (selector) => {
+      for (const element of document.querySelectorAll(selector)) {
+        if (element.offsetParent === null) {
+          continue;
+        }
+        return element.getBoundingClientRect().bottom;
+      }
+      return -1;
+    };
+    return {
+      stripBottom: bottomOf(".dv-tabs-and-actions-container"),
+      headerBottom: bottomOf(".project-header"),
+    };
+  })()`);
+  return stripAlignmentSchema.parse(probed);
+}
+
+// One panel per workspace lives in the host, and only the active
+// workspace's, while it is open, is the one on screen.
+async function visibleProjectPanelCount(): Promise<number> {
+  const probed = await lmuxWindow.webContents.executeJavaScript(`(() => {
+    let visible = 0;
+    for (const panelElement of document.querySelectorAll(".project-panel")) {
+      if (panelElement.offsetParent !== null) {
+        visible += 1;
+      }
+    }
+    return visible;
+  })()`);
+  return z.number().parse(probed);
 }
 
 async function visibleTreeItemExists(relativePath: string): Promise<boolean> {
@@ -1120,7 +1166,7 @@ const suite = describe("the command bus", () => {
   });
 
   busTest({
-    name: "a code file opens inside the workspace project tab",
+    name: "a code file opens inside the workspace project panel",
     body: async () => {
       const tabCount = countTabs(lmuxState);
       sendCommand({
@@ -1134,17 +1180,17 @@ const suite = describe("the command bus", () => {
       if (opened.type !== "file-opened") {
         throw new Error(`the file arrived as a ${opened.type}`);
       }
-      const project = findTabInfo({
+      const project = findProjectInfo({
         state: opened.state,
         id: opened.id,
       });
-      assert.equal(project?.kind, "project");
-      if (project?.kind !== "project") {
-        throw new Error("open-file created no project tab");
+      if (project === undefined) {
+        throw new Error("open-file created no project panel");
       }
-      assert.equal(countTabs(opened.state), tabCount + 1);
+      // the panel is not a tab, so nothing joined the strip
+      assert.equal(countTabs(opened.state), tabCount);
       assert.equal(
-        project.title,
+        project.name,
         path.basename(realpathSync(path.join(import.meta.dirname, "../.."))),
       );
       assert.equal(project.activeFilePath, SOURCE_FILE_PATH);
@@ -1185,7 +1231,91 @@ const suite = describe("the command bus", () => {
   });
 
   busTest({
-    name: "a markdown file in the project tab can swap to its rendering",
+    name: "the project panel's header ends where the tab strip does",
+    body: async () => {
+      const alignment = await visibleStripAlignment();
+      assert.ok(alignment.stripBottom > 0, "no tab strip was on screen");
+      assert.equal(alignment.headerBottom, alignment.stripBottom);
+    },
+  });
+
+  busTest({
+    name: "hiding the project panel keeps its files and hands back the window",
+    body: async () => {
+      const panelWorkspace = await openWorkspace();
+      try {
+        sendCommand({
+          type: "open-file",
+          path: SOURCE_FILE_PATH,
+        });
+        const opened = await waitForEvent(
+          (event) => event.type === "project-opened",
+        );
+        if (opened.type !== "project-opened") {
+          throw new Error(`the panel arrived as a ${opened.type}`);
+        }
+        assert.equal(await visibleProjectPanelCount(), 1);
+        assert.equal(
+          findWorkspace({
+            state: opened.state,
+            id: panelWorkspace.id,
+          })?.focus,
+          "project",
+        );
+
+        sendCommand({ type: "close-project" });
+        const closed = await waitForEvent(
+          (event) => event.type === "project-closed",
+        );
+        const hiddenProject = findProjectInfo({
+          state: closed.state,
+          id: opened.id,
+        });
+        assert.equal(hiddenProject?.visible, false);
+        assert.deepEqual(hiddenProject?.files, [
+          {
+            path: SOURCE_FILE_PATH,
+            dirty: false,
+            pinned: true,
+          },
+        ]);
+        assert.equal(
+          findWorkspace({
+            state: closed.state,
+            id: panelWorkspace.id,
+          })?.focus,
+          "layout",
+        );
+        assert.equal(await visibleProjectPanelCount(), 0);
+
+        sendCommand({ type: "open-project" });
+        const reopened = await waitForEvent(
+          (event) => event.type === "project-opened",
+        );
+        const shownProject = findProjectInfo({
+          state: reopened.state,
+          id: opened.id,
+        });
+        assert.equal(shownProject?.visible, true);
+        assert.equal(shownProject?.activeFilePath, SOURCE_FILE_PATH);
+        assert.equal(await visibleProjectPanelCount(), 1);
+      } finally {
+        const workspaceClosed = waitForEvent(
+          (event) =>
+            event.type === "workspace-closed" &&
+            event.id === panelWorkspace.id,
+        );
+        sendCommand({
+          type: "close-workspace",
+          id: panelWorkspace.id,
+        });
+        await workspaceClosed;
+      }
+    },
+  });
+
+  busTest({
+    name: "a markdown file in the project panel can swap to its rendering",
     body: async () => {
       // realpath like SOURCE_FILE_PATH: the buffer is keyed by the resolved
       // path, and the Event carries that key
@@ -1205,8 +1335,8 @@ const suite = describe("the command bus", () => {
       assert.equal(source.renderedVisible, false);
       assert.equal(source.buttonLabel, "Rendered");
 
-      // no projectTabId and no path: the workspace's one project tab is the
-      // active tab, and the visible file is the one just opened
+      // no projectTabId and no path: the workspace's one panel is meant, and
+      // the visible file is the one just opened
       sendCommand({
         type: "set-file-markdown-mode",
         mode: "rendered",
@@ -1346,7 +1476,7 @@ const suite = describe("the command bus", () => {
   });
 
   busTest({
-    name: "one project tab previews and pins files from its workspace tree",
+    name: "one project panel previews and pins files from its workspace tree",
     body: async () => {
       const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-tree-"));
       const nestedPath = path.join(rootPath, "nested");
@@ -1461,21 +1591,23 @@ const suite = describe("the command bus", () => {
           baseTabId: terminalId,
         });
         const opened = await waitForEvent(
-          (event) => countTabs(event.state) === tabCount + 1,
+          (event) => event.type === "project-opened",
         );
-        if (opened.type !== "tab-opened") {
-          throw new Error(`a tab arrived as a ${opened.type}`);
+        if (opened.type !== "project-opened") {
+          throw new Error(`the panel arrived as a ${opened.type}`);
         }
+        // the panel is workspace state, so the strip is as it was
+        assert.equal(countTabs(opened.state), tabCount);
 
-        const openedProject = findTabInfo({
+        const openedProject = findProjectInfo({
           state: opened.state,
           id: opened.id,
         });
         assert.deepEqual(openedProject, {
           id: opened.id,
-          title: path.basename(canonicalRootPath),
-          kind: "project",
+          name: path.basename(canonicalRootPath),
           workspaceRootPath: canonicalRootPath,
+          visible: true,
           activeFilePath: null,
           files: [],
         });
@@ -1528,7 +1660,7 @@ const suite = describe("the command bus", () => {
         assert.equal(firstClick.clicked, true);
         assert.equal(firstClick.gitVisible, false, ".git appeared in the tree");
         const firstOpened = await firstOpening;
-        assert.equal(countTabs(firstOpened.state), tabCount + 1);
+        assert.equal(countTabs(firstOpened.state), tabCount);
 
         const secondOpening = waitForEvent(
           (event) =>
@@ -1540,13 +1672,12 @@ const suite = describe("the command bus", () => {
         });
         assert.equal(secondClick.clicked, true);
         const secondOpened = await secondOpening;
-        const secondProject = findTabInfo({
+        const secondProject = findProjectInfo({
           state: secondOpened.state,
           id: opened.id,
         });
-        assert.equal(secondProject?.kind, "project");
-        if (secondProject?.kind !== "project") {
-          throw new Error("the project tab disappeared");
+        if (secondProject === undefined) {
+          throw new Error("the project panel disappeared");
         }
         assert.deepEqual(secondProject.files, [
           {
@@ -1566,24 +1697,23 @@ const suite = describe("the command bus", () => {
           clickCount: 2,
         });
         const pinned = await pinning;
-        const pinnedProject = findTabInfo({
+        const pinnedProject = findProjectInfo({
           state: pinned.state,
           id: opened.id,
         });
-        assert.equal(pinnedProject?.kind, "project");
-        if (pinnedProject?.kind !== "project") {
-          throw new Error("pinning lost the project tab");
+        if (pinnedProject === undefined) {
+          throw new Error("pinning lost the project panel");
         }
         assert.equal(pinnedProject.files.at(0)?.pinned, true);
 
         const savedProject = sessionFromState(pinned.state)
           .workspaces.at(-1)
-          ?.tabs.at(-1);
+          ?.project;
         assert.deepEqual(savedProject, {
-          kind: "project",
           workspaceRootPath: canonicalRootPath,
           files: [canonicalOtherFilePath],
           activeFilePath: canonicalOtherFilePath,
+          visible: true,
         });
 
         const dirtying = waitForEvent(
@@ -1731,13 +1861,12 @@ const suite = describe("the command bus", () => {
         );
         await clickVisibleTreeFile({ relativePath: "project.ts" });
         const previewed = await nextPreview;
-        const previewedProject = findTabInfo({
+        const previewedProject = findProjectInfo({
           state: previewed.state,
           id: opened.id,
         });
-        assert.equal(previewedProject?.kind, "project");
-        if (previewedProject?.kind !== "project") {
-          throw new Error("previewing lost the project tab");
+        if (previewedProject === undefined) {
+          throw new Error("previewing lost the project panel");
         }
         assert.equal(previewedProject.files.length, 2);
         assert.equal(previewedProject.files.at(1)?.pinned, false);
@@ -1768,13 +1897,12 @@ const suite = describe("the command bus", () => {
         );
         assert.equal(tabDoubleClicked, true);
         const tabPinned = await tabPinning;
-        const tabPinnedProject = findTabInfo({
+        const tabPinnedProject = findProjectInfo({
           state: tabPinned.state,
           id: opened.id,
         });
-        assert.equal(tabPinnedProject?.kind, "project");
-        if (tabPinnedProject?.kind !== "project") {
-          throw new Error("file-tab pinning lost the project tab");
+        if (tabPinnedProject === undefined) {
+          throw new Error("file-tab pinning lost the project panel");
         }
         assert.equal(tabPinnedProject.files.at(1)?.pinned, true);
 
@@ -1789,13 +1917,12 @@ const suite = describe("the command bus", () => {
             event.type === "workspace-root-changed" &&
             event.path === canonicalNestedPath,
         );
-        const changedProject = findTabInfo({
+        const changedProject = findProjectInfo({
           state: rootChanged.state,
           id: opened.id,
         });
-        assert.equal(changedProject?.kind, "project");
-        if (changedProject?.kind !== "project") {
-          throw new Error("changing the root lost the project tab");
+        if (changedProject === undefined) {
+          throw new Error("changing the root lost the project panel");
         }
         assert.equal(changedProject.workspaceRootPath, canonicalNestedPath);
         assert.equal(changedProject.files.length, 2);
@@ -1830,17 +1957,16 @@ const suite = describe("the command bus", () => {
           });
           await closing;
         }
-        const emptiedProject = findTabInfo({
+        const emptiedProject = findProjectInfo({
           state: lmuxState,
           id: opened.id,
         });
-        assert.equal(emptiedProject?.kind, "project");
-        if (emptiedProject?.kind !== "project") {
-          throw new Error("closing files closed the project tab");
+        if (emptiedProject === undefined) {
+          throw new Error("closing files closed the project panel");
         }
         assert.equal(emptiedProject.activeFilePath, null);
         assert.equal(emptiedProject.files.length, 0);
-        assert.equal(countTabs(lmuxState), tabCount + 1);
+        assert.equal(countTabs(lmuxState), tabCount);
       } finally {
         const workspaceClosed = waitForEvent(
           (event) =>
@@ -2285,13 +2411,12 @@ const suite = describe("the command bus", () => {
         );
         assert.equal(dragged, true, "the visible file tabs were not found");
         const moved = await moving;
-        const project = findTabInfo({
+        const project = findProjectInfo({
           state: moved.state,
           id: firstOpened.id,
         });
-        assert.equal(project?.kind, "project");
-        if (project?.kind !== "project") {
-          throw new Error("dragging lost the project tab");
+        if (project === undefined) {
+          throw new Error("dragging lost the project panel");
         }
         const orderedPaths: string[] = [];
         for (const file of project.files) {
@@ -2325,12 +2450,12 @@ const suite = describe("the command bus", () => {
         ]);
         const savedProject = sessionFromState(moved.state)
           .workspaces.at(-1)
-          ?.tabs.at(-1);
+          ?.project;
         assert.deepEqual(savedProject, {
-          kind: "project",
           workspaceRootPath: realpathSync(rootPath),
           files: [canonicalSecondPath, canonicalFirstPath],
           activeFilePath: canonicalSecondPath,
+          visible: true,
         });
       } finally {
         const workspaceClosed = waitForEvent(
@@ -2400,13 +2525,12 @@ const suite = describe("the command bus", () => {
           throw new Error(`the untitled file arrived as a ${created.type}`);
         }
         const untitledId = created.untitledId;
-        const project = findTabInfo({
+        const project = findProjectInfo({
           state: created.state,
           id: seedOpened.id,
         });
-        assert.equal(project?.kind, "project");
-        if (project?.kind !== "project") {
-          throw new Error("creating a file lost the project tab");
+        if (project === undefined) {
+          throw new Error("creating a file lost the project panel");
         }
         assert.deepEqual(project.files.at(-1), {
           path: null,
@@ -2458,13 +2582,12 @@ const suite = describe("the command bus", () => {
         }
         assert.equal(saved.path, canonicalDestinationPath);
         assert.match(readFileSync(destinationPath, "utf8"), /created = true/);
-        const savedProject = findTabInfo({
+        const savedProject = findProjectInfo({
           state: saved.state,
           id: seedOpened.id,
         });
-        assert.equal(savedProject?.kind, "project");
-        if (savedProject?.kind !== "project") {
-          throw new Error("saving lost the project tab");
+        if (savedProject === undefined) {
+          throw new Error("saving lost the project panel");
         }
         assert.deepEqual(savedProject.files.at(-1), {
           path: canonicalDestinationPath,
@@ -2550,13 +2673,12 @@ const suite = describe("the command bus", () => {
           true,
           "an edit did not mark the project file dirty",
         );
-        const dirtyProject = findTabInfo({
+        const dirtyProject = findProjectInfo({
           state: dirty.state,
           id: opened.id,
         });
-        assert.equal(dirtyProject?.kind, "project");
-        if (dirtyProject?.kind !== "project") {
-          throw new Error("editing lost the project tab");
+        if (dirtyProject === undefined) {
+          throw new Error("editing lost the project panel");
         }
         let dirtyFilePinned: boolean | undefined;
         for (const projectFile of dirtyProject.files) {
@@ -2781,7 +2903,7 @@ const suite = describe("the command bus", () => {
             event.type === "file-save-failed" &&
             event.path === canonicalFilePath,
         );
-        // The case asks the DOM what the project tab said and the disk what
+        // The case asks the DOM what the project panel said and the disk what
         // it kept.
         await pollUntil({
           check: async () => {

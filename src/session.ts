@@ -1,6 +1,7 @@
 // What a restart is allowed to bring back. Deliberately not the state: a
 // session is what can honestly be rebuilt, which is a workspace's tabs in
-// order, a document's path and mode, and which of them you were looking at.
+// order, its project panel, a document's path and mode, and which of them
+// you were looking at.
 // Shells cannot be restored, only respawned, so a terminal tab carries
 // nothing at all; scrollback is gone either way.
 //
@@ -19,15 +20,16 @@ const sessionTabSchema = z.discriminatedUnion("kind", [
     path: z.string(),
     mode: markdownModeSchema,
   }),
-  // Only pinned file paths return. Contents, preview files, cursor positions
-  // and undo history are transient and every file is re-read from disk.
-  z.object({
-    kind: z.literal("project"),
-    workspaceRootPath: z.string(),
-    files: z.array(z.string()),
-    activeFilePath: z.string().nullable(),
-  }),
 ]);
+
+// Only pinned file paths return. Contents, preview files, cursor positions
+// and undo history are transient and every file is re-read from disk.
+const sessionProjectSchema = z.object({
+  workspaceRootPath: z.string(),
+  files: z.array(z.string()),
+  activeFilePath: z.string().nullable(),
+  visible: z.boolean(),
+});
 
 const sessionWorkspaceSchema = z.object({
   // the name only if a rename pinned it: a derived one belongs to whichever
@@ -35,6 +37,7 @@ const sessionWorkspaceSchema = z.object({
   name: z.string().nullable(),
   tabs: z.array(sessionTabSchema),
   activeIndex: z.number().int(),
+  project: sessionProjectSchema.nullable(),
 });
 
 export const sessionSchema = z.object({
@@ -45,6 +48,7 @@ export const sessionSchema = z.object({
 export type Session = z.infer<typeof sessionSchema>;
 type SessionWorkspace = z.infer<typeof sessionWorkspaceSchema>;
 type SessionTab = z.infer<typeof sessionTabSchema>;
+type SessionProject = z.infer<typeof sessionProjectSchema>;
 
 // Positions, not ids: the renderer assigns tab ids as it creates them, so a
 // restored tab is a different tab wearing the same contents.
@@ -69,36 +73,37 @@ export function sessionFromState(state: LmuxState): Session {
         });
         continue;
       }
-      if (tab.kind === "project") {
-        const files: string[] = [];
-        for (const file of tab.files) {
-          if (!file.pinned || file.path === null) {
-            continue;
-          }
-          files.push(file.path);
-        }
-        let activeFilePath: string | null = tab.activeFilePath;
-        if (activeFilePath !== null && !files.includes(activeFilePath)) {
-          activeFilePath = null;
-        }
-        tabs.push({
-          kind: "project",
-          workspaceRootPath: tab.workspaceRootPath,
-          files,
-          activeFilePath,
-        });
-        continue;
-      }
       tabs.push({ kind: "terminal" });
     }
     let name: string | null = null;
     if (workspace.namePinned) {
       name = workspace.name;
     }
+    let project: SessionProject | null = null;
+    if (workspace.project !== null) {
+      const files: string[] = [];
+      for (const file of workspace.project.files) {
+        if (!file.pinned || file.path === null) {
+          continue;
+        }
+        files.push(file.path);
+      }
+      let activeFilePath: string | null = workspace.project.activeFilePath;
+      if (activeFilePath !== null && !files.includes(activeFilePath)) {
+        activeFilePath = null;
+      }
+      project = {
+        workspaceRootPath: workspace.project.workspaceRootPath,
+        files,
+        activeFilePath,
+        visible: workspace.project.visible,
+      };
+    }
     workspaces.push({
       name,
       tabs,
       activeIndex: activeTabIndex,
+      project,
     });
   }
   return {

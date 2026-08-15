@@ -133,7 +133,7 @@ ipcMain.handle(
       // A new path has no canonical form until it has been written.
     }
     if (request.excludedPaths.includes(comparisonPath)) {
-      return { error: `${comparisonPath} is already open in this project tab` };
+      return { error: `${comparisonPath} is already open in this project` };
     }
 
     try {

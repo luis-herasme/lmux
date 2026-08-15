@@ -1,6 +1,6 @@
 import { THEMES } from "../theme.ts";
 import { getSettings } from "./settings.ts";
-import { executeCommand, focusActiveTab } from "./tabs/index.ts";
+import { executeCommand, focusWorkspace } from "./tabs/index.ts";
 import { requireElement } from "./dom.ts";
 
 const dialogElement = requireElement("settings-dialog");
@@ -122,5 +122,5 @@ requireElement("settings-done").addEventListener("click", () => {
 });
 
 dialog.addEventListener("close", () => {
-  focusActiveTab();
+  focusWorkspace();
 });

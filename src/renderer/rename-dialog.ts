@@ -1,4 +1,4 @@
-import { executeCommand, getTabTitle, focusActiveTab } from "./tabs/index.ts";
+import { executeCommand, getTabTitle, focusWorkspace } from "./tabs/index.ts";
 import { workspaces } from "./workspaces.ts";
 import { requireElement } from "./dom.ts";
 
@@ -68,5 +68,5 @@ dialog.addEventListener("close", () => {
       });
     }
   }
-  focusActiveTab();
+  focusWorkspace();
 });

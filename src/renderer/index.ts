@@ -11,6 +11,7 @@ import {
 import { openRenameDialog } from "./rename-dialog.ts";
 import "./settings-dialog.js";
 import "./sidebar-resize.js";
+import "./project-resize.js";
 
 applyCssVariables();
 

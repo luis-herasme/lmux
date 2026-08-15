@@ -28,6 +28,7 @@ export const settingsSchema = z.object({
   markdownFontFamily: z.string(),
   markdownFontSize: z.number(),
   sidebarWidth: z.number(), // pixels; the sidebar's drag handle is its UI
+  projectWidth: z.number(), // the project panel's, the same way
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -53,6 +54,8 @@ function hasAtMostOneFileIdentity(identity: FileIdentity): boolean {
 
 // `id` defaults to the active tab where optional. Tab ids are unique across
 // workspaces; group ids are resolved inside the tab's own workspace.
+// `projectTabId` names a workspace's project panel (the field name predates
+// the panel) and defaults to the active workspace's.
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("new-tab"), groupId: z.string().optional() }),
   z.object({ type: z.literal("close-tab"), id: z.number().optional() }),
@@ -96,13 +99,12 @@ export const commandSchema = z.discriminatedUnion("type", [
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
   }),
-  // Opens source in the workspace's one project tab. A preview file is
+  // Opens source in the workspace's project panel. A preview file is
   // replaceable until edited or pinned; other command sources open pinned.
   z.object({
     type: z.literal("open-file"),
     path: z.string(),
     baseTabId: z.number().optional(),
-    groupId: z.string().optional(),
     preview: z.boolean().optional(),
   }),
   z.object({
@@ -134,7 +136,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   }).refine(hasExactlyOneFileIdentity, {
     error: "close-file needs exactly one file identity",
   }),
-  // Shows a project tab's markdown file rendered, or back in its editor.
+  // Shows a project file rendered, or back in its editor.
   // `path` defaults to the visible file; a file that isn't markdown is
   // ignored, so there is no untitledId to name one by.
   z.object({
@@ -158,11 +160,16 @@ export const commandSchema = z.discriminatedUnion("type", [
     type: z.literal("save-all-files"),
     projectTabId: z.number().optional(),
   }),
-  // Opens or activates the project tab rooted from a terminal.
+  // Shows the workspace's project panel, rooting it from a terminal the
+  // first time. Hiding it keeps its files, so nothing is asked or lost.
   z.object({
     type: z.literal("open-project"),
+    workspaceId: z.number().optional(),
     baseTabId: z.number().optional(),
-    groupId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("close-project"),
+    workspaceId: z.number().optional(),
   }),
   z.object({
     type: z.literal("change-workspace-root"),
@@ -215,7 +222,7 @@ export type ScreenResult =
   // drive a shell can already read files; saying which file it shows is the
   // part lmux knows and the caller doesn't.
   | { kind: "markdown"; path: string; mode: MarkdownMode }
-  // A project tab combines a workspace tree and one visible file buffer.
+  // The project panel combines a workspace tree and one visible file buffer.
   | {
       kind: "project";
       workspaceRootPath: string;
@@ -239,7 +246,10 @@ export type LmuxEvent =
   | { type: "workspace-activated"; id: number; state: LmuxState }
   | { type: "workspace-renamed"; id: number; state: LmuxState }
   | { type: "markdown-mode-changed"; id: number; state: LmuxState }
-  // a project tab's file swapped between its editor and its rendering
+  // the project panel came on screen or left it; `id` is the panel's
+  | { type: "project-opened"; id: number; state: LmuxState }
+  | { type: "project-closed"; id: number; state: LmuxState }
+  // a project file swapped between its editor and its rendering
   | {
       type: "file-markdown-mode-changed";
       id: number;
@@ -330,16 +340,21 @@ export type ProjectFileInfo =
 export type TabInfo =
   | { id: number; title: string; kind: "terminal" }
   // the file it shows, so an observer (and a restart) knows which document
-  | { id: number; title: string; kind: "markdown"; mode: MarkdownMode; path: string }
-  | {
-      id: number;
-      title: string;
-      kind: "project";
-      workspaceRootPath: string;
-      activeFilePath: string | null;
-      activeUntitledId?: number;
-      files: ProjectFileInfo[];
-    };
+  | { id: number; title: string; kind: "markdown"; mode: MarkdownMode; path: string };
+
+// The workspace's own editor: its file tree, its open files, and the one
+// visible among them. Not a tab, so it has no place in the layout and no
+// title of its own; `name` is the root folder's, which the panel's header
+// wears. `id` is what a command's projectTabId names.
+export type ProjectInfo = {
+  id: number;
+  name: string;
+  workspaceRootPath: string;
+  visible: boolean; // hiding it keeps every file open behind it
+  activeFilePath: string | null;
+  activeUntitledId?: number;
+  files: ProjectFileInfo[];
+};
 
 // One tab strip and the pane below it. Group ids are opaque handles
 // assigned by the layout engine, unique within their workspace only.
@@ -354,8 +369,8 @@ export type LayoutNode =
   | { type: "split"; direction: "row" | "column"; children: LayoutNode[] };
 
 // A workspace is a whole lmux of its own: its own pane layout, its own
-// tabs, its own shells. Only one is on screen at a time; the rest keep
-// running.
+// tabs, its own shells, its own project panel. Only one is on screen at a
+// time; the rest keep running.
 export type WorkspaceInfo = {
   id: number;
   // the active tab's title, unless an explicit rename pinned it
@@ -365,6 +380,9 @@ export type WorkspaceInfo = {
   layout: LayoutNode | null; // null only while the workspace has no tabs
   activeId: number; // this workspace's own active tab
   maximizedGroupId: string | null; // the group filling the window, if any
+  project: ProjectInfo | null; // null until the panel is opened once
+  // which side of the window the keyboard is in: the panes, or the panel
+  focus: "layout" | "project";
 };
 
 export type LmuxState = {

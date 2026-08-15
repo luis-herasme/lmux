@@ -1,10 +1,10 @@
-import { bridge } from "../bridge.ts";
+import { bridge } from "./bridge.ts";
 import type {
   GitDecorationStatus,
   ProjectTreeEntry,
   ProjectTreeGitDecoration,
   ReadProjectTreeResult,
-} from "../../ipc/bridge.ts";
+} from "../ipc/bridge.ts";
 
 type OpenTreeFileOptions = {
   filePath: string;

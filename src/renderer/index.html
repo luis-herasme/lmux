@@ -108,6 +108,13 @@
       <!-- one Dockview root per workspace, only the active one displayed
            (workspaces.ts) -->
       <div id="layout" role="tabpanel" aria-label="Workspace"></div>
+      <!-- the workspace's editor: one project panel per workspace, only the
+           active one displayed, and the host collapsed while it is hidden
+           (project-panel.ts) -->
+      <div id="project" style="display: none">
+        <!-- drag handle over the panel's inner edge (project-resize.ts) -->
+        <div id="project-resizer"></div>
+      </div>
     </div>
     <!-- classic scripts providing globals (how these packages ship);
          the app itself is a native ES module -->

@@ -8,8 +8,8 @@ import { savedSession, saveSession } from "./session-state.ts";
 import { sessionFromState } from "../session.ts";
 import { chooseDirtyClose, confirmKilling } from "./dialogs.ts";
 import { lmuxState } from "./bus.ts";
-import type { TabInfo } from "../api.ts";
-import { installAppMenu, saveDirtyTabs } from "./menus.ts";
+import type { ProjectInfo } from "../api.ts";
+import { installAppMenu, saveDirtyProjects } from "./menus.ts";
 import "./files.js"; // registers file reads and writes
 import "./project-tree.js"; // registers project-tree:read
 import "./mcp.js"; // listens on the API socket
@@ -66,11 +66,13 @@ function createWindow(): void {
     closeInProgress = true;
 
     const tabIds: number[] = [];
-    const allTabs: TabInfo[] = [];
+    const allProjects: ProjectInfo[] = [];
     for (const workspace of lmuxState.workspaces) {
       for (const tab of workspace.tabs) {
         tabIds.push(tab.id);
-        allTabs.push(tab);
+      }
+      if (workspace.project !== null) {
+        allProjects.push(workspace.project);
       }
     }
     const killingConfirmed = confirmKilling({
@@ -84,7 +86,7 @@ function createWindow(): void {
     }
     const dirtyChoice = chooseDirtyClose({
       window: browserWindow,
-      tabs: allTabs,
+      projects: allProjects,
       action: "Closing the window",
     });
     if (dirtyChoice === "cancel") {
@@ -96,7 +98,7 @@ function createWindow(): void {
       browserWindow.close();
       return;
     }
-    saveDirtyTabs(allTabs).then((saved) => {
+    saveDirtyProjects(allProjects).then((saved: boolean) => {
       closeInProgress = false;
       if (!saved) {
         return;

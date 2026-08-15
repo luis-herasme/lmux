@@ -20,13 +20,13 @@ page around the terminal, which buys three things:
    grid. Anything the web can render, a view in this app can render.
 2. **Integrated browser views.** Embedding a live web page next to the
    terminal is nearly free in Electron; in a TUI it's impossible.
-3. **Integrated project editing.** A project tab combines a lazy file tree,
-   file buffers and a Monaco editor without turning the terminal into an
-   editor.
+3. **Integrated project editing.** A project panel combines a lazy file
+   tree, file buffers and a Monaco editor without turning the terminal into
+   an editor.
 
-These capabilities now exist as terminal, Markdown and project tab kinds.
-Each tab kind owns its renderer-side content while sharing the workspace
-layout and command bus.
+These capabilities exist as terminal and Markdown tab kinds, plus the project
+panel a workspace keeps beside its panes. Each owns its renderer-side content
+while sharing the workspace and the command bus.
 
 ## The one idea
 
@@ -189,20 +189,21 @@ src/
     project-tree.ts    workspace roots, bounded directory reads and Git/tree watchers
     session-state.ts   the last session on disk: written while closing, read before the page exists
   renderer/
-    index.html         the page: title bar, sidebar, the layout root, the modals
+    index.html         the page: title bar, sidebar, the layout root, the project host, the modals
     style.css          the page's stylesheet; theme values arrive as custom properties
     index.ts           boot: settings → CSS, cable wiring, the first workspace
     bridge.ts          the page's globals picked up: window.bridge, once, typed
-    workspaces.ts      Workspace store: one Dockview each, the sidebar, the state snapshot
+    workspaces.ts      Workspace store: one Dockview and one project panel each, the sidebar, the state snapshot
+    project-panel.ts   the workspace's editor: resizable file tree, file tabs, buffers and Monaco
+    project-tree.ts    native lazy directories, Git decorations and file activation
+    code.ts            Monaco: loaded on demand, themed from THEMES, language by filename
+    project-resize.ts  the project panel's drag handle; a drag ends as one Command
     tabs/
       index.ts         Tab store + executeCommand (the consumer), kept behind the bus
       terminal-tab.ts  terminal pane, xterm lifecycle and terminal screen reads
       links.ts         terminal link provider: Cmd+click a *.md or source path, or a URL
       markdown-tab.ts  a document's pane: the toolbar, the two modes, reload, its links
       markdown.ts      GitHub-look rendering (markdown-it + DOMPurify)
-      project-tab.ts   resizable file tree, file tabs, buffers and Monaco editor
-      project-tree.ts  native lazy directories, Git decorations and file activation
-      code.ts          Monaco: loaded on demand, themed from THEMES, language by filename
     rename-dialog.ts   the rename modal
     settings.ts        the current settings: value, persistence, hand-off to CSS
     settings-dialog.ts the settings modal; controls are Command sources
@@ -241,7 +242,7 @@ change it and update this list.
   `scripts/bundle-vendor.mjs` writes its browser bundle to `dist/vendor/`.
   The app's own modules remain one-to-one `tsc` output, and another dependency
   joins the bundle only when a feature demonstrates the same need.
-- **Monaco is loaded when the first project tab opens, not at boot.** It is
+- **Monaco is loaded when the first project panel opens, not at boot.** It is
   about 4MB with every language grammar it ships. A dynamic `import()` in
   `renderer/code.ts` keeps that cost off the boot path entirely: a session
   that never opens a project never pays it. Cost we accept: the first project
@@ -256,19 +257,31 @@ change it and update this list.
   `default-src 'self'`. `renderer/code.ts` therefore hands Monaco a real
   file URL through `MonacoEnvironment.getWorker`, so the fallback never
   happens and the CSP stays exactly as strict as it was.
-- **Each workspace has one composite project tab.** (Replaces the separate
-  code and tree panels introduced for #34 and #35.) Dockview owns the outer
-  tab; inside it, a stable workspace-root tree sits beside an inner file-tab
-  strip and one Monaco editor. `open-file` creates or reuses that project tab.
-  A tree single-click replaces one clean preview file, while editing or
-  double-clicking pins it. File tabs drag to reorder through a `move-file`
-  Command, so their visual, public-state and restored-session orders agree.
-  Double-clicking empty strip space issues `new-file` and opens a clean,
-  pinned `Untitled` buffer. Each file owns a Monaco model, so dirty text, undo,
-  cursor and scroll state survive file switches without multiplying Dockview
-  panels. Files outside the workspace root are ordinary file tabs and leave
-  the tree unchanged. The outer title is the root folder name; changing the
-  root is an explicit folder-picker action and keeps every file tab open.
+- **Each workspace has one project panel, beside its panes rather than
+  inside them.** (Replaces the composite project *tab*, which replaced the
+  separate code and tree panels of #34 and #35.) The panel is workspace state
+  like the workspace list itself: one per workspace, in a host on the right of
+  the window, never dragged, split or reordered, and with no place in the
+  layout. Inside it a stable workspace-root tree sits beside a file-tab strip
+  and one Monaco editor, under a header carrying the root folder's name and
+  the × that hides it. `open-file` and `open-project` create it on first use
+  and show it; `close-project` hides it, and hiding is not closing: every
+  buffer, its dirty text and the tree watcher stay alive behind it, so nothing
+  is asked and nothing is lost. Its width is a setting with a drag handle, like
+  the sidebar's. A tree single-click replaces one clean preview file, while
+  editing or double-clicking pins it. File tabs drag to reorder through a
+  `move-file` Command, so their visual, public-state and restored-session
+  orders agree. Double-clicking empty strip space issues `new-file` and opens a
+  clean, pinned `Untitled` buffer. Each file owns a Monaco model, so dirty
+  text, undo, cursor and scroll state survive file switches. Files outside the
+  workspace root are ordinary file tabs and leave the tree unchanged. Changing
+  the root is an explicit folder-picker action and keeps every file tab open.
+- **The keyboard belongs to one half of the window at a time.** A workspace
+  records whether it was last worked in through its panes or its panel, in
+  `WorkspaceInfo.focus`, decided by where the last press landed. Restoring
+  focus (after a dialog, a resize, a workspace switch) reads that, and ⌘W
+  closes the visible file when the panel has the keyboard and the active tab
+  when it does not.
 - **File buffers save through one guarded path.** The page writes through the
   same bridge `read` uses. Each buffer carries the mtime from its last read or
   write, and a stale save is refused rather than burying a disk change. ⌘S
@@ -277,7 +290,7 @@ change it and update this list.
   stays `Untitled`; its first save opens the native Save As dialog and turns
   that same buffer into a guarded disk file. Closing a dirty file offers Save,
   Don't Save and Cancel; bulk closes offer Save All. Dirty state is a ● in the
-  file tab and rides in `TabInfo` for main and agents. The tree instead shows
+  file tab and rides in `WorkspaceInfo.project` for main and agents. The tree instead shows
   Git state. Sessions restore pinned paths from disk, never unsaved model
   contents, untitled buffers or the preview file.
 - **The workspace tree loads one directory at a time.** (Replaces the eager
@@ -522,13 +535,15 @@ change it and update this list.
   tab components (the strip scrolls instead). Double-clicking a tab
   issues `toggle-maximize` (2026-08, the tmux-zoom gesture): the tab's
   group fills the window and `LmuxState.maximizedGroupId` records it.
-- **The project tree's resize handle is tab-local layout.** Dragging it, or
+- **The project tree's resize handle is panel-local layout.** Dragging it, or
   using Left and Right Arrow while it is focused, changes only the pixels
-  inside that project tab. Like a Dockview divider size, it issues no Command
+  inside that project panel. Like a Dockview divider size, it issues no Command
   or Event because observers do not need layout measurements. The width is
-  clamped so the tree and editor both remain usable, lasts for the life of the
-  project tab, and resets when that tab is recreated. Cost we accept: it does
-  not survive a relaunch.
+  clamped so the tree and editor both remain usable, and lasts for the life of
+  the panel. Cost we accept: it does not survive a relaunch. The panel's own
+  width is the exception, and is a setting rather than panel-local: it changes
+  how much window the panes get, so it rides in `Settings` beside the
+  sidebar's, written by one `update-settings` Command when the drag ends.
 - **The title bar is painted, not native.** (Decided 2026-08.) macOS
   offers no way to recolor the standard title bar, so the window is
   created with `titleBarStyle: "hiddenInset"`: the traffic lights stay
@@ -685,7 +700,7 @@ change it and update this list.
   still appears synchronously; only the measuring waits. A failed read
   becomes a document of its own, so the tab and its reload button survive
   a file that isn't there, and reloading again recovers when it returns.
-- **A project tab's markdown buffer can show its rendering in place.**
+- **A project file's markdown buffer can show its rendering in place.**
   (Decided 2026-08-12.) The same `renderMarkdown` the markdown tab uses,
   behind the same one-button toolbar, surfacing only while the visible
   buffer's Monaco language is `markdown`. The rendered face is a sibling
@@ -699,7 +714,7 @@ change it and update this list.
   mode is per open buffer but deliberately not part of `ProjectFileInfo`
   or the session: a restart brings files back in the editor, the same way
   cursor positions don't return. The way back from rendered reads *Edit*,
-  not *Raw*, because the project tab's raw face is the editor itself.
+  not *Raw*, because the panel's raw face is the editor itself.
   2026-08.) A workspace is a whole lmux of its own inside the window: its
   own pane layout, its own tabs, its own shells (see the glossary). The
   sidebar, which held only the settings gear, becomes their list: one row
@@ -783,7 +798,7 @@ change it and update this list.
   | `Menlo` as the default terminal font | `theme.ts` | a font that exists there |
   | `role: "appMenu"` | `main/menus.ts` | macOS puts the app menu first; other platforms do not have one |
   | A unix socket for the API, and `nc -U` as the documented client | `main/mcp.ts`, `README.md` | Windows has no unix sockets in the same sense; a named pipe, and a different client |
-  | `/` used to derive file labels and workspace-relative headers | `renderer/project-tab.ts` | path-aware values supplied by main instead of slicing renderer paths |
+  | `/` used to derive file labels and workspace-relative headers | `renderer/project-panel.ts` | path-aware values supplied by main instead of slicing renderer paths |
   | ⌘/⇧⌘/⌃ typed into tooltips and menu labels | `api.ts`, `tabs.ts`, `workspaces.ts`, `index.html` | labels computed per platform (the accelerators themselves already use `CmdOrCtrl`) |
 
   Note the last row's asymmetry: the *behavior* is already portable because
@@ -1020,9 +1035,10 @@ change it and update this list.
   one new request/response pair on the cable, `readSession`. If there is
   nothing to rebuild, boot opens one empty workspace exactly as before.
   What a session holds is deliberately less than the state: a workspace's
-  tabs in order, a document's path and mode, a project tab's workspace root,
-  pinned file paths and active pinned file, which outer tab and workspace you
-  were looking at, and a workspace's name only when a rename pinned it. It
+  tabs in order, a document's path and mode, its project panel's workspace
+  root, pinned file paths, active pinned file and whether the panel was on
+  screen, which tab and workspace you were looking at, and a workspace's name
+  only when a rename pinned it. It
   carries no ids, because the renderer assigns
   those as it creates tabs, so a restored tab is a new tab wearing the old
   contents. A terminal tab carries nothing at all: shells cannot be restored,

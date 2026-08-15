@@ -345,10 +345,13 @@ boxes are the same idea).
 
 ## Resize handle
 
-A narrow draggable separator between two regions. The project tab's handle
-changes how much horizontal space belongs to the file tree; Left and Right
-Arrow provide the same control from the keyboard. This is local pane layout,
-so the width lasts for that project tab rather than becoming public state.
+A narrow draggable separator between two regions. The project panel's inner
+handle changes how much horizontal space belongs to the file tree; Left and
+Right Arrow provide the same control from the keyboard. This is local layout,
+so that width lasts for the panel rather than becoming public state. The
+sidebar's handle and the panel's own outer handle are different: they decide
+how much window the panes get, so each drag ends as one `update-settings`
+Command and the width survives a relaunch.
 
 ## ResizeObserver
 
@@ -404,14 +407,14 @@ drags stay disabled until a feature needs them.
 ## Tab / tab kind / pane
 
 A **tab** is one selectable item and its content in a workspace layout. A
-**tab kind** describes that content: terminal, Markdown or project. A **pane**
-is the layout region displaying one active tab. The project tab is itself a
-composite view containing the file tree, file tabs and editor.
+**tab kind** describes that content: terminal or Markdown. A **pane** is the
+layout region displaying one active tab. The project panel is not a tab: it is
+workspace state shown beside the panes (see *Project panel / file tab*).
 
 ## Workspace
 
 A whole lmux of its own inside the same window: its own pane layout, its
-own tabs, its own shells. The sidebar lists them and switching is one click;
+own tabs, its own shells, its own project panel. The sidebar lists them and switching is one click;
 only one is on screen at a time, and the ones behind keep running, so a
 build left compiling in one workspace is still compiling when you come back
 to it. The name comes from tiling window managers and VS Code, where the
@@ -437,8 +440,8 @@ re-fit when their workspace comes forward.
 ## Workspace root / file tree
 
 A **workspace root** is the stable top directory shown by one workspace's file
-tree. The first project tab derives it from a file's Git repository, or from a
-terminal's Git repository or current directory. Changing it is explicit and
+tree. The panel derives it, when it is first opened, from a file's Git
+repository, or from a terminal's Git repository or current directory. Changing it is explicit and
 does not close file tabs. Resolving it to its real path and refusing to follow
 symbolic links keeps directory reads inside that boundary.
 
@@ -478,15 +481,19 @@ Code's corresponding `gitDecoration.*` color. A folder whose descendants have
 a propagating change gets a generic colored bubble instead of borrowing one
 child's letter.
 
-## Project tab / file tab
+## Project panel / file tab
 
-A **project tab** is the workspace's one Dockview tab for files. It contains
-the file tree, an inner file-tab strip and one editor. Its title is the
-workspace root folder name. Opening another file reuses this project tab;
-files outside the workspace root are valid file tabs but do not change the
-tree.
+A **project panel** is the workspace's one editor, and the only place files
+open. It contains the file tree, a file-tab strip and one Monaco editor, under
+a header naming the workspace root folder. It is not a tab: there is exactly
+one per workspace, it lives in its own region beside the pane layout, and it
+cannot be dragged, split, reordered or moved to another workspace, the same
+way the workspace list itself cannot. Opening another file reuses it; files
+outside the workspace root are valid file tabs but do not change the tree.
+Hiding the panel (its header's ×, ⌘B, or `close-project`) is not closing it:
+every buffer stays open behind it, so nothing is asked and nothing is lost.
 
-A **file tab** names one in-memory file buffer inside the project tab. A
+A **file tab** names one in-memory file buffer inside the project panel. A
 single tree click opens a replaceable **preview file tab**. Editing it or
 double-clicking its tree item makes it a **pinned file tab**, which remains
 until explicitly closed. File tabs can be dragged to reorder them. The
@@ -514,7 +521,7 @@ switch to, the way a play button names what it will do rather than what
 is happening. The second button re-reads the file, since nothing watches
 the disk: edit a document in one tab, click Reload in the tab showing it.
 
-A markdown file inside the project tab has the same two faces, per open
+A markdown file inside the project panel has the same two faces, per open
 buffer. There its raw face is the editor itself, so the way back from
 rendered reads *Edit*, and there is no Reload: the rendering draws the
 buffer as it is in memory, unsaved edits included. The model stays on the

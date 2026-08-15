@@ -1,22 +1,21 @@
 import { getSettings, updateSettings } from "../settings.ts";
 import { bridge } from "../bridge.ts";
-import { refreshCodeTheme } from "./code.ts";
+import { refreshCodeTheme } from "../code.ts";
 import {
   activateProjectFile,
   changeProjectWorkspaceRoot,
   closeProjectFile,
+  createProjectPanel,
   createUntitledProjectFile,
-  disposeProjectTab,
-  focusProjectTab,
+  focusProjectPanel,
   moveProjectFile,
   openProjectFile,
-  openProjectTab,
   redrawProjectMarkdown,
   saveAllProjectFiles,
   saveProjectFile,
   setProjectFileMarkdownMode,
-} from "./project-tab.ts";
-import type { ProjectTab } from "./project-tab.ts";
+} from "../project-panel.ts";
+import type { ProjectPanel } from "../project-panel.ts";
 import {
   openMarkdownTab,
   redrawMarkdown,
@@ -36,6 +35,7 @@ import {
   createWorkspace,
   findGroup,
   findTab,
+  refreshProjectPanel,
   refreshWorkspaceName,
   removeWorkspace,
   setWorkspaceName,
@@ -48,7 +48,7 @@ import type { Session } from "../../session.ts";
 import type { ShellDataMessage } from "../../ipc/bridge.ts";
 import type { DockviewGroupPanel } from "dockview";
 
-export type Tab = TerminalTab | MarkdownTab | ProjectTab;
+export type Tab = TerminalTab | MarkdownTab;
 
 // A resolved tab is the caller's explicit id or the active workspace's
 // active tab, when optional; every command that touches a tab resolves
@@ -78,24 +78,21 @@ function resolveTab(id: number | undefined): ResolvedTab | undefined {
   };
 }
 
-type ResolvedProjectTab = {
-  id: number;
-  tab: ProjectTab;
-  workspace: Workspace;
-};
-
-function resolveProjectTab(
+// A projectTabId names one workspace's panel, wherever that workspace is;
+// without one the active workspace's panel is meant. A panel that has never
+// been opened does not exist yet, and the command bails.
+function resolveProject(
   projectTabId: number | undefined,
-): ResolvedProjectTab | undefined {
-  const resolved = resolveTab(projectTabId);
-  if (resolved === undefined || resolved.tab.kind !== "project") {
-    return undefined;
+): ProjectPanel | undefined {
+  if (projectTabId === undefined) {
+    return activeWorkspace?.project;
   }
-  return {
-    id: resolved.id,
-    tab: resolved.tab,
-    workspace: resolved.workspace,
-  };
+  for (const workspace of workspaces.values()) {
+    if (workspace.project?.id === projectTabId) {
+      return workspace.project;
+    }
+  }
+  return undefined;
 }
 
 type ResolveTargetGroupOptions = {
@@ -212,111 +209,107 @@ async function addMarkdownTab({
   tab.contentElement.focus();
 }
 
-type FoundProjectTab = {
-  id: number;
-  tab: ProjectTab;
-};
-
-function findProjectTab(workspace: Workspace): FoundProjectTab | undefined {
-  for (const [id, tab] of workspace.tabs) {
-    if (tab.kind !== "project") {
-      continue;
-    }
-    return {
-      id,
-      tab,
-    };
-  }
-  return undefined;
-}
-
-type AddProjectTabOptions = {
+type EnsureProjectPanelOptions = {
   workspace: Workspace;
   baseTabId: number | undefined;
   workspaceRootPath: string | undefined;
   initialFilePath: string | undefined;
-  initialFilePreview: boolean;
-  group: DockviewGroupPanel | undefined;
 };
 
-type CreateProjectTabOptions = Omit<
-  AddProjectTabOptions,
-  "initialFilePreview"
->;
+// Building one waits on 4MB of Monaco, so a second request arriving
+// meanwhile waits for the same panel rather than starting a second.
+const pendingProjectPanels = new Map<Workspace, Promise<ProjectPanel>>();
 
-const pendingProjectTabs = new Map<Workspace, Promise<FoundProjectTab>>();
-
-async function createProjectTab({
+async function ensureProjectPanel({
   workspace,
   baseTabId,
   workspaceRootPath,
   initialFilePath,
-  group,
-}: CreateProjectTabOptions): Promise<FoundProjectTab> {
-  const id = nextId++;
-  const tab = await openProjectTab({
-    id,
-    workspace,
-    tabElements: buildTabElement(id),
-    baseTabId,
-    workspaceRootPath,
-    initialFilePath,
-    group,
-  });
-  workspace.tabs.set(id, tab);
-  bridge.emitEvent({
-    type: "tab-opened",
-    id,
-    state: snapshot(),
-  });
-  tab.panel.api.setActive();
-  return {
-    id,
-    tab,
-  };
+}: EnsureProjectPanelOptions): Promise<ProjectPanel> {
+  const existing = workspace.project;
+  if (existing !== undefined) {
+    return existing;
+  }
+  let pendingPanel = pendingProjectPanels.get(workspace);
+  if (pendingPanel === undefined) {
+    pendingPanel = createProjectPanel({
+      id: nextId++,
+      baseTabId,
+      workspaceRootPath,
+      initialFilePath,
+    });
+    pendingProjectPanels.set(workspace, pendingPanel);
+  }
+  let panel: ProjectPanel;
+  try {
+    panel = await pendingPanel;
+  } finally {
+    if (pendingProjectPanels.get(workspace) === pendingPanel) {
+      pendingProjectPanels.delete(workspace);
+    }
+  }
+  workspace.project = panel;
+  return panel;
 }
 
-async function addProjectTab({
+type ShowProjectPanelOptions = {
+  workspace: Workspace;
+  panel: ProjectPanel;
+};
+
+// Coming on screen is state plus an Event, so every command that opens
+// something in the panel ends here. A background workspace's panel is
+// opened without taking the keyboard away from the one on screen.
+function showProjectPanel({ workspace, panel }: ShowProjectPanelOptions): void {
+  const wasVisible = panel.visible;
+  panel.visible = true;
+  refreshProjectPanel();
+  if (workspace === activeWorkspace) {
+    workspace.focus = "project";
+    focusProjectPanel(panel);
+  }
+  // the Event carries the state it produced, so it goes out once the
+  // keyboard has moved too
+  if (wasVisible) {
+    return;
+  }
+  bridge.emitEvent({
+    type: "project-opened",
+    id: panel.id,
+    state: snapshot(),
+  });
+}
+
+type OpenProjectOptions = EnsureProjectPanelOptions & {
+  initialFilePreview: boolean;
+};
+
+async function openProject({
   workspace,
   baseTabId,
   workspaceRootPath,
   initialFilePath,
   initialFilePreview,
-  group,
-}: AddProjectTabOptions): Promise<ProjectTab> {
-  let project = findProjectTab(workspace);
-  if (project === undefined) {
-    let pendingProject = pendingProjectTabs.get(workspace);
-    if (pendingProject === undefined) {
-      pendingProject = createProjectTab({
-        workspace,
-        baseTabId,
-        workspaceRootPath,
-        initialFilePath,
-        group,
-      });
-      pendingProjectTabs.set(workspace, pendingProject);
-    }
-    try {
-      project = await pendingProject;
-    } finally {
-      if (pendingProjectTabs.get(workspace) === pendingProject) {
-        pendingProjectTabs.delete(workspace);
-      }
-    }
-  }
+}: OpenProjectOptions): Promise<void> {
+  const panel = await ensureProjectPanel({
+    workspace,
+    baseTabId,
+    workspaceRootPath,
+    initialFilePath,
+  });
+  // a new panel takes the path to find its root; opening the file is this
   if (initialFilePath !== undefined) {
     await openProjectFile({
-      id: project.id,
-      tab: project.tab,
+      panel,
       filePath: initialFilePath,
       baseTabId,
       preview: initialFilePreview,
     });
   }
-  project.tab.panel.api.setActive();
-  focusProjectTab(project.tab);
-  return project.tab;
+  showProjectPanel({
+    workspace,
+    panel,
+  });
 }
 
 export function executeCommand(command: Command): void {
@@ -484,20 +477,20 @@ export function executeCommand(command: Command): void {
       // once here rather than per editor; only the font is per instance.
       refreshCodeTheme();
       for (const workspace of workspaces.values()) {
+        const panel = workspace.project;
+        if (panel !== undefined) {
+          panel.editor.updateOptions({
+            fontFamily: settings.fontFamily,
+            fontSize: settings.fontSize,
+          });
+          if (redraw) {
+            redrawProjectMarkdown(panel);
+          }
+        }
         for (const tab of workspace.tabs.values()) {
           if (tab.kind === "markdown") {
             if (redraw) {
               redrawMarkdown(tab);
-            }
-            continue;
-          }
-          if (tab.kind === "project") {
-            tab.editor.updateOptions({
-              fontFamily: settings.fontFamily,
-              fontSize: settings.fontSize,
-            });
-            if (redraw) {
-              redrawProjectMarkdown(tab);
             }
             continue;
           }
@@ -544,69 +537,50 @@ export function executeCommand(command: Command): void {
       if (command.preview !== undefined) {
         preview = command.preview;
       }
-      const project = findProjectTab(activeWorkspace);
-      if (project !== undefined) {
-        project.tab.panel.api.setActive();
-        openProjectFile({
-          id: project.id,
-          tab: project.tab,
-          filePath: command.path,
-          baseTabId: command.baseTabId,
-          preview,
-        });
-        return;
-      }
-      let group: DockviewGroupPanel | undefined;
-      if (command.groupId !== undefined) {
-        group = findGroup({
-          workspace: activeWorkspace,
-          groupId: command.groupId,
-        });
-        if (!group) {
-          return;
-        }
-      }
-      addProjectTab({
+      openProject({
         workspace: activeWorkspace,
         baseTabId: command.baseTabId,
         workspaceRootPath: undefined,
         initialFilePath: command.path,
         initialFilePreview: preview,
-        group,
       });
       return;
     }
     case "open-project": {
-      if (!activeWorkspace) {
+      const workspace = resolveWorkspace(command.workspaceId);
+      if (workspace === undefined) {
         return;
-      }
-      const project = findProjectTab(activeWorkspace);
-      if (project !== undefined) {
-        project.tab.panel.api.setActive();
-        focusProjectTab(project.tab);
-        return;
-      }
-      let group: DockviewGroupPanel | undefined;
-      if (command.groupId !== undefined) {
-        group = findGroup({
-          workspace: activeWorkspace,
-          groupId: command.groupId,
-        });
-        if (!group) {
-          return;
-        }
       }
       let baseTabId = command.baseTabId;
       if (baseTabId === undefined) {
-        baseTabId = activeWorkspace.activeId;
+        baseTabId = workspace.activeId;
       }
-      addProjectTab({
-        workspace: activeWorkspace,
+      openProject({
+        workspace,
         baseTabId,
         workspaceRootPath: undefined,
         initialFilePath: undefined,
         initialFilePreview: false,
-        group,
+      });
+      return;
+    }
+    case "close-project": {
+      const workspace = resolveWorkspace(command.workspaceId);
+      const panel = workspace?.project;
+      if (workspace === undefined || panel === undefined || !panel.visible) {
+        return;
+      }
+      panel.visible = false;
+      refreshProjectPanel();
+      // the keyboard was in the panel that just left, so the panes take it
+      if (workspace.focus === "project") {
+        workspace.focus = "layout";
+        focusWorkspace();
+      }
+      bridge.emitEvent({
+        type: "project-closed",
+        id: panel.id,
+        state: snapshot(),
       });
       return;
     }
@@ -615,45 +589,42 @@ export function executeCommand(command: Command): void {
       if (workspace === undefined) {
         return;
       }
-      const project = findProjectTab(workspace);
-      if (project === undefined) {
-        addProjectTab({
+      const panel = workspace.project;
+      if (panel === undefined) {
+        openProject({
           workspace,
           baseTabId: undefined,
           workspaceRootPath: command.path,
           initialFilePath: undefined,
           initialFilePreview: false,
-          group: undefined,
         });
         return;
       }
       changeProjectWorkspaceRoot({
-        id: project.id,
-        tab: project.tab,
-        workspace,
+        panel,
         workspaceRootPath: command.path,
+      });
+      showProjectPanel({
+        workspace,
+        panel,
       });
       return;
     }
     case "new-file": {
-      const resolved = resolveProjectTab(command.projectTabId);
-      if (resolved === undefined) {
+      const panel = resolveProject(command.projectTabId);
+      if (panel === undefined) {
         return;
       }
-      createUntitledProjectFile({
-        id: resolved.id,
-        tab: resolved.tab,
-      });
+      createUntitledProjectFile(panel);
       return;
     }
     case "move-file": {
-      const resolved = resolveProjectTab(command.projectTabId);
-      if (resolved === undefined) {
+      const panel = resolveProject(command.projectTabId);
+      if (panel === undefined) {
         return;
       }
       moveProjectFile({
-        id: resolved.id,
-        tab: resolved.tab,
+        panel,
         filePath: command.path,
         untitledId: command.untitledId,
         index: command.index,
@@ -661,39 +632,36 @@ export function executeCommand(command: Command): void {
       return;
     }
     case "activate-file": {
-      const resolved = resolveProjectTab(command.projectTabId);
-      if (resolved === undefined) {
+      const panel = resolveProject(command.projectTabId);
+      if (panel === undefined) {
         return;
       }
       activateProjectFile({
-        id: resolved.id,
-        tab: resolved.tab,
+        panel,
         filePath: command.path,
         untitledId: command.untitledId,
       });
       return;
     }
     case "close-file": {
-      const resolved = resolveProjectTab(command.projectTabId);
-      if (resolved === undefined) {
+      const panel = resolveProject(command.projectTabId);
+      if (panel === undefined) {
         return;
       }
       closeProjectFile({
-        id: resolved.id,
-        tab: resolved.tab,
+        panel,
         filePath: command.path,
         untitledId: command.untitledId,
       });
       return;
     }
     case "set-file-markdown-mode": {
-      const resolved = resolveProjectTab(command.projectTabId);
-      if (resolved === undefined) {
+      const panel = resolveProject(command.projectTabId);
+      if (panel === undefined) {
         return;
       }
       setProjectFileMarkdownMode({
-        id: resolved.id,
-        tab: resolved.tab,
+        panel,
         filePath: command.path,
         mode: command.mode,
       });
@@ -723,13 +691,12 @@ export function executeCommand(command: Command): void {
       return;
     }
     case "save-file": {
-      const resolved = resolveProjectTab(command.projectTabId);
-      if (resolved === undefined) {
+      const panel = resolveProject(command.projectTabId);
+      if (panel === undefined) {
         return;
       }
       saveProjectFile({
-        id: resolved.id,
-        tab: resolved.tab,
+        panel,
         filePath: command.path,
         untitledId: command.untitledId,
         destinationPath: command.destinationPath,
@@ -737,14 +704,11 @@ export function executeCommand(command: Command): void {
       return;
     }
     case "save-all-files": {
-      const resolved = resolveProjectTab(command.projectTabId);
-      if (resolved === undefined) {
+      const panel = resolveProject(command.projectTabId);
+      if (panel === undefined) {
         return;
       }
-      saveAllProjectFiles({
-        id: resolved.id,
-        tab: resolved.tab,
-      });
+      saveAllProjectFiles(panel);
       return;
     }
     case "toggle-maximize": {
@@ -790,11 +754,6 @@ export function executeCommand(command: Command): void {
       // the window always has a workspace to show
       if (workspaces.size === 1) {
         return;
-      }
-      for (const tab of workspace.tabs.values()) {
-        if (tab.kind === "project") {
-          disposeProjectTab(tab);
-        }
       }
       removeWorkspace(workspace);
       bridge.emitEvent({
@@ -850,6 +809,29 @@ export function executeCommand(command: Command): void {
 // Command is answered with a state snapshot broadcast to every observer,
 // which is the wrong shape for one caller asking about one tab.
 export function readScreen(request: ScreenRequest): ScreenResult {
+  // a panel's id shares the counter the tabs draw from, so it is asked for
+  // the same way a tab is
+  const panel = resolveProject(request.tabId);
+  if (panel !== undefined) {
+    let path: string | null = null;
+    let language: string | null = null;
+    if (panel.activeFileKey !== undefined) {
+      const buffer = panel.files.get(panel.activeFileKey);
+      if (buffer?.filePath !== undefined) {
+        path = buffer.filePath;
+      }
+      const model = panel.editor.getModel();
+      if (model !== null) {
+        language = model.getLanguageId();
+      }
+    }
+    return {
+      kind: "project",
+      workspaceRootPath: panel.workspaceRootPath,
+      path,
+      language,
+    };
+  }
   const found = findTab(request.tabId);
   if (found === undefined) {
     return { kind: "no-such-tab" };
@@ -859,26 +841,6 @@ export function readScreen(request: ScreenRequest): ScreenResult {
       kind: "markdown",
       path: found.tab.filePath,
       mode: found.tab.mode,
-    };
-  }
-  if (found.tab.kind === "project") {
-    let path: string | null = null;
-    let language: string | null = null;
-    if (found.tab.activeFileKey !== undefined) {
-      const buffer = found.tab.files.get(found.tab.activeFileKey);
-      if (buffer?.filePath !== undefined) {
-        path = buffer.filePath;
-      }
-      const model = found.tab.editor.getModel();
-      if (model !== null) {
-        language = model.getLanguageId();
-      }
-    }
-    return {
-      kind: "project",
-      workspaceRootPath: found.tab.workspaceRootPath,
-      path,
-      language,
     };
   }
   return readTerminalScreen({
@@ -923,38 +885,6 @@ export async function restoreSession(session: Session): Promise<void> {
         });
         continue;
       }
-      if (tab.kind === "project") {
-        await addProjectTab({
-          workspace,
-          baseTabId: undefined,
-          workspaceRootPath: tab.workspaceRootPath,
-          initialFilePath: undefined,
-          initialFilePreview: false,
-          group: undefined,
-        });
-        const project = findProjectTab(workspace);
-        if (project === undefined) {
-          continue;
-        }
-        for (const filePath of tab.files) {
-          await openProjectFile({
-            id: project.id,
-            tab: project.tab,
-            filePath,
-            baseTabId: undefined,
-            preview: false,
-          });
-        }
-        if (tab.activeFilePath !== null) {
-          activateProjectFile({
-            id: project.id,
-            tab: project.tab,
-            filePath: tab.activeFilePath,
-            untitledId: undefined,
-          });
-        }
-        continue;
-      }
       const terminalTabId = nextId++;
       openTerminalTab({
         workspace,
@@ -962,6 +892,33 @@ export async function restoreSession(session: Session): Promise<void> {
         group: undefined,
         tabElements: buildTabElement(terminalTabId),
       });
+    }
+    if (saved.project !== null) {
+      const panel = await ensureProjectPanel({
+        workspace,
+        baseTabId: undefined,
+        workspaceRootPath: saved.project.workspaceRootPath,
+        initialFilePath: undefined,
+      });
+      for (const filePath of saved.project.files) {
+        await openProjectFile({
+          panel,
+          filePath,
+          baseTabId: undefined,
+          preview: false,
+        });
+      }
+      if (saved.project.activeFilePath !== null) {
+        activateProjectFile({
+          panel,
+          filePath: saved.project.activeFilePath,
+          untitledId: undefined,
+        });
+      }
+      // restored, not opened: the panel comes back on screen without the
+      // keyboard, which belongs to the tab that was active
+      panel.visible = saved.project.visible;
+      refreshProjectPanel();
     }
     // the store keeps insertion order, so the saved position is the tab
     const restoredIds = Array.from(workspace.tabs.keys());
@@ -999,9 +956,6 @@ export function removeTab(id: number): void {
     tab.observer.disconnect();
     tab.terminal.dispose();
   }
-  if (tab.kind === "project") {
-    disposeProjectTab(tab);
-  }
   if (id === workspace.activeId) {
     workspace.activeId = -1;
   }
@@ -1016,8 +970,19 @@ export function removeTab(id: number): void {
   });
 }
 
-export function focusActiveTab(): void {
+// Where the keyboard belongs in the active workspace: its panel while that
+// is the half being worked in, its active tab otherwise.
+export function focusWorkspace(): void {
   if (!activeWorkspace) {
+    return;
+  }
+  const panel = activeWorkspace.project;
+  if (
+    activeWorkspace.focus === "project" &&
+    panel !== undefined &&
+    panel.visible
+  ) {
+    focusProjectPanel(panel);
     return;
   }
   const tab = activeWorkspace.tabs.get(activeWorkspace.activeId);
@@ -1026,8 +991,5 @@ export function focusActiveTab(): void {
   }
   if (tab?.kind === "markdown") {
     tab.contentElement.focus();
-  }
-  if (tab?.kind === "project") {
-    focusProjectTab(tab);
   }
 }

@@ -1,6 +1,7 @@
 // One workspace's file experience: its stable root, tree, file tabs and
-// editor. Dockview sees this whole unit as one project tab.
-import { bridge } from "../bridge.ts";
+// editor. Not a tab: a workspace has exactly one of these, it lives in the
+// panel beside the pane layout, and hiding it leaves every file open.
+import { bridge } from "./bridge.ts";
 import {
   createCodeEditor,
   languageForPath,
@@ -12,13 +13,13 @@ import {
   readProjectTreeGitDecorationsResultSchema,
   saveNewFileResultSchema,
   watchProjectTreeResultSchema,
-} from "../../ipc/bridge.ts";
+} from "../ipc/bridge.ts";
 import type {
   ReadProjectTreeGitDecorationsResult,
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
   WatchProjectTreeResult,
-} from "../../ipc/bridge.ts";
+} from "../ipc/bridge.ts";
 import {
   focusProjectTree,
   mountProjectTree,
@@ -26,18 +27,12 @@ import {
   setProjectTreeGitDecorations,
 } from "./project-tree.ts";
 import type { ProjectTree } from "./project-tree.ts";
-import { renderMarkdown } from "./markdown.ts";
-import { executeCommand } from "./index.ts";
-import type { TabElements } from "./index.ts";
-import {
-  addPanel,
-  refreshWorkspaceName,
-  snapshot,
-} from "../workspaces.ts";
-import type { Workspace } from "../workspaces.ts";
-import type { MarkdownMode } from "../../api.ts";
+import { renderMarkdown } from "./tabs/markdown.ts";
+import { executeCommand } from "./tabs/index.ts";
+import { snapshot } from "./workspaces.ts";
+import { requireElement } from "./dom.ts";
+import type { MarkdownMode } from "../api.ts";
 import type { editor as monacoEditor } from "monaco-editor";
-import type { IDockviewPanel, DockviewGroupPanel } from "dockview";
 
 export type ProjectFileBuffer = {
   resourceKey: string;
@@ -56,11 +51,12 @@ export type ProjectFileBuffer = {
   viewState: monacoEditor.ICodeEditorViewState | null;
 };
 
-export type ProjectTab = {
-  kind: "project";
-  panel: IDockviewPanel;
-  titleElement: HTMLElement;
-  titlePinned: boolean;
+export type ProjectPanel = {
+  id: number; // what a command's projectTabId names
+  element: HTMLElement;
+  nameElement: HTMLElement;
+  name: string; // the root folder's, worn by the panel's header
+  visible: boolean;
   treeElement: HTMLElement;
   editorElement: HTMLElement;
   fileTabsElement: HTMLElement;
@@ -86,8 +82,9 @@ export type ProjectTab = {
   projectTreeWatcherRetryTimer: number | undefined;
 };
 
-type ProjectPane = {
-  paneElement: HTMLElement;
+type ProjectPanelElements = {
+  panelElement: HTMLElement;
+  nameElement: HTMLElement;
   treeElement: HTMLElement;
   editorElement: HTMLElement;
   fileTabsElement: HTMLElement;
@@ -98,6 +95,10 @@ type ProjectPane = {
   markdownToolbarElement: HTMLElement;
   markdownModeButton: HTMLElement;
 };
+
+// Holds one panel per workspace, the way #layout holds one Dockview root
+// each; workspaces.ts decides which is on screen.
+const projectHostElement = requireElement("project");
 
 const DEFAULT_PROJECT_TREE_WIDTH_PX = 260;
 const MIN_PROJECT_TREE_WIDTH_PX = 120;
@@ -174,7 +175,7 @@ function mountProjectTreeResizeHandle({
   });
 }
 
-function buildProjectPane(): ProjectPane {
+function buildProjectPanelElements(): ProjectPanelElements {
   const treeElement = document.createElement("div");
   treeElement.className = "project-tree";
   treeElement.tabIndex = -1;
@@ -268,8 +269,31 @@ function buildProjectPane(): ProjectPane {
     resizeHandleElement,
   });
 
+  // The header says which project this is and takes it off screen: what the
+  // Dockview tab used to do, for a panel that no longer has one.
+  const nameElement = document.createElement("span");
+  nameElement.className = "project-name";
+
+  const hideElement = document.createElement("button");
+  hideElement.className = "project-hide";
+  hideElement.textContent = "×";
+  hideElement.title = "Hide Project Panel (⌘B)";
+  hideElement.ariaLabel = "Hide project panel";
+  hideElement.addEventListener("click", () => {
+    executeCommand({ type: "close-project" });
+  });
+
+  const headerElement = document.createElement("div");
+  headerElement.className = "project-header";
+  headerElement.append(nameElement, hideElement);
+
+  const panelElement = document.createElement("div");
+  panelElement.className = "project-panel";
+  panelElement.append(headerElement, paneElement);
+
   return {
-    paneElement,
+    panelElement,
+    nameElement,
     treeElement,
     editorElement,
     fileTabsElement,
@@ -333,7 +357,7 @@ function buildFileTab({ title }: BuildFileTabOptions): FileTabElements {
   tabElement.className = "file-tab";
   tabElement.tabIndex = -1;
   tabElement.draggable = true;
-  tabElement.setAttribute("role", "tab");
+  tabElement.setAttribute("role", "panel");
   tabElement.append(titleElement, closeElement);
 
   return {
@@ -343,16 +367,15 @@ function buildFileTab({ title }: BuildFileTabOptions): FileTabElements {
   };
 }
 
-function clearFileTabDropIndicators(tab: ProjectTab): void {
-  for (const buffer of tab.files.values()) {
+function clearFileTabDropIndicators(panel: ProjectPanel): void {
+  for (const buffer of panel.files.values()) {
     buffer.tabElement.classList.remove("file-drop-before");
     buffer.tabElement.classList.remove("file-drop-after");
   }
 }
 
 type AddProjectFileBufferOptions = {
-  id: number;
-  tab: ProjectTab;
+  panel: ProjectPanel;
   resourceKey: string;
   filePath: string | undefined;
   untitledId: number | undefined;
@@ -364,8 +387,7 @@ type AddProjectFileBufferOptions = {
 };
 
 function addProjectFileBuffer({
-  id,
-  tab,
+  panel,
   resourceKey,
   filePath,
   untitledId,
@@ -401,14 +423,14 @@ function addProjectFileBuffer({
     event.stopPropagation();
     if (buffer.filePath !== undefined) {
       bridge.closeFile({
-        projectTabId: id,
+        projectTabId: panel.id,
         filePath: buffer.filePath,
       });
       return;
     }
     if (buffer.untitledId !== undefined) {
       bridge.closeFile({
-        projectTabId: id,
+        projectTabId: panel.id,
         untitledId: buffer.untitledId,
       });
     }
@@ -417,14 +439,14 @@ function addProjectFileBuffer({
     if (buffer.filePath !== undefined) {
       executeCommand({
         type: "activate-file",
-        projectTabId: id,
+        projectTabId: panel.id,
         path: buffer.filePath,
       });
       return;
     }
     executeCommand({
       type: "activate-file",
-      projectTabId: id,
+      projectTabId: panel.id,
       untitledId: buffer.untitledId,
     });
   });
@@ -439,7 +461,7 @@ function addProjectFileBuffer({
     }
     executeCommand({
       type: "activate-file",
-      projectTabId: id,
+      projectTabId: panel.id,
       untitledId: buffer.untitledId,
     });
   });
@@ -451,31 +473,31 @@ function addProjectFileBuffer({
     if (buffer.filePath !== undefined) {
       executeCommand({
         type: "activate-file",
-        projectTabId: id,
+        projectTabId: panel.id,
         path: buffer.filePath,
       });
       return;
     }
     executeCommand({
       type: "activate-file",
-      projectTabId: id,
+      projectTabId: panel.id,
       untitledId: buffer.untitledId,
     });
   });
   fileTab.tabElement.addEventListener("dragstart", (event) => {
-    tab.draggedFileKey = buffer.resourceKey;
+    panel.draggedFileKey = buffer.resourceKey;
     if (event.dataTransfer !== null) {
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", buffer.resourceKey);
     }
   });
   fileTab.tabElement.addEventListener("dragend", () => {
-    tab.draggedFileKey = undefined;
-    clearFileTabDropIndicators(tab);
+    panel.draggedFileKey = undefined;
+    clearFileTabDropIndicators(panel);
   });
 
-  tab.files.set(resourceKey, buffer);
-  tab.fileTabsElement.append(fileTab.tabElement);
+  panel.files.set(resourceKey, buffer);
+  panel.fileTabsElement.append(fileTab.tabElement);
   return buffer;
 }
 
@@ -500,48 +522,48 @@ function updateFileTab(buffer: ProjectFileBuffer): void {
 const PROJECT_TREE_WATCH_RETRY_LIMIT = 3;
 const PROJECT_TREE_WATCH_RETRY_DELAY_MS = 500;
 
-const projectTabsByTreeWatcherId = new Map<number, ProjectTab>();
+const projectTabsByTreeWatcherId = new Map<number, ProjectPanel>();
 
 type StartProjectTreeWatcherOptions = {
-  tab: ProjectTab;
+  panel: ProjectPanel;
   treeRequest: number;
 };
 
 type HandleProjectTreeChangeOptions = {
-  tab: ProjectTab;
+  panel: ProjectPanel;
   paths: string[] | null;
 };
 
 type ScheduleProjectTreeWatcherRetryOptions = {
-  tab: ProjectTab;
+  panel: ProjectPanel;
   projectTree: ProjectTree;
 };
 
-function stopProjectTreeWatcher(tab: ProjectTab): void {
-  if (tab.projectTreeWatcherRetryTimer !== undefined) {
-    window.clearTimeout(tab.projectTreeWatcherRetryTimer);
-    tab.projectTreeWatcherRetryTimer = undefined;
+function stopProjectTreeWatcher(panel: ProjectPanel): void {
+  if (panel.projectTreeWatcherRetryTimer !== undefined) {
+    window.clearTimeout(panel.projectTreeWatcherRetryTimer);
+    panel.projectTreeWatcherRetryTimer = undefined;
   }
-  tab.projectTreeWatcherRetryCount = 0;
+  panel.projectTreeWatcherRetryCount = 0;
 
-  const watcherId = tab.projectTreeWatcherId;
+  const watcherId = panel.projectTreeWatcherId;
   if (watcherId === undefined) {
     return;
   }
-  tab.projectTreeWatcherId = undefined;
+  panel.projectTreeWatcherId = undefined;
   projectTabsByTreeWatcherId.delete(watcherId);
   bridge.unwatchProjectTree({ watcherId });
 }
 
 async function refreshProjectTreeGitDecorations(
-  tab: ProjectTab,
+  panel: ProjectPanel,
 ): Promise<void> {
-  const projectTree = tab.projectTree;
+  const projectTree = panel.projectTree;
   if (projectTree === undefined) {
     return;
   }
-  tab.latestGitRequest += 1;
-  const gitRequest = tab.latestGitRequest;
+  panel.latestGitRequest += 1;
+  const gitRequest = panel.latestGitRequest;
 
   let result: ReadProjectTreeGitDecorationsResult;
   try {
@@ -554,8 +576,8 @@ async function refreshProjectTreeGitDecorations(
     return;
   }
   if (
-    gitRequest !== tab.latestGitRequest ||
-    tab.projectTree !== projectTree ||
+    gitRequest !== panel.latestGitRequest ||
+    panel.projectTree !== projectTree ||
     result.workspaceRootPath !== projectTree.workspaceRootPath
   ) {
     return;
@@ -567,10 +589,10 @@ async function refreshProjectTreeGitDecorations(
 }
 
 async function startProjectTreeWatcher({
-  tab,
+  panel,
   treeRequest,
 }: StartProjectTreeWatcherOptions): Promise<void> {
-  const projectTree = tab.projectTree;
+  const projectTree = panel.projectTree;
   if (projectTree === undefined) {
     return;
   }
@@ -589,21 +611,21 @@ async function startProjectTreeWatcher({
     return;
   }
   if (
-    treeRequest !== tab.latestTreeRequest ||
-    tab.projectTree !== projectTree
+    treeRequest !== panel.latestTreeRequest ||
+    panel.projectTree !== projectTree
   ) {
     bridge.unwatchProjectTree({ watcherId: result.watcherId });
     return;
   }
-  tab.projectTreeWatcherId = result.watcherId;
-  projectTabsByTreeWatcherId.set(result.watcherId, tab);
+  panel.projectTreeWatcherId = result.watcherId;
+  projectTabsByTreeWatcherId.set(result.watcherId, panel);
 }
 
 async function handleProjectTreeChange({
-  tab,
+  panel,
   paths,
 }: HandleProjectTreeChangeOptions): Promise<void> {
-  const projectTree = tab.projectTree;
+  const projectTree = panel.projectTree;
   if (projectTree === undefined) {
     return;
   }
@@ -611,53 +633,53 @@ async function handleProjectTreeChange({
     projectTree,
     paths,
   });
-  if (tab.projectTree !== projectTree) {
+  if (panel.projectTree !== projectTree) {
     return;
   }
-  await refreshProjectTreeGitDecorations(tab);
+  await refreshProjectTreeGitDecorations(panel);
 }
 
 function scheduleProjectTreeWatcherRetry({
-  tab,
+  panel,
   projectTree,
 }: ScheduleProjectTreeWatcherRetryOptions): void {
   if (
-    tab.projectTreeWatcherRetryCount >= PROJECT_TREE_WATCH_RETRY_LIMIT ||
-    tab.projectTreeWatcherRetryTimer !== undefined
+    panel.projectTreeWatcherRetryCount >= PROJECT_TREE_WATCH_RETRY_LIMIT ||
+    panel.projectTreeWatcherRetryTimer !== undefined
   ) {
     return;
   }
-  tab.projectTreeWatcherRetryCount += 1;
+  panel.projectTreeWatcherRetryCount += 1;
   const retryDelay =
-    PROJECT_TREE_WATCH_RETRY_DELAY_MS * tab.projectTreeWatcherRetryCount;
-  tab.projectTreeWatcherRetryTimer = window.setTimeout(async () => {
-    tab.projectTreeWatcherRetryTimer = undefined;
+    PROJECT_TREE_WATCH_RETRY_DELAY_MS * panel.projectTreeWatcherRetryCount;
+  panel.projectTreeWatcherRetryTimer = window.setTimeout(async () => {
+    panel.projectTreeWatcherRetryTimer = undefined;
     if (
-      tab.projectTree !== projectTree ||
-      tab.projectTreeWatcherId !== undefined
+      panel.projectTree !== projectTree ||
+      panel.projectTreeWatcherId !== undefined
     ) {
       return;
     }
-    const treeRequest = tab.latestTreeRequest;
+    const treeRequest = panel.latestTreeRequest;
     await startProjectTreeWatcher({
-      tab,
+      panel,
       treeRequest,
     });
     if (
-      tab.projectTree !== projectTree ||
-      treeRequest !== tab.latestTreeRequest
+      panel.projectTree !== projectTree ||
+      treeRequest !== panel.latestTreeRequest
     ) {
       return;
     }
-    if (tab.projectTreeWatcherId === undefined) {
+    if (panel.projectTreeWatcherId === undefined) {
       scheduleProjectTreeWatcherRetry({
-        tab,
+        panel,
         projectTree,
       });
       return;
     }
     await handleProjectTreeChange({
-      tab,
+      panel,
       paths: null,
     });
   }, retryDelay);
@@ -670,71 +692,71 @@ bridge.onProjectTreeChanged(async (unvalidatedMessage) => {
   if (!messageResult.success) {
     return;
   }
-  const tab = projectTabsByTreeWatcherId.get(
+  const panel = projectTabsByTreeWatcherId.get(
     messageResult.data.watcherId,
   );
   if (
-    tab === undefined ||
-    tab.projectTreeWatcherId !== messageResult.data.watcherId
+    panel === undefined ||
+    panel.projectTreeWatcherId !== messageResult.data.watcherId
   ) {
     return;
   }
   if (messageResult.data.stopped === true) {
-    const projectTree = tab.projectTree;
+    const projectTree = panel.projectTree;
     projectTabsByTreeWatcherId.delete(messageResult.data.watcherId);
-    tab.projectTreeWatcherId = undefined;
+    panel.projectTreeWatcherId = undefined;
     await handleProjectTreeChange({
-      tab,
+      panel,
       paths: null,
     });
-    if (projectTree !== undefined && tab.projectTree === projectTree) {
+    if (projectTree !== undefined && panel.projectTree === projectTree) {
       scheduleProjectTreeWatcherRetry({
-        tab,
+        panel,
         projectTree,
       });
     }
     return;
   }
   await handleProjectTreeChange({
-    tab,
+    panel,
     paths: messageResult.data.paths,
   });
 });
 
-function showEmptyEditor(tab: ProjectTab): void {
-  tab.activeFileKey = undefined;
-  tab.editor.setModel(null);
-  tab.emptyElement.classList.add("visible");
-  tab.errorElement.classList.remove("visible");
-  tab.editorElement.classList.remove("visible");
-  tab.statusElement.classList.remove("visible");
-  hideMarkdownView(tab);
-  for (const buffer of tab.files.values()) {
+function showEmptyEditor(panel: ProjectPanel): void {
+  panel.activeFileKey = undefined;
+  panel.editor.setModel(null);
+  panel.emptyElement.classList.add("visible");
+  panel.errorElement.classList.remove("visible");
+  panel.editorElement.classList.remove("visible");
+  panel.statusElement.classList.remove("visible");
+  hideMarkdownView(panel);
+  for (const buffer of panel.files.values()) {
     buffer.tabElement.classList.remove("active");
     buffer.tabElement.setAttribute("aria-selected", "false");
   }
 }
 
 type ActivateBufferOptions = {
-  tab: ProjectTab;
+  panel: ProjectPanel;
   buffer: ProjectFileBuffer;
 };
 
 function activateBuffer({
-  tab,
+  panel,
   buffer,
 }: ActivateBufferOptions): void {
-  if (tab.activeFileKey !== undefined) {
-    const activeBuffer = tab.files.get(tab.activeFileKey);
+  if (panel.activeFileKey !== undefined) {
+    const activeBuffer = panel.files.get(panel.activeFileKey);
     if (activeBuffer !== undefined && activeBuffer.model !== undefined) {
-      activeBuffer.viewState = tab.editor.saveViewState();
+      activeBuffer.viewState = panel.editor.saveViewState();
     }
   }
 
-  tab.activeFileKey = buffer.resourceKey;
-  tab.emptyElement.classList.remove("visible");
-  tab.statusElement.classList.remove("visible");
-  for (const candidate of tab.files.values()) {
+  panel.activeFileKey = buffer.resourceKey;
+  panel.emptyElement.classList.remove("visible");
+  panel.statusElement.classList.remove("visible");
+  for (const candidate of panel.files.values()) {
     const active = candidate === buffer;
     candidate.tabElement.classList.toggle("active", active);
     candidate.tabElement.setAttribute("aria-selected", String(active));
@@ -745,38 +767,38 @@ function activateBuffer({
   }
 
   if (buffer.model === undefined) {
-    tab.editor.setModel(null);
-    tab.editorElement.classList.remove("visible");
-    hideMarkdownView(tab);
+    panel.editor.setModel(null);
+    panel.editorElement.classList.remove("visible");
+    hideMarkdownView(panel);
     let errorMessage = "Could not open this file.";
     if (buffer.error !== undefined) {
       errorMessage = buffer.error;
     }
-    tab.errorElement.textContent = errorMessage;
-    tab.errorElement.classList.add("visible");
-    tab.errorElement.focus();
+    panel.errorElement.textContent = errorMessage;
+    panel.errorElement.classList.add("visible");
+    panel.errorElement.focus();
     return;
   }
 
-  tab.errorElement.classList.remove("visible");
-  tab.editor.setModel(buffer.model);
+  panel.errorElement.classList.remove("visible");
+  panel.editor.setModel(buffer.model);
   if (buffer.viewState !== null) {
-    tab.editor.restoreViewState(buffer.viewState);
+    panel.editor.restoreViewState(buffer.viewState);
   }
   showActiveFileView({
-    tab,
+    panel,
     buffer,
   });
 }
 
-function hideMarkdownView(tab: ProjectTab): void {
-  tab.markdownToolbarElement.classList.remove("visible");
-  tab.markdownElement.classList.remove("visible");
-  tab.markdownElement.replaceChildren();
+function hideMarkdownView(panel: ProjectPanel): void {
+  panel.markdownToolbarElement.classList.remove("visible");
+  panel.markdownElement.classList.remove("visible");
+  panel.markdownElement.replaceChildren();
 }
 
 type ShowActiveFileViewOptions = {
-  tab: ProjectTab;
+  panel: ProjectPanel;
   buffer: ProjectFileBuffer;
 };
 
@@ -786,82 +808,82 @@ type ShowActiveFileViewOptions = {
 // the save path never notice the swap. The rendering reads the buffer, not
 // the disk, so unsaved edits show and there is nothing to reload.
 function showActiveFileView({
-  tab,
+  panel,
   buffer,
 }: ShowActiveFileViewOptions): void {
   const model = buffer.model;
   const markdown =
     model !== undefined && model.getLanguageId() === "markdown";
-  tab.markdownToolbarElement.classList.toggle("visible", markdown);
+  panel.markdownToolbarElement.classList.toggle("visible", markdown);
   if (markdown && buffer.markdownMode === "rendered") {
     // the button names the mode it would switch to, like a play button
-    tab.markdownModeButton.textContent = "Edit";
-    tab.editorElement.classList.remove("visible");
+    panel.markdownModeButton.textContent = "Edit";
+    panel.editorElement.classList.remove("visible");
     const { view } = renderMarkdown(model.getValue());
-    tab.markdownElement.replaceChildren(view);
-    tab.markdownElement.classList.add("visible");
-    tab.markdownElement.focus();
+    panel.markdownElement.replaceChildren(view);
+    panel.markdownElement.classList.add("visible");
+    panel.markdownElement.focus();
     return;
   }
-  tab.markdownModeButton.textContent = "Rendered";
-  tab.markdownElement.classList.remove("visible");
-  tab.markdownElement.replaceChildren();
-  tab.editorElement.classList.add("visible");
-  tab.editor.focus();
+  panel.markdownModeButton.textContent = "Rendered";
+  panel.markdownElement.classList.remove("visible");
+  panel.markdownElement.replaceChildren();
+  panel.editorElement.classList.add("visible");
+  panel.editor.focus();
 }
 
 type PinProjectFileOptions = {
-  tab: ProjectTab;
+  panel: ProjectPanel;
   filePath: string;
 };
 
 function pinProjectFile({
-  tab,
+  panel,
   filePath,
 }: PinProjectFileOptions): void {
-  const buffer = tab.files.get(filePath);
+  const buffer = panel.files.get(filePath);
   if (buffer === undefined || buffer.pinned) {
     return;
   }
   buffer.pinned = true;
-  if (tab.previewFileKey === filePath) {
-    tab.previewFileKey = undefined;
+  if (panel.previewFileKey === filePath) {
+    panel.previewFileKey = undefined;
   }
   updateFileTab(buffer);
 }
 
 type DisposeBufferOptions = {
-  tab: ProjectTab;
+  panel: ProjectPanel;
   buffer: ProjectFileBuffer;
 };
 
-function disposeBuffer({ tab, buffer }: DisposeBufferOptions): void {
-  if (tab.previewFileKey === buffer.resourceKey) {
-    tab.previewFileKey = undefined;
+function disposeBuffer({ panel, buffer }: DisposeBufferOptions): void {
+  if (panel.previewFileKey === buffer.resourceKey) {
+    panel.previewFileKey = undefined;
   }
-  tab.files.delete(buffer.resourceKey);
+  panel.files.delete(buffer.resourceKey);
   buffer.tabElement.remove();
   buffer.model?.dispose();
 }
 
 type FindProjectFileBufferOptions = {
-  tab: ProjectTab;
+  panel: ProjectPanel;
   filePath: string | undefined;
   untitledId: number | undefined;
 };
 
 function findProjectFileBuffer({
-  tab,
+  panel,
   filePath,
   untitledId,
 }: FindProjectFileBufferOptions): ProjectFileBuffer | undefined {
   if (filePath !== undefined) {
-    return tab.files.get(filePath);
+    return panel.files.get(filePath);
   }
   if (untitledId === undefined) {
     return undefined;
   }
-  for (const buffer of tab.files.values()) {
+  for (const buffer of panel.files.values()) {
     if (buffer.untitledId === untitledId) {
       return buffer;
     }
@@ -870,50 +892,48 @@ function findProjectFileBuffer({
 }
 
 type CloseProjectFileOptions = {
-  id: number;
-  tab: ProjectTab;
+  panel: ProjectPanel;
   filePath: string | undefined;
   untitledId: number | undefined;
 };
 
 export function closeProjectFile({
-  id,
-  tab,
+  panel,
   filePath,
   untitledId,
 }: CloseProjectFileOptions): void {
   const buffer = findProjectFileBuffer({
-    tab,
+    panel,
     filePath,
     untitledId,
   });
   if (buffer === undefined) {
     return;
   }
-  const resourceKeys = Array.from(tab.files.keys());
+  const resourceKeys = Array.from(panel.files.keys());
   const closingPosition = resourceKeys.indexOf(buffer.resourceKey);
-  const wasActive = tab.activeFileKey === buffer.resourceKey;
+  const wasActive = panel.activeFileKey === buffer.resourceKey;
   const closedPath = buffer.filePath;
   const closedUntitledId = buffer.untitledId;
   disposeBuffer({
-    tab,
+    panel,
     buffer,
   });
 
   if (wasActive) {
-    const remainingKeys = Array.from(tab.files.keys());
+    const remainingKeys = Array.from(panel.files.keys());
     let nextPosition = closingPosition;
     if (nextPosition >= remainingKeys.length) {
       nextPosition = remainingKeys.length - 1;
     }
     const nextKey = remainingKeys.at(nextPosition);
     if (nextKey === undefined) {
-      showEmptyEditor(tab);
+      showEmptyEditor(panel);
     } else {
-      const nextBuffer = tab.files.get(nextKey);
+      const nextBuffer = panel.files.get(nextKey);
       if (nextBuffer !== undefined) {
         activateBuffer({
-          tab,
+          panel,
           buffer: nextBuffer,
         });
       }
@@ -926,7 +946,7 @@ export function closeProjectFile({
   }
   bridge.emitEvent({
     type: "file-closed",
-    id,
+    id: panel.id,
     path: eventPath,
     untitledId: closedUntitledId,
     state: snapshot(),
@@ -934,20 +954,18 @@ export function closeProjectFile({
 }
 
 type ActivateProjectFileOptions = {
-  id: number;
-  tab: ProjectTab;
+  panel: ProjectPanel;
   filePath: string | undefined;
   untitledId: number | undefined;
 };
 
 export function activateProjectFile({
-  id,
-  tab,
+  panel,
   filePath,
   untitledId,
 }: ActivateProjectFileOptions): void {
   const buffer = findProjectFileBuffer({
-    tab,
+    panel,
     filePath,
     untitledId,
   });
@@ -955,7 +973,7 @@ export function activateProjectFile({
     return;
   }
   activateBuffer({
-    tab,
+    panel,
     buffer,
   });
   let eventPath: string | null = null;
@@ -964,7 +982,7 @@ export function activateProjectFile({
   }
   bridge.emitEvent({
     type: "file-activated",
-    id,
+    id: panel.id,
     path: eventPath,
     untitledId: buffer.untitledId,
     state: snapshot(),
@@ -972,28 +990,26 @@ export function activateProjectFile({
 }
 
 type SetProjectFileMarkdownModeOptions = {
-  id: number;
-  tab: ProjectTab;
+  panel: ProjectPanel;
   filePath: string | undefined;
   mode: MarkdownMode;
 };
 
 // Only a markdown buffer has a rendered face; the command ignores anything
-// else, the way set-markdown-mode ignores a tab that isn't a document.
+// else, the way set-markdown-mode ignores a panel that isn't a document.
 export function setProjectFileMarkdownMode({
-  id,
-  tab,
+  panel,
   filePath,
   mode,
 }: SetProjectFileMarkdownModeOptions): void {
   let resourceKey = filePath;
   if (resourceKey === undefined) {
-    resourceKey = tab.activeFileKey;
+    resourceKey = panel.activeFileKey;
   }
   if (resourceKey === undefined) {
     return;
   }
-  const buffer = tab.files.get(resourceKey);
+  const buffer = panel.files.get(resourceKey);
   if (
     buffer === undefined ||
     buffer.filePath === undefined ||
@@ -1003,15 +1019,15 @@ export function setProjectFileMarkdownMode({
     return;
   }
   buffer.markdownMode = mode;
-  if (tab.activeFileKey === buffer.resourceKey) {
+  if (panel.activeFileKey === buffer.resourceKey) {
     showActiveFileView({
-      tab,
+      panel,
       buffer,
     });
   }
   bridge.emitEvent({
     type: "file-markdown-mode-changed",
-    id,
+    id: panel.id,
     path: buffer.filePath,
     state: snapshot(),
   });
@@ -1019,38 +1035,29 @@ export function setProjectFileMarkdownMode({
 
 // A drawn diagram has the theme and the font baked into its SVG, so a
 // rendered buffer follows a settings change by being drawn again.
-export function redrawProjectMarkdown(tab: ProjectTab): void {
-  if (tab.activeFileKey === undefined) {
+export function redrawProjectMarkdown(panel: ProjectPanel): void {
+  if (panel.activeFileKey === undefined) {
     return;
   }
-  const buffer = tab.files.get(tab.activeFileKey);
+  const buffer = panel.files.get(panel.activeFileKey);
   if (buffer === undefined || buffer.markdownMode !== "rendered") {
     return;
   }
   showActiveFileView({
-    tab,
+    panel,
     buffer,
   });
 }
 
-type CreateUntitledProjectFileOptions = {
-  id: number;
-  tab: ProjectTab;
-};
-
-export function createUntitledProjectFile({
-  id,
-  tab,
-}: CreateUntitledProjectFileOptions): void {
+export function createUntitledProjectFile(panel: ProjectPanel): void {
   const untitledId = nextUntitledId++;
   const resourceKey = `untitled:${untitledId}`;
   const buffer = addProjectFileBuffer({
-    id,
-    tab,
+    panel,
     resourceKey,
     filePath: undefined,
     untitledId,
-    model: tab.monaco.editor.createModel("", "plaintext"),
+    model: panel.monaco.editor.createModel("", "plaintext"),
     mtimeMs: undefined,
     dirty: false,
     pinned: true,
@@ -1058,41 +1065,39 @@ export function createUntitledProjectFile({
   });
   updateFileTab(buffer);
   activateBuffer({
-    tab,
+    panel,
     buffer,
   });
   bridge.emitEvent({
     type: "file-created",
-    id,
+    id: panel.id,
     untitledId,
     state: snapshot(),
   });
 }
 
 type MoveProjectFileOptions = {
-  id: number;
-  tab: ProjectTab;
+  panel: ProjectPanel;
   filePath: string | undefined;
   untitledId: number | undefined;
   index: number;
 };
 
 export function moveProjectFile({
-  id,
-  tab,
+  panel,
   filePath,
   untitledId,
   index,
 }: MoveProjectFileOptions): void {
   const buffer = findProjectFileBuffer({
-    tab,
+    panel,
     filePath,
     untitledId,
   });
   if (buffer === undefined) {
     return;
   }
-  const orderedBuffers = Array.from(tab.files.values());
+  const orderedBuffers = Array.from(panel.files.values());
   const currentIndex = orderedBuffers.indexOf(buffer);
   orderedBuffers.splice(currentIndex, 1);
   let targetIndex = index;
@@ -1106,20 +1111,20 @@ export function moveProjectFile({
     return;
   }
   orderedBuffers.splice(targetIndex, 0, buffer);
-  tab.files.clear();
+  panel.files.clear();
   const tabElements: HTMLElement[] = [];
   for (const orderedBuffer of orderedBuffers) {
-    tab.files.set(orderedBuffer.resourceKey, orderedBuffer);
+    panel.files.set(orderedBuffer.resourceKey, orderedBuffer);
     tabElements.push(orderedBuffer.tabElement);
   }
-  tab.fileTabsElement.replaceChildren(...tabElements);
+  panel.fileTabsElement.replaceChildren(...tabElements);
   let eventPath: string | null = null;
   if (buffer.filePath !== undefined) {
     eventPath = buffer.filePath;
   }
   bridge.emitEvent({
     type: "file-moved",
-    id,
+    id: panel.id,
     path: eventPath,
     untitledId: buffer.untitledId,
     state: snapshot(),
@@ -1127,28 +1132,26 @@ export function moveProjectFile({
 }
 
 type OpenProjectFileOptions = {
-  id: number;
-  tab: ProjectTab;
+  panel: ProjectPanel;
   filePath: string;
   baseTabId: number | undefined;
   preview: boolean;
 };
 
 export async function openProjectFile({
-  id,
-  tab,
+  panel,
   filePath,
   baseTabId,
   preview,
 }: OpenProjectFileOptions): Promise<void> {
-  tab.latestFileRequest += 1;
-  const fileRequest = tab.latestFileRequest;
+  panel.latestFileRequest += 1;
+  const fileRequest = panel.latestFileRequest;
 
   const result = await bridge.readFile({
     path: filePath,
     baseTabId,
   });
-  if (preview && fileRequest !== tab.latestFileRequest) {
+  if (preview && fileRequest !== panel.latestFileRequest) {
     return;
   }
 
@@ -1157,32 +1160,32 @@ export async function openProjectFile({
     resolvedPath = result.resolvedPath;
   }
 
-  const existing = tab.files.get(resolvedPath);
+  const existing = panel.files.get(resolvedPath);
   if (existing !== undefined) {
     if (!preview) {
       pinProjectFile({
-        tab,
+        panel,
         filePath: resolvedPath,
       });
     }
     activateBuffer({
-      tab,
+      panel,
       buffer: existing,
     });
     bridge.emitEvent({
       type: "file-activated",
-      id,
+      id: panel.id,
       path: resolvedPath,
       state: snapshot(),
     });
     return;
   }
 
-  if (preview && tab.previewFileKey !== undefined) {
-    const previousPreview = tab.files.get(tab.previewFileKey);
+  if (preview && panel.previewFileKey !== undefined) {
+    const previousPreview = panel.files.get(panel.previewFileKey);
     if (previousPreview !== undefined) {
       disposeBuffer({
-        tab,
+        panel,
         buffer: previousPreview,
       });
     }
@@ -1194,18 +1197,17 @@ export async function openProjectFile({
   if ("error" in result) {
     error = result.error;
   } else {
-    model = tab.monaco.editor.createModel(
+    model = panel.monaco.editor.createModel(
       result.content,
       languageForPath({
-        monaco: tab.monaco,
+        monaco: panel.monaco,
         filePath: resolvedPath,
       }),
     );
     mtimeMs = result.mtimeMs;
   }
   const buffer = addProjectFileBuffer({
-    id,
-    tab,
+    panel,
     resourceKey: resolvedPath,
     filePath: resolvedPath,
     untitledId: undefined,
@@ -1216,47 +1218,45 @@ export async function openProjectFile({
     error,
   });
   if (preview) {
-    tab.previewFileKey = resolvedPath;
+    panel.previewFileKey = resolvedPath;
   }
   updateFileTab(buffer);
   activateBuffer({
-    tab,
+    panel,
     buffer,
   });
   bridge.emitEvent({
     type: "file-opened",
-    id,
+    id: panel.id,
     path: resolvedPath,
     state: snapshot(),
   });
 }
 
 type SaveProjectFileOptions = {
-  id: number;
-  tab: ProjectTab;
+  panel: ProjectPanel;
   filePath: string | undefined;
   untitledId: number | undefined;
   destinationPath: string | undefined;
 };
 
 export async function saveProjectFile({
-  id,
-  tab,
+  panel,
   filePath,
   untitledId,
   destinationPath,
 }: SaveProjectFileOptions): Promise<boolean> {
   let buffer = findProjectFileBuffer({
-    tab,
+    panel,
     filePath,
     untitledId,
   });
   if (
     filePath === undefined &&
     untitledId === undefined &&
-    tab.activeFileKey !== undefined
+    panel.activeFileKey !== undefined
   ) {
-    buffer = tab.files.get(tab.activeFileKey);
+    buffer = panel.files.get(panel.activeFileKey);
   }
   if (buffer === undefined || buffer.model === undefined) {
     return false;
@@ -1267,14 +1267,14 @@ export async function saveProjectFile({
       return false;
     }
     const excludedPaths: string[] = [];
-    for (const openBuffer of tab.files.values()) {
+    for (const openBuffer of panel.files.values()) {
       if (openBuffer.filePath !== undefined) {
         excludedPaths.push(openBuffer.filePath);
       }
     }
     const result = saveNewFileResultSchema.parse(
       await bridge.saveNewFile({
-        directoryPath: tab.workspaceRootPath,
+        directoryPath: panel.workspaceRootPath,
         suggestedName: "Untitled",
         content: buffer.model.getValue(),
         destinationPath,
@@ -1284,18 +1284,18 @@ export async function saveProjectFile({
     if ("canceled" in result) {
       bridge.emitEvent({
         type: "file-save-canceled",
-        id,
+        id: panel.id,
         untitledId: buffer.untitledId,
         state: snapshot(),
       });
       return false;
     }
     if ("error" in result) {
-      tab.statusElement.textContent = result.error;
-      tab.statusElement.classList.add("visible");
+      panel.statusElement.textContent = result.error;
+      panel.statusElement.classList.add("visible");
       bridge.emitEvent({
         type: "file-save-failed",
-        id,
+        id: panel.id,
         path: null,
         untitledId: buffer.untitledId,
         error: result.error,
@@ -1306,43 +1306,43 @@ export async function saveProjectFile({
 
     const previousResourceKey = buffer.resourceKey;
     const previousUntitledId = buffer.untitledId;
-    const orderedBuffers = Array.from(tab.files.values());
+    const orderedBuffers = Array.from(panel.files.values());
     buffer.resourceKey = result.resolvedPath;
     buffer.filePath = result.resolvedPath;
     buffer.untitledId = undefined;
     buffer.mtimeMs = result.mtimeMs;
     buffer.dirty = false;
     buffer.tabElement.dataset.resourceKey = result.resolvedPath;
-    tab.monaco.editor.setModelLanguage(
+    panel.monaco.editor.setModelLanguage(
       buffer.model,
       languageForPath({
-        monaco: tab.monaco,
+        monaco: panel.monaco,
         filePath: result.resolvedPath,
       }),
     );
-    tab.files.clear();
+    panel.files.clear();
     for (const orderedBuffer of orderedBuffers) {
-      tab.files.set(orderedBuffer.resourceKey, orderedBuffer);
+      panel.files.set(orderedBuffer.resourceKey, orderedBuffer);
     }
-    if (tab.activeFileKey === previousResourceKey) {
-      tab.activeFileKey = result.resolvedPath;
+    if (panel.activeFileKey === previousResourceKey) {
+      panel.activeFileKey = result.resolvedPath;
     }
-    tab.statusElement.classList.remove("visible");
+    panel.statusElement.classList.remove("visible");
     updateFileTab(buffer);
     const relativePath = workspaceRelativePath({
-      workspaceRootPath: tab.workspaceRootPath,
+      workspaceRootPath: panel.workspaceRootPath,
       filePath: result.resolvedPath,
     });
-    if (tab.projectTree !== undefined && relativePath !== undefined) {
+    if (panel.projectTree !== undefined && relativePath !== undefined) {
       await refreshProjectTreePaths({
-        projectTree: tab.projectTree,
+        projectTree: panel.projectTree,
         paths: [relativePath],
       });
     }
-    await refreshProjectTreeGitDecorations(tab);
+    await refreshProjectTreeGitDecorations(panel);
     bridge.emitEvent({
       type: "file-saved",
-      id,
+      id: panel.id,
       path: result.resolvedPath,
       previousUntitledId,
       state: snapshot(),
@@ -1359,43 +1359,35 @@ export async function saveProjectFile({
     content: buffer.model.getValue(),
   });
   if ("error" in result) {
-    tab.statusElement.textContent = result.error;
-    tab.statusElement.classList.add("visible");
+    panel.statusElement.textContent = result.error;
+    panel.statusElement.classList.add("visible");
     bridge.emitEvent({
       type: "file-save-failed",
-      id,
+      id: panel.id,
       path: buffer.filePath,
       error: result.error,
       state: snapshot(),
     });
     return false;
   }
-  tab.statusElement.classList.remove("visible");
+  panel.statusElement.classList.remove("visible");
   buffer.mtimeMs = result.mtimeMs;
   buffer.dirty = false;
   updateFileTab(buffer);
-  await refreshProjectTreeGitDecorations(tab);
+  await refreshProjectTreeGitDecorations(panel);
   bridge.emitEvent({
     type: "file-saved",
-    id,
+    id: panel.id,
     path: buffer.filePath,
     state: snapshot(),
   });
   return true;
 }
 
-type SaveAllProjectFilesOptions = {
-  id: number;
-  tab: ProjectTab;
-};
-
-export async function saveAllProjectFiles({
-  id,
-  tab,
-}: SaveAllProjectFilesOptions): Promise<void> {
+export async function saveAllProjectFiles(panel: ProjectPanel): Promise<void> {
   const failedPaths: string[] = [];
   const failedUntitledIds: number[] = [];
-  const buffers = Array.from(tab.files.values());
+  const buffers = Array.from(panel.files.values());
   for (const buffer of buffers) {
     if (!buffer.dirty) {
       continue;
@@ -1403,8 +1395,7 @@ export async function saveAllProjectFiles({
     const filePath = buffer.filePath;
     const untitledId = buffer.untitledId;
     const saved = await saveProjectFile({
-      id,
-      tab,
+      panel,
       filePath,
       untitledId,
       destinationPath: undefined,
@@ -1422,7 +1413,7 @@ export async function saveAllProjectFiles({
   }
   bridge.emitEvent({
     type: "files-save-finished",
-    id,
+    id: panel.id,
     failedPaths,
     failedUntitledIds,
     state: snapshot(),
@@ -1430,26 +1421,22 @@ export async function saveAllProjectFiles({
 }
 
 type LoadProjectTreeRootOptions = {
-  id: number;
-  tab: ProjectTab;
-  workspace: Workspace;
+  panel: ProjectPanel;
   request: ReadProjectTreeRequest;
   emitWorkspaceRootChanged: boolean;
 };
 
 async function loadProjectTreeRoot({
-  id,
-  tab,
-  workspace,
+  panel,
   request,
   emitWorkspaceRootChanged,
 }: LoadProjectTreeRootOptions): Promise<void> {
-  tab.latestTreeRequest += 1;
-  tab.latestGitRequest += 1;
-  const treeRequest = tab.latestTreeRequest;
-  stopProjectTreeWatcher(tab);
-  tab.projectTree = undefined;
-  tab.treeElement.textContent = "Loading workspace…";
+  panel.latestTreeRequest += 1;
+  panel.latestGitRequest += 1;
+  const treeRequest = panel.latestTreeRequest;
+  stopProjectTreeWatcher(panel);
+  panel.projectTree = undefined;
+  panel.treeElement.textContent = "Loading workspace…";
 
   let result: ReadProjectTreeResult;
   try {
@@ -1457,7 +1444,7 @@ async function loadProjectTreeRoot({
   } catch (error) {
     result = { error: String(error) };
   }
-  if (treeRequest !== tab.latestTreeRequest) {
+  if (treeRequest !== panel.latestTreeRequest) {
     return;
   }
   if ("error" in result) {
@@ -1471,20 +1458,18 @@ async function loadProjectTreeRoot({
     retryElement.textContent = "Retry";
     retryElement.addEventListener("click", () => {
       loadProjectTreeRoot({
-        id,
-        tab,
-        workspace,
+        panel,
         request,
         emitWorkspaceRootChanged: true,
       });
     });
-    tab.treeElement.replaceChildren(messageElement, retryElement);
+    panel.treeElement.replaceChildren(messageElement, retryElement);
     return;
   }
 
-  tab.workspaceRootPath = result.workspaceRootPath;
-  tab.projectTree = mountProjectTree({
-    treeElement: tab.treeElement,
+  panel.workspaceRootPath = result.workspaceRootPath;
+  panel.projectTree = mountProjectTree({
+    treeElement: panel.treeElement,
     workspaceRootPath: result.workspaceRootPath,
     entries: result.entries,
     openFile: ({ filePath, preview }) => {
@@ -1495,73 +1480,63 @@ async function loadProjectTreeRoot({
       });
     },
   });
-  tab.titleElement.textContent = result.name;
-  tab.panel.setTitle(result.name);
+  panel.name = result.name;
+  panel.nameElement.textContent = result.name;
+  panel.nameElement.title = result.workspaceRootPath;
   await startProjectTreeWatcher({
-    tab,
+    panel,
     treeRequest,
   });
-  if (treeRequest !== tab.latestTreeRequest) {
+  if (treeRequest !== panel.latestTreeRequest) {
     return;
   }
   await handleProjectTreeChange({
-    tab,
+    panel,
     paths: null,
   });
-  if (treeRequest !== tab.latestTreeRequest) {
+  if (treeRequest !== panel.latestTreeRequest) {
     return;
   }
   if (!emitWorkspaceRootChanged) {
     return;
   }
-  refreshWorkspaceName(workspace);
   bridge.emitEvent({
     type: "workspace-root-changed",
-    id,
+    id: panel.id,
     path: result.workspaceRootPath,
     state: snapshot(),
   });
 }
 
-type OpenProjectTabOptions = {
+type CreateProjectPanelOptions = {
   id: number;
-  workspace: Workspace;
-  tabElements: TabElements;
   baseTabId: number | undefined;
   workspaceRootPath: string | undefined;
   initialFilePath: string | undefined;
-  group: DockviewGroupPanel | undefined;
 };
 
-export async function openProjectTab({
+// The panel is planted hidden: whoever asked for it decides when the
+// workspace shows it, the way a workspace's own layout is planted hidden.
+export async function createProjectPanel({
   id,
-  workspace,
-  tabElements,
   baseTabId,
   workspaceRootPath,
   initialFilePath,
-  group,
-}: OpenProjectTabOptions): Promise<ProjectTab> {
-  const pane = buildProjectPane();
-  const panel = addPanel({
-    workspace,
-    id,
-    component: "project",
-    title: "Workspace",
-    paneElement: pane.paneElement,
-    tabElement: tabElements.tabElement,
-    group,
-  });
+}: CreateProjectPanelOptions): Promise<ProjectPanel> {
+  const pane = buildProjectPanelElements();
+  pane.panelElement.style.display = "none";
+  projectHostElement.append(pane.panelElement);
   const monaco = await loadMonaco();
   const editor = createCodeEditor({
     monaco,
     container: pane.editorElement,
   });
-  const tab: ProjectTab = {
-    kind: "project",
-    panel,
-    titleElement: tabElements.titleElement,
-    titlePinned: true,
+  const panel: ProjectPanel = {
+    id,
+    element: pane.panelElement,
+    nameElement: pane.nameElement,
+    name: "",
+    visible: false,
     treeElement: pane.treeElement,
     editorElement: pane.editorElement,
     fileTabsElement: pane.fileTabsElement,
@@ -1586,13 +1561,13 @@ export async function openProjectTab({
     projectTreeWatcherRetryCount: 0,
     projectTreeWatcherRetryTimer: undefined,
   };
-  showEmptyEditor(tab);
+  showEmptyEditor(panel);
 
   pane.markdownModeButton.addEventListener("click", () => {
-    if (tab.activeFileKey === undefined) {
+    if (panel.activeFileKey === undefined) {
       return;
     }
-    const buffer = tab.files.get(tab.activeFileKey);
+    const buffer = panel.files.get(panel.activeFileKey);
     if (buffer === undefined) {
       return;
     }
@@ -1602,7 +1577,7 @@ export async function openProjectTab({
     }
     executeCommand({
       type: "set-file-markdown-mode",
-      projectTabId: id,
+      projectTabId: panel.id,
       mode,
     });
   });
@@ -1613,18 +1588,18 @@ export async function openProjectTab({
     }
     executeCommand({
       type: "new-file",
-      projectTabId: id,
+      projectTabId: panel.id,
     });
   });
   pane.fileTabsElement.addEventListener("dragover", (event) => {
-    if (tab.draggedFileKey === undefined) {
+    if (panel.draggedFileKey === undefined) {
       return;
     }
     event.preventDefault();
     if (event.dataTransfer !== null) {
       event.dataTransfer.dropEffect = "move";
     }
-    clearFileTabDropIndicators(tab);
+    clearFileTabDropIndicators(panel);
     const target = event.target;
     if (!(target instanceof Element)) {
       return;
@@ -1633,7 +1608,7 @@ export async function openProjectTab({
     if (
       !(targetTabElement instanceof HTMLElement) ||
       targetTabElement.parentElement !== pane.fileTabsElement ||
-      targetTabElement.dataset.resourceKey === tab.draggedFileKey
+      targetTabElement.dataset.resourceKey === panel.draggedFileKey
     ) {
       return;
     }
@@ -1652,15 +1627,15 @@ export async function openProjectTab({
     ) {
       return;
     }
-    clearFileTabDropIndicators(tab);
+    clearFileTabDropIndicators(panel);
   });
   pane.fileTabsElement.addEventListener("drop", (event) => {
-    const draggedFileKey = tab.draggedFileKey;
+    const draggedFileKey = panel.draggedFileKey;
     if (draggedFileKey === undefined) {
       return;
     }
     event.preventDefault();
-    const draggedBuffer = tab.files.get(draggedFileKey);
+    const draggedBuffer = panel.files.get(draggedFileKey);
     const target = event.target;
     let targetTabElement: HTMLElement | undefined;
     if (target instanceof Element) {
@@ -1673,13 +1648,13 @@ export async function openProjectTab({
       }
     }
     if (targetTabElement?.dataset.resourceKey === draggedFileKey) {
-      tab.draggedFileKey = undefined;
-      clearFileTabDropIndicators(tab);
+      panel.draggedFileKey = undefined;
+      clearFileTabDropIndicators(panel);
       return;
     }
 
     const candidateBuffers: ProjectFileBuffer[] = [];
-    for (const candidateBuffer of tab.files.values()) {
+    for (const candidateBuffer of panel.files.values()) {
       if (candidateBuffer.resourceKey !== draggedFileKey) {
         candidateBuffers.push(candidateBuffer);
       }
@@ -1698,14 +1673,14 @@ export async function openProjectTab({
         break;
       }
     }
-    tab.draggedFileKey = undefined;
-    clearFileTabDropIndicators(tab);
+    panel.draggedFileKey = undefined;
+    clearFileTabDropIndicators(panel);
     if (draggedBuffer === undefined) {
       return;
     }
     executeCommand({
       type: "move-file",
-      projectTabId: id,
+      projectTabId: panel.id,
       path: draggedBuffer.filePath,
       untitledId: draggedBuffer.untitledId,
       index: targetIndex,
@@ -1713,10 +1688,10 @@ export async function openProjectTab({
   });
 
   editor.onDidChangeModelContent(() => {
-    if (tab.activeFileKey === undefined) {
+    if (panel.activeFileKey === undefined) {
       return;
     }
-    const buffer = tab.files.get(tab.activeFileKey);
+    const buffer = panel.files.get(panel.activeFileKey);
     if (buffer === undefined || buffer.model !== editor.getModel()) {
       return;
     }
@@ -1730,7 +1705,7 @@ export async function openProjectTab({
     buffer.dirty = dirty;
     if (buffer.filePath !== undefined) {
       pinProjectFile({
-        tab,
+        panel,
         filePath: buffer.filePath,
       });
     }
@@ -1741,7 +1716,7 @@ export async function openProjectTab({
     }
     bridge.emitEvent({
       type: "dirty-changed",
-      id,
+      id: panel.id,
       path: eventPath,
       untitledId: buffer.untitledId,
       state: snapshot(),
@@ -1749,9 +1724,7 @@ export async function openProjectTab({
   });
 
   await loadProjectTreeRoot({
-    id,
-    tab,
-    workspace,
+    panel,
     request: {
       baseTabId,
       workspaceRootPath,
@@ -1759,57 +1732,54 @@ export async function openProjectTab({
     },
     emitWorkspaceRootChanged: false,
   });
-  return tab;
+  return panel;
 }
 
 type ChangeWorkspaceRootOptions = {
-  id: number;
-  tab: ProjectTab;
-  workspace: Workspace;
+  panel: ProjectPanel;
   workspaceRootPath: string;
 };
 
 export async function changeProjectWorkspaceRoot({
-  id,
-  tab,
-  workspace,
+  panel,
   workspaceRootPath,
 }: ChangeWorkspaceRootOptions): Promise<void> {
   await loadProjectTreeRoot({
-    id,
-    tab,
-    workspace,
+    panel,
     request: { workspaceRootPath },
     emitWorkspaceRootChanged: true,
   });
 }
 
-export function focusProjectTab(tab: ProjectTab): void {
-  if (tab.activeFileKey !== undefined) {
-    const buffer = tab.files.get(tab.activeFileKey);
+export function focusProjectPanel(panel: ProjectPanel): void {
+  if (panel.activeFileKey !== undefined) {
+    const buffer = panel.files.get(panel.activeFileKey);
     if (buffer !== undefined && buffer.model !== undefined) {
       // a rendered buffer's editor is hidden; keys should scroll the document
       if (buffer.markdownMode === "rendered") {
-        tab.markdownElement.focus();
+        panel.markdownElement.focus();
         return;
       }
-      tab.editor.focus();
+      panel.editor.focus();
       return;
     }
   }
-  if (tab.projectTree === undefined) {
-    tab.treeElement.focus();
+  if (panel.projectTree === undefined) {
+    panel.treeElement.focus();
     return;
   }
-  focusProjectTree(tab.projectTree);
+  focusProjectTree(panel.projectTree);
 }
 
-export function disposeProjectTab(tab: ProjectTab): void {
-  tab.latestTreeRequest += 1;
-  tab.latestGitRequest += 1;
-  stopProjectTreeWatcher(tab);
-  for (const buffer of tab.files.values()) {
+// Only a closing workspace disposes its panel; hiding one keeps every file
+// open behind it.
+export function disposeProjectPanel(panel: ProjectPanel): void {
+  panel.latestTreeRequest += 1;
+  panel.latestGitRequest += 1;
+  stopProjectTreeWatcher(panel);
+  for (const buffer of panel.files.values()) {
     buffer.model?.dispose();
   }
-  tab.editor.dispose();
+  panel.editor.dispose();
+  panel.element.remove();
 }

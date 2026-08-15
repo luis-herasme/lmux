@@ -195,8 +195,7 @@ export type Bridge = {
   // a person's workspace ×: routed to main so the shells it would kill are
   // asked about, then dispatched
   closeWorkspace: (id: number) => void;
-  // a person's tab ×: routed to main, so dirty files are asked about
-  // before the containing project tab goes
+  // a person's tab ×: routed to main, which decides what closing means
   closeTab: (id: number) => void;
   // the inner file-tab × has the same guard for its one buffer
   closeFile: (request: CloseFileRequest) => void;

@@ -1,12 +1,16 @@
 // One workspace = one Dockview instance = one pane layout with its own
-// tabs. Only the active one is displayed; the others keep their terminals
-// and their shells alive off screen.
-import { executeCommand, focusActiveTab } from "./tabs/index.ts";
+// tabs, plus the one project panel beside it. Only the active one is
+// displayed; the others keep their terminals and their shells alive off
+// screen.
+import { executeCommand, focusWorkspace } from "./tabs/index.ts";
 import type { Tab } from "./tabs/index.ts";
+import { disposeProjectPanel } from "./project-panel.ts";
+import type { ProjectPanel } from "./project-panel.ts";
 import type {
   LayoutNode,
   LmuxState,
   ProjectFileInfo,
+  ProjectInfo,
   TabInfo,
   WorkspaceInfo,
 } from "../api.ts";
@@ -33,6 +37,8 @@ export type Workspace = {
   tabs: Map<number, Tab>;
   activeId: number;
   namePinned: boolean;
+  project: ProjectPanel | undefined; // built the first time it is opened
+  focus: "layout" | "project"; // which half the keyboard is in
 };
 
 export const workspaces = new Map<number, Workspace>();
@@ -44,6 +50,7 @@ let nextWorkspaceId = 1;
 
 const titleBarElement = requireElement("title-bar");
 const layoutElement = requireElement("layout");
+const projectHostElement = requireElement("project");
 const workspaceListElement = requireElement("workspace-list");
 
 // dockview is a classic script too, so it arrives as a page global; see
@@ -177,6 +184,8 @@ export function createWorkspace(): Workspace {
     tabs: new Map(),
     activeId: -1,
     namePinned: false,
+    project: undefined,
+    focus: "layout",
   };
   workspaces.set(id, workspace);
   refreshWorkspaceName(workspace);
@@ -249,7 +258,7 @@ export function createWorkspace(): Workspace {
     }
     workspace.activeId = tabId;
     refreshWorkspaceName(workspace);
-    focusActiveTab();
+    focusWorkspace();
     bridge.emitEvent({
       type: "tab-activated",
       id: tabId,
@@ -260,6 +269,26 @@ export function createWorkspace(): Workspace {
   return workspace;
 }
 
+// The host holds one panel per workspace and collapses when the active
+// workspace has none open, so the pane layout gets the whole window back.
+export function refreshProjectPanel(): void {
+  for (const workspace of workspaces.values()) {
+    if (workspace.project === undefined) {
+      continue;
+    }
+    let display = "none";
+    if (workspace === activeWorkspace && workspace.project.visible) {
+      display = "";
+    }
+    workspace.project.element.style.display = display;
+  }
+  let hostDisplay = "none";
+  if (activeWorkspace?.project?.visible === true) {
+    hostDisplay = "";
+  }
+  projectHostElement.style.display = hostDisplay;
+}
+
 export function activateWorkspace(workspace: Workspace): void {
   if (activeWorkspace) {
     activeWorkspace.element.style.display = "none";
@@ -268,6 +297,7 @@ export function activateWorkspace(workspace: Workspace): void {
   }
   activeWorkspace = workspace;
   workspace.element.style.display = "";
+  refreshProjectPanel();
   workspace.rowElement.classList.add("active");
   workspace.rowElement.ariaSelected = "true";
   titleBarElement.textContent = workspace.name;
@@ -286,7 +316,7 @@ export function activateWorkspace(workspace: Workspace): void {
     }
     tab.fitAddon.fit();
   }
-  focusActiveTab();
+  focusWorkspace();
 }
 
 export function removeWorkspace(workspace: Workspace): void {
@@ -297,6 +327,9 @@ export function removeWorkspace(workspace: Workspace): void {
     bridge.killShell(tabId);
     tab.observer.disconnect();
     tab.terminal.dispose();
+  }
+  if (workspace.project !== undefined) {
+    disposeProjectPanel(workspace.project);
   }
   workspaces.delete(workspace.id);
   workspace.dockview.dispose();
@@ -388,7 +421,7 @@ export function findGroup({
 type AddPanelOptions = {
   workspace: Workspace;
   id: number;
-  component: "terminal" | "markdown" | "project";
+  component: "terminal" | "markdown";
   title: string;
   paneElement: HTMLElement;
   tabElement: HTMLElement;
@@ -447,8 +480,19 @@ layoutElement.addEventListener("dblclick", (event) => {
   }
 });
 
+// Which half of the window the keyboard belongs to, decided by where the
+// last press landed: the panes take it back, the panel keeps it.
 layoutElement.addEventListener("mousedown", () => {
-  setTimeout(focusActiveTab, 0);
+  if (activeWorkspace) {
+    activeWorkspace.focus = "layout";
+  }
+  setTimeout(focusWorkspace, 0);
+});
+
+projectHostElement.addEventListener("mousedown", () => {
+  if (activeWorkspace) {
+    activeWorkspace.focus = "project";
+  }
 });
 
 requireElement("new-workspace-button").addEventListener("click", () => {
@@ -501,51 +545,6 @@ function buildLayout({
           mode: tab.mode,
           path: tab.filePath,
         });
-        continue;
-      }
-      if (tab.kind === "project") {
-        const files: ProjectFileInfo[] = [];
-        for (const file of tab.files.values()) {
-          if (file.filePath !== undefined) {
-            files.push({
-              path: file.filePath,
-              dirty: file.dirty,
-              pinned: file.pinned,
-            });
-            continue;
-          }
-          if (file.untitledId !== undefined) {
-            files.push({
-              path: null,
-              title: "Untitled",
-              untitledId: file.untitledId,
-              dirty: file.dirty,
-              pinned: true,
-            });
-          }
-        }
-        let activeFilePath: string | null = null;
-        let activeUntitledId: number | undefined;
-        if (tab.activeFileKey !== undefined) {
-          const activeFile = tab.files.get(tab.activeFileKey);
-          if (activeFile?.filePath !== undefined) {
-            activeFilePath = activeFile.filePath;
-          } else {
-            activeUntitledId = activeFile?.untitledId;
-          }
-        }
-        const projectInfo: TabInfo = {
-          id: Number(panelId),
-          title,
-          kind: "project",
-          workspaceRootPath: tab.workspaceRootPath,
-          activeFilePath,
-          files,
-        };
-        if (activeUntitledId !== undefined) {
-          projectInfo.activeUntitledId = activeUntitledId;
-        }
-        tabList.push(projectInfo);
         continue;
       }
       tabList.push({
@@ -603,6 +602,54 @@ function collectTabs({ node, into }: CollectTabsOptions): void {
   }
 }
 
+function describeProject(panel: ProjectPanel | undefined): ProjectInfo | null {
+  if (panel === undefined) {
+    return null;
+  }
+  const files: ProjectFileInfo[] = [];
+  for (const file of panel.files.values()) {
+    if (file.filePath !== undefined) {
+      files.push({
+        path: file.filePath,
+        dirty: file.dirty,
+        pinned: file.pinned,
+      });
+      continue;
+    }
+    if (file.untitledId !== undefined) {
+      files.push({
+        path: null,
+        title: "Untitled",
+        untitledId: file.untitledId,
+        dirty: file.dirty,
+        pinned: true,
+      });
+    }
+  }
+  let activeFilePath: string | null = null;
+  let activeUntitledId: number | undefined;
+  if (panel.activeFileKey !== undefined) {
+    const activeFile = panel.files.get(panel.activeFileKey);
+    if (activeFile?.filePath !== undefined) {
+      activeFilePath = activeFile.filePath;
+    } else {
+      activeUntitledId = activeFile?.untitledId;
+    }
+  }
+  const project: ProjectInfo = {
+    id: panel.id,
+    name: panel.name,
+    workspaceRootPath: panel.workspaceRootPath,
+    visible: panel.visible,
+    activeFilePath,
+    files,
+  };
+  if (activeUntitledId !== undefined) {
+    project.activeUntitledId = activeUntitledId;
+  }
+  return project;
+}
+
 function describeWorkspace(workspace: Workspace): WorkspaceInfo {
   let maximizedGroupId: string | null = null;
   for (const group of workspace.dockview.api.groups) {
@@ -611,6 +658,7 @@ function describeWorkspace(workspace: Workspace): WorkspaceInfo {
       break;
     }
   }
+  const project = describeProject(workspace.project);
   if (workspace.dockview.api.panels.length === 0) {
     return {
       id: workspace.id,
@@ -620,6 +668,8 @@ function describeWorkspace(workspace: Workspace): WorkspaceInfo {
       layout: null,
       activeId: workspace.activeId,
       maximizedGroupId,
+      project,
+      focus: workspace.focus,
     };
   }
   const serialized = workspace.dockview.api.toJSON();
@@ -645,6 +695,8 @@ function describeWorkspace(workspace: Workspace): WorkspaceInfo {
     layout,
     activeId: workspace.activeId,
     maximizedGroupId,
+    project,
+    focus: workspace.focus,
   };
 }
 

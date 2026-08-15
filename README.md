@@ -104,23 +104,24 @@ the other end echoes it back.
 | `src/main/bus.ts`              | Commands in via `dispatch()`; Events out into the read model |
 | `src/main/window-state.ts`     | Where the window was last time (size and position)           |
 | `src/main/session-state.ts`    | The last session on disk: workspaces, tabs, documents        |
-| `src/renderer/index.html`      | The page: title bar, sidebar, tab bar, panes, the modals     |
+| `src/renderer/index.html`      | The page: title bar, sidebar, tab bar, panes, project panel, the modals |
 | `src/renderer/style.css`       | The page's stylesheet (theme values arrive as CSS variables) |
 | `src/renderer/index.ts`        | Renderer boot: settings → CSS, cable wiring, first workspace |
 | `src/renderer/bridge.ts`       | Picks `window.bridge` up off the page once, typed, and exports it |
-| `src/renderer/workspaces.ts`   | Workspace store: one layout each, the sidebar, the snapshot  |
+| `src/renderer/workspaces.ts`   | Workspace store: one layout and one project panel each, the sidebar, the snapshot |
 | `src/renderer/tabs/index.ts`   | Tab store + operations + `executeCommand` (the consumer)     |
 | `src/renderer/tabs/terminal-tab.ts` | Terminal pane, xterm lifecycle and terminal screen reads |
 | `src/renderer/tabs/markdown-tab.ts` | A document's pane: toolbar, rendered/raw, reload, its links |
 | `src/renderer/tabs/markdown.ts` | GitHub-look Markdown rendering (markdown-it + DOMPurify)    |
 | `src/renderer/tabs/links.ts`   | Terminal link provider: Cmd+click opens a source path or URL |
-| `src/renderer/tabs/project-tab.ts` | Resizable tree, file buffers, tabs and editor lifecycle       |
-| `src/renderer/tabs/project-tree.ts` | Lazy tree rows, reconciliation and Git decorations        |
-| `src/renderer/tabs/code.ts`    | Monaco loading, theming and language selection               |
+| `src/renderer/project-panel.ts` | The workspace's editor: resizable tree, file buffers, tabs and editor lifecycle |
+| `src/renderer/project-tree.ts` | Lazy tree rows, reconciliation and Git decorations           |
+| `src/renderer/code.ts`         | Monaco loading, theming and language selection               |
 | `src/renderer/rename-dialog.ts`| The rename modal (tabs and workspaces)                       |
 | `src/renderer/settings.ts`     | Current settings: value, localStorage persistence, → CSS     |
 | `src/renderer/settings-dialog.ts`| The settings modal (each control issues a Command)         |
 | `src/renderer/sidebar-resize.ts`| The sidebar's drag handle; a drag ends as one Command       |
+| `src/renderer/project-resize.ts`| The project panel's drag handle, the same way               |
 | `src/main/files.ts`            | File reads, guarded writes and Save As                       |
 | `src/main/project-tree.ts`     | Lazy directory reads, Git status and filesystem watchers     |
 | `src/renderer/dom.ts`          | `requireElement`: strict, typed lookups of the page's fixed elements |
