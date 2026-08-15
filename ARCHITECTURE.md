@@ -235,10 +235,15 @@ change it and update this list.
   separate code and tree panels of #34 and #35.) The panel is workspace state
   like the workspace list itself: one per workspace, in a host on the right of
   the window, never dragged, split or reordered, and with no place in the
-  layout. Inside it a stable workspace-root tree sits beside a file-tab strip
-  and one Monaco editor, under a header carrying the root folder's name and
-  the × that hides it. `open-file` and `open-project` create it on first use
-  and show it; `close-project` hides it, and hiding is not closing: every
+  layout. Inside it a file-tab strip and one Monaco editor sit beside a stable
+  workspace-root tree, under a header carrying the root folder's name and
+  the × that hides it. (Amended 2026-08-15: the tree was the panel's left
+  column and is now its right one, hard against the window's edge, so the
+  editor stays next to the panes whose files it is showing. Its separator, its
+  floated scrollbar and its resize handle all moved sides with it, and the
+  handle's arrows swapped: Left widens the tree now, because that is the
+  direction the handle moves.) `open-file` and `open-project` create it on
+  first use and show it; `close-project` hides it, and hiding is not closing: every
   buffer and the tree watcher stay alive behind it, so nothing is lost. Its
   width is a setting with a drag handle, like the sidebar's. A tree
   single-click replaces one preview file, while double-clicking pins it. File

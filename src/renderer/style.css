@@ -527,21 +527,21 @@ body.resizing #project .project-panel {
   color: var(--tab-active-foreground);
 }
 
-/* a resizable tree beside one editor region */
+/* one editor region beside a resizable tree */
 .project-pane {
   flex: 1;
   min-height: 0;
   min-width: 0;
   position: relative;
   display: grid;
-  grid-template-columns: var(--project-tree-width) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--project-tree-width);
   background: var(--background);
 }
 
 .project-tree {
   min-width: 0;
   overflow: auto;
-  border-right: 1px solid var(--separator);
+  border-left: 1px solid var(--separator);
   background: var(--background);
   color: var(--tab-foreground);
   font-family: var(--ui-font-family);
@@ -560,8 +560,7 @@ body.resizing #project .project-panel {
 .project-tree-scrollbar {
   position: absolute;
   top: 0;
-  /* over the tree's last pixels, inside the separator it draws on its edge */
-  left: calc(var(--project-tree-width) - var(--scrollbar-size) - 1px);
+  right: 0;
   width: var(--scrollbar-size);
   z-index: 1;
   display: none;
@@ -582,7 +581,7 @@ body.resizing #project .project-panel {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: calc(var(--project-tree-width) - 2px);
+  right: calc(var(--project-tree-width) - 3px);
   width: 5px;
   z-index: 2;
   cursor: col-resize;
@@ -596,7 +595,7 @@ body.resizing #project .project-panel {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 2px;
+  right: 2px;
   width: 1px;
   background: var(--accent);
 }
