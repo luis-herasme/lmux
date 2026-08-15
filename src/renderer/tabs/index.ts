@@ -112,7 +112,6 @@ function resolveTargetGroup({
   });
 }
 
-// `id` defaults to the active workspace where optional.
 function resolveWorkspace(id: number | undefined): Workspace | undefined {
   if (id === undefined) {
     return activeWorkspace;

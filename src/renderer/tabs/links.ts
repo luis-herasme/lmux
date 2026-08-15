@@ -105,7 +105,6 @@ export function matchTerminalLinks(text: string): TerminalLinkMatch[] {
       text: match[0],
     });
   }
-  // in the order they appear on the line, whatever their kind
   matches.sort((a, b) => a.index - b.index);
   return matches;
 }

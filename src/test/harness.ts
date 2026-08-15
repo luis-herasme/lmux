@@ -73,8 +73,7 @@ export function waitForEvent(
 }
 
 // The app rebuilds its last session at boot, so a run that left one behind
-// would hand the cases an app they did not describe. Imported dynamically
-// for the same reason main is: the path is computed from the profile above.
+// would hand the cases an app they did not describe.
 const { SESSION_FILE_PATH } = await import("../main/session-state.ts");
 try {
   unlinkSync(SESSION_FILE_PATH);
@@ -82,13 +81,12 @@ try {
   // no session to forget, which is the state this wants anyway
 }
 
-// Dynamic, so the profile above is set before main's modules read paths off
-// it at import time (window-state.ts computes its file path that way).
+// Every main module here is imported dynamically: they compute their file
+// paths off the profile set above, at import time (window-state.ts does), and
+// a static import would be evaluated before that ran.
 await import("../main/index.ts");
 await app.whenReady();
 
-// Dynamic for the same reason main is: the path is computed off the profile
-// set above, and a static import would be evaluated before that ran.
 const { SOCKET_PATH } = await import("../main/mcp.ts");
 export const API_SOCKET_PATH = SOCKET_PATH;
 
