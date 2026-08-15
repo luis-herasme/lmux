@@ -27,6 +27,7 @@ import {
   setProjectTreeGitDecorations,
 } from "./project-tree.ts";
 import type { ProjectTree } from "./project-tree.ts";
+import { mountProjectTreeScrollbar } from "./project-tree-scrollbar.ts";
 import { renderMarkdown } from "./tabs/markdown.ts";
 import { executeCommand } from "./tabs/index.ts";
 import { snapshot } from "./workspaces.ts";
@@ -181,6 +182,11 @@ function buildProjectPanelElements(): ProjectPanelElements {
   treeElement.tabIndex = -1;
   treeElement.textContent = "Loading workspace…";
 
+  // the tree's own scrollbar, floated over its rows: project-tree-scrollbar.ts
+  const treeScrollbarElement = document.createElement("div");
+  treeScrollbarElement.className = "project-tree-scrollbar";
+  treeScrollbarElement.ariaHidden = "true";
+
   const resizeHandleElement = document.createElement("div");
   resizeHandleElement.className = "project-tree-resizer";
   resizeHandleElement.setAttribute("role", "separator");
@@ -260,6 +266,7 @@ function buildProjectPanelElements(): ProjectPanelElements {
   );
   paneElement.append(
     treeElement,
+    treeScrollbarElement,
     resizeHandleElement,
     editorRegionElement,
   );
@@ -267,6 +274,10 @@ function buildProjectPanelElements(): ProjectPanelElements {
     paneElement,
     treeElement,
     resizeHandleElement,
+  });
+  mountProjectTreeScrollbar({
+    treeElement,
+    thumbElement: treeScrollbarElement,
   });
 
   // The header says which project this is and takes it off screen: what the

@@ -57,10 +57,17 @@ select {
 /* One scrollbar everywhere: a slim square thumb in the theme's grey, on
    xterm's scrollback, the markdown view, code blocks and the tab strips
    alike. Styling ::-webkit-scrollbar at all replaces Chromium's own
-   rounded overlay bar, which is the only way to square its corners. */
+   rounded overlay bar, which is the only way to square its corners. It also
+   makes the bar a classic one: it takes its width out of the scroll
+   container's content box, and Chromium clips content at that edge, so
+   nothing of ours can be drawn under a bar (see .project-tree-scrollbar). */
+:root {
+  --scrollbar-size: 6px;
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
@@ -534,12 +541,41 @@ body.resizing #project .project-panel {
 .project-tree {
   min-width: 0;
   overflow: auto;
-  padding: 6px 0;
   border-right: 1px solid var(--separator);
   background: var(--background);
   color: var(--tab-foreground);
   font-family: var(--ui-font-family);
   font-size: 13px;
+}
+
+/* A native bar would take its width out of the tree's content box, where
+   Chromium clips the rows: a row's hover band would stop a bar's width short
+   of the panel edge with a strip of background beside it. So the tree hides
+   the native one and floats this thumb over the rows instead, the way VS
+   Code's explorer does. project-tree-scrollbar.ts sizes and moves it. */
+.project-tree::-webkit-scrollbar {
+  display: none;
+}
+
+.project-tree-scrollbar {
+  position: absolute;
+  top: 0;
+  /* over the tree's last pixels, inside the separator it draws on its edge */
+  left: calc(var(--project-tree-width) - var(--scrollbar-size) - 1px);
+  width: var(--scrollbar-size);
+  z-index: 1;
+  display: none;
+  background: var(--scrollbar-thumb);
+}
+
+/* a tree short enough to fit shows nothing at all */
+.project-tree-scrollbar.visible {
+  display: block;
+}
+
+.project-tree-scrollbar:hover,
+.project-tree-scrollbar.dragging {
+  background: var(--scrollbar-thumb-hover);
 }
 
 .project-tree-resizer {
@@ -572,7 +608,7 @@ body.resizing #project .project-panel {
 }
 
 .project-tree-root {
-  padding-left: 8px;
+  padding-left: 0;
 }
 
 .project-tree-row {

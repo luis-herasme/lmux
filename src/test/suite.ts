@@ -592,6 +592,8 @@ const projectTreeResizeResultSchema = z.object({
 
 const projectTreeAppearanceSchema = z.object({
   rootPaddingLeft: z.number(),
+  rowEdgeGap: z.number(),
+  reservedScrollbarWidth: z.number(),
   disclosureUsesCodicon: z.boolean(),
   folderIconUsesCodicon: z.boolean(),
   fileIconUsesCodicon: z.boolean(),
@@ -653,6 +655,16 @@ async function visibleProjectTreeAppearance(): Promise<ProjectTreeAppearance> {
         rootPaddingLeft: Number.parseFloat(
           getComputedStyle(rootElement).paddingLeft,
         ),
+        rowEdgeGap:
+          treeElement.getBoundingClientRect().right -
+          Number.parseFloat(getComputedStyle(treeElement).borderRightWidth) -
+          directoryElement.getBoundingClientRect().right,
+        // what a native scrollbar would hold back from the rows, and what
+        // Chromium would then clip them at
+        reservedScrollbarWidth:
+          treeElement.offsetWidth -
+          treeElement.clientWidth -
+          Number.parseFloat(getComputedStyle(treeElement).borderRightWidth),
         disclosureUsesCodicon:
           disclosureStyle.fontFamily.includes("codicon") &&
           disclosureStyle.content !== "none" &&
@@ -680,7 +692,9 @@ async function visibleProjectTreeAppearance(): Promise<ProjectTreeAppearance> {
       return appearance;
     }
     return {
-      rootPaddingLeft: 0,
+      rootPaddingLeft: -1,
+      rowEdgeGap: -1,
+      reservedScrollbarWidth: -1,
       disclosureUsesCodicon: false,
       folderIconUsesCodicon: false,
       fileIconUsesCodicon: false,
@@ -1629,9 +1643,20 @@ const suite = describe("the command bus", () => {
           description: "the expanded directory to load its immediate children",
         });
         const treeStyle = await visibleProjectTreeAppearance();
-        assert.ok(
-          treeStyle.rootPaddingLeft >= 8,
-          "the root disclosure touches the tree edge",
+        assert.equal(
+          treeStyle.rootPaddingLeft,
+          0,
+          "a root row starts at the tree's left edge",
+        );
+        assert.equal(
+          treeStyle.rowEdgeGap,
+          0,
+          "a row reaches the tree's right edge",
+        );
+        assert.equal(
+          treeStyle.reservedScrollbarWidth,
+          0,
+          "the tree keeps its full width for the rows and draws its own bar",
         );
         assert.equal(treeStyle.disclosureUsesCodicon, true);
         assert.equal(treeStyle.folderIconUsesCodicon, true);
