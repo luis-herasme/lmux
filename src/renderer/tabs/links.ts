@@ -148,6 +148,20 @@ export function registerTerminalLinks({
   terminal,
   openPath,
 }: RegisterTerminalLinksOptions): void {
+  // A program can mark its own text as a link with an OSC 8 escape, and
+  // xterm matches those itself, ahead of the provider below. Its built-in
+  // handler asks for confirmation and then opens a blank popup that main
+  // denies, so the click ends nowhere; this makes those links behave like
+  // the ones matched here.
+  terminal.options.linkHandler = {
+    activate: (event, uri) => {
+      if (!event.metaKey) {
+        return;
+      }
+      window.open(uri);
+    },
+  };
+
   terminal.registerLinkProvider({
     provideLinks: (bufferLineNumber, callback) => {
       // a wrapped path spans multiple buffer rows; join them
