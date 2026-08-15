@@ -38,6 +38,22 @@ const CONFLICTING_GIT_STATUS_PAIRS = new Set([
   "UU",
 ]);
 
+const STAGED_DECORATIONS = new Map<string, GitDecorationStatus>([
+  ["M", "staged-modified"],
+  ["A", "added"],
+  ["D", "staged-deleted"],
+  ["R", "renamed"],
+  ["C", "copied"],
+]);
+
+const WORKING_TREE_DECORATIONS = new Map<string, GitDecorationStatus>([
+  ["M", "modified"],
+  ["A", "intent-to-add"],
+  ["D", "deleted"],
+  ["R", "intent-to-rename"],
+  ["T", "type-changed"],
+]);
+
 type RunGitOptions = {
   directoryPath: string;
   arguments: string[];
@@ -113,17 +129,10 @@ function pathIsInside({
   candidatePath,
 }: PathIsInsideOptions): boolean {
   const relativePath = path.relative(parentPath, candidatePath);
-  if (relativePath.length === 0) {
-    return true;
-  }
-  if (
-    relativePath === ".." ||
-    relativePath.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relativePath)
-  ) {
+  if (relativePath === ".." || relativePath.startsWith(`..${path.sep}`)) {
     return false;
   }
-  return true;
+  return !path.isAbsolute(relativePath);
 }
 
 function normalizedGitPath(gitPath: string): string {
@@ -132,44 +141,6 @@ function normalizedGitPath(gitPath: string): string {
     normalizedPath = normalizedPath.slice(0, -1);
   }
   return normalizedPath;
-}
-
-function stagedDecorationForStatus(
-  status: string,
-): GitDecorationStatus | undefined {
-  switch (status) {
-    case "M":
-      return "staged-modified";
-    case "A":
-      return "added";
-    case "D":
-      return "staged-deleted";
-    case "R":
-      return "renamed";
-    case "C":
-      return "copied";
-    default:
-      return undefined;
-  }
-}
-
-function workingTreeDecorationForStatus(
-  status: string,
-): GitDecorationStatus | undefined {
-  switch (status) {
-    case "M":
-      return "modified";
-    case "A":
-      return "intent-to-add";
-    case "D":
-      return "deleted";
-    case "R":
-      return "intent-to-rename";
-    case "T":
-      return "type-changed";
-    default:
-      return undefined;
-  }
 }
 
 function decorationForGitStatus({
@@ -185,12 +156,11 @@ function decorationForGitStatus({
   if (indexStatus === "!" && workingTreeStatus === "!") {
     return "ignored";
   }
-  const workingTreeDecoration =
-    workingTreeDecorationForStatus(workingTreeStatus);
+  const workingTreeDecoration = WORKING_TREE_DECORATIONS.get(workingTreeStatus);
   if (workingTreeDecoration !== undefined) {
     return workingTreeDecoration;
   }
-  return stagedDecorationForStatus(indexStatus);
+  return STAGED_DECORATIONS.get(indexStatus);
 }
 
 function gitDecorationsFromStatusOutput(
@@ -298,19 +268,18 @@ async function readGitDecorations(
       gitRootPath,
       ...decorationPath.split("/"),
     );
-    const workspaceRelativePath = path.relative(
-      workspaceRootPath,
-      absoluteDecorationPath,
-    );
     if (
-      workspaceRelativePath === ".." ||
-      workspaceRelativePath.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(workspaceRelativePath)
+      !pathIsInside({
+        parentPath: workspaceRootPath,
+        candidatePath: absoluteDecorationPath,
+      })
     ) {
       continue;
     }
     result.push({
-      path: normalizedGitPath(workspaceRelativePath),
+      path: normalizedGitPath(
+        path.relative(workspaceRootPath, absoluteDecorationPath),
+      ),
       status,
     });
   }
@@ -578,34 +547,20 @@ async function resolveWorkspaceDirectory(
       workspaceRootPath,
       request.workspaceRelativeDirectoryPath,
     );
-    const relativePath = path.relative(
-      workspaceRootPath,
-      requestedDirectoryPath,
-    );
-    if (
-      relativePath === ".." ||
-      relativePath.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relativePath)
-    ) {
-      return { error: "Can't read outside the workspace root" };
-    }
+  }
+  if (
+    !pathIsInside({
+      parentPath: workspaceRootPath,
+      candidatePath: requestedDirectoryPath,
+    })
+  ) {
+    return { error: "Can't read outside the workspace root" };
   }
 
   try {
     const canonicalDirectoryPath = await realpath(requestedDirectoryPath);
     if (canonicalDirectoryPath !== requestedDirectoryPath) {
       return { error: "Can't read a directory through a symbolic link" };
-    }
-    const relativePath = path.relative(
-      workspaceRootPath,
-      canonicalDirectoryPath,
-    );
-    if (
-      relativePath === ".." ||
-      relativePath.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relativePath)
-    ) {
-      return { error: "Can't read outside the workspace root" };
     }
     return { directoryPath: canonicalDirectoryPath };
   } catch (error) {
