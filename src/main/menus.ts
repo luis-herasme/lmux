@@ -30,16 +30,8 @@ function workspaceInfo(
   return undefined;
 }
 
-// projectTabId defaults to the active workspace's panel, matching the
-// Commands it forwards.
-function projectInfo(projectTabId: number | undefined): ProjectInfo | null {
-  if (projectTabId === undefined) {
-    const workspace = workspaceInfo(undefined);
-    if (workspace === undefined) {
-      return null;
-    }
-    return workspace.project;
-  }
+// A panel belongs to a workspace but the Commands address it by its own id.
+function projectInfo(projectTabId: number): ProjectInfo | null {
   for (const workspace of lmuxState.workspaces) {
     if (workspace.project?.id === projectTabId) {
       return workspace.project;
@@ -48,52 +40,54 @@ function projectInfo(projectTabId: number | undefined): ProjectInfo | null {
   return null;
 }
 
-async function saveProjectFiles(projectTabId: number): Promise<boolean> {
-  let timeoutMs: number | undefined = FILE_WRITE_TIMEOUT_MS;
-  const project = projectInfo(projectTabId);
-  if (project !== null) {
+export async function saveDirtyProjects(
+  projects: ProjectInfo[],
+): Promise<boolean> {
+  for (const project of projects) {
+    let dirty = false;
+    let timeoutMs: number | undefined = FILE_WRITE_TIMEOUT_MS;
     for (const file of project.files) {
-      if (file.dirty && file.path === null) {
+      if (!file.dirty) {
+        continue;
+      }
+      dirty = true;
+      if (file.path === null) {
         // an untitled buffer opens a save dialog, which waits on a person
         timeoutMs = undefined;
         break;
       }
     }
+    if (!dirty) {
+      continue;
+    }
+    const result = await runCommandUntil({
+      command: {
+        type: "save-all-files",
+        projectTabId: project.id,
+      },
+      predicate: (event) =>
+        event.type === "files-save-finished" && event.id === project.id,
+      timeoutMs,
+    });
+    if (result === undefined || result.type !== "files-save-finished") {
+      return false;
+    }
+    if (result.failedPaths.length > 0 || result.failedUntitledIds.length > 0) {
+      return false;
+    }
   }
-  const result = await runCommandUntil({
-    command: {
-      type: "save-all-files",
-      projectTabId,
-    },
-    predicate: (event) =>
-      event.type === "files-save-finished" && event.id === projectTabId,
-    timeoutMs,
-  });
-  if (result === undefined || result.type !== "files-save-finished") {
-    return false;
-  }
-  return (
-    result.failedPaths.length === 0 && result.failedUntitledIds.length === 0
-  );
+  return true;
 }
 
-type SaveOneFileOptions = {
-  projectTabId: number;
-  filePath: string | undefined;
-  untitledId: number | undefined;
-};
-
-type SaveOneFileResult =
-  | { saved: true; filePath: string }
-  | { saved: false };
-
+// The path the file landed on, null when it was not saved.
 async function saveOneFile({
   projectTabId,
   filePath,
   untitledId,
-}: SaveOneFileOptions): Promise<SaveOneFileResult> {
+}: CloseFileRequest): Promise<string | null> {
   let timeoutMs: number | undefined = FILE_WRITE_TIMEOUT_MS;
   if (untitledId !== undefined) {
+    // an untitled buffer opens a save dialog, which waits on a person
     timeoutMs = undefined;
   }
   const result = await runCommandUntil({
@@ -104,63 +98,34 @@ async function saveOneFile({
       untitledId,
     },
     predicate: (event) => {
+      if (
+        event.type !== "file-saved" &&
+        event.type !== "file-save-failed" &&
+        event.type !== "file-save-canceled"
+      ) {
+        return false;
+      }
+      if (event.id !== projectTabId) {
+        return false;
+      }
       if (filePath !== undefined) {
-        if (
-          event.type !== "file-saved" &&
-          event.type !== "file-save-failed"
-        ) {
-          return false;
-        }
-        return event.id === projectTabId && event.path === filePath;
+        // only an untitled buffer can be canceled, and it has no path
+        return event.type !== "file-save-canceled" && event.path === filePath;
       }
       if (untitledId === undefined) {
         return false;
       }
       if (event.type === "file-saved") {
-        return (
-          event.id === projectTabId &&
-          event.previousUntitledId === untitledId
-        );
+        return event.previousUntitledId === untitledId;
       }
-      if (
-        event.type === "file-save-failed" ||
-        event.type === "file-save-canceled"
-      ) {
-        return event.id === projectTabId && event.untitledId === untitledId;
-      }
-      return false;
+      return event.untitledId === untitledId;
     },
     timeoutMs,
   });
   if (result === undefined || result.type !== "file-saved") {
-    return { saved: false };
+    return null;
   }
-  return {
-    saved: true,
-    filePath: result.path,
-  };
-}
-
-export async function saveDirtyProjects(
-  projects: ProjectInfo[],
-): Promise<boolean> {
-  for (const project of projects) {
-    let dirty = false;
-    for (const file of project.files) {
-      if (file.dirty) {
-        dirty = true;
-        break;
-      }
-    }
-    if (!dirty) {
-      continue;
-    }
-    const saved = await saveProjectFiles(project.id);
-    if (!saved) {
-      return false;
-    }
-  }
-  return true;
+  return result.path;
 }
 
 // Closing a workspace kills every shell and guards every dirty file in it.
@@ -187,8 +152,7 @@ async function closeWorkspace({
   if (!killingConfirmed) {
     return;
   }
-  // the panel, as the list chooseDirtyClose and the save below both take;
-  // empty when the workspace has never opened one.
+  // the workspace's panel, empty when it has never opened one
   const projects: ProjectInfo[] = [];
   if (workspace.project !== null) {
     projects.push(workspace.project);
@@ -251,10 +215,7 @@ async function closeFile({
   request,
 }: CloseFileOptions): Promise<void> {
   const project = projectInfo(request.projectTabId);
-  if (project === null) {
-    return;
-  }
-  if (!window) {
+  if (project === null || !window) {
     return;
   }
   const dirtyChoice = chooseDirtyClose({
@@ -267,27 +228,22 @@ async function closeFile({
   if (dirtyChoice === "cancel") {
     return;
   }
+  let path = request.filePath;
+  let untitledId = request.untitledId;
   if (dirtyChoice === "save") {
-    const result = await saveOneFile({
-      projectTabId: request.projectTabId,
-      filePath: request.filePath,
-      untitledId: request.untitledId,
-    });
-    if (!result.saved) {
+    const savedPath = await saveOneFile(request);
+    if (savedPath === null) {
       return;
     }
-    dispatch({
-      type: "close-file",
-      projectTabId: request.projectTabId,
-      path: result.filePath,
-    });
-    return;
+    // saving gave an untitled buffer the path it is now known by
+    path = savedPath;
+    untitledId = undefined;
   }
   dispatch({
     type: "close-file",
     projectTabId: request.projectTabId,
-    path: request.filePath,
-    untitledId: request.untitledId,
+    path,
+    untitledId,
   });
 }
 
@@ -296,36 +252,24 @@ async function closeFile({
 function closeActiveFileOrTab(window: BrowserWindow | null): void {
   const workspace = workspaceInfo(undefined);
   const project = workspace?.project;
-  if (
-    workspace !== undefined &&
-    project !== null &&
-    project !== undefined &&
-    project.visible &&
-    workspace.focus === "project"
-  ) {
-    if (project.activeFilePath !== null) {
-      closeFile({
-        window,
-        request: {
-          projectTabId: project.id,
-          filePath: project.activeFilePath,
-        },
-      });
-      return;
+  if (project?.visible === true && workspace?.focus === "project") {
+    // the file on screen is named by its path, or by an untitled id until it
+    // has one
+    const request: CloseFileRequest = { projectTabId: project.id };
+    if (project.activeFilePath === null) {
+      request.untitledId = project.activeUntitledId;
+    } else {
+      request.filePath = project.activeFilePath;
     }
-    if (project.activeUntitledId !== undefined) {
+    if (request.filePath !== undefined || request.untitledId !== undefined) {
       closeFile({
         window,
-        request: {
-          projectTabId: project.id,
-          untitledId: project.activeUntitledId,
-        },
+        request,
       });
       return;
     }
   }
-  // Every tab is a terminal or a document, and neither holds an unsaved file:
-  // only the project panel does, and it is not closed by closing a tab.
+  // No tab holds an unsaved file, only the panel does, so this asks nothing.
   dispatch({
     type: "close-tab",
     id: undefined, // the active tab
