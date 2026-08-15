@@ -20,7 +20,7 @@ export function mountProjectTreeScrollbar({
     const visibleHeight = treeElement.clientHeight;
     const scrollableHeight = treeElement.scrollHeight - visibleHeight;
     if (scrollableHeight <= 0) {
-      thumbElement.classList.remove("visible");
+      thumbElement.classList.add("hidden");
       return;
     }
     const thumbHeight = Math.max(
@@ -34,7 +34,7 @@ export function mountProjectTreeScrollbar({
     thumbElement.style.transform = `translateY(${Math.round(
       (treeElement.scrollTop / scrollableHeight) * travel,
     )}px)`;
-    thumbElement.classList.add("visible");
+    thumbElement.classList.remove("hidden");
   }
 
   // where the drag started, in the two units it has to hold together: the

@@ -1,6 +1,40 @@
+/* Tailwind's utilities carry the look of the elements this app builds; what
+   is left here is what a utility class cannot reach, and the semantic class
+   names it selects on (.project-tree-row, .tab) stay on those elements as
+   hooks for these rules and for the test suite. Preflight, Tailwind's reset,
+   is deliberately not imported: the window embeds three UIs that ship their
+   own complete styling (Dockview, xterm, Monaco) and a global reset would
+   reach inside all of them. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+/* every class the page uses is written in this directory */
+@source "./";
+
 /* Theme colors and fonts arrive as custom properties, set from the saved
-   settings by renderer/settings.ts. Dockview and xterm inject their own
-   stylesheets at runtime. */
+   settings by renderer/settings.ts. `inline` is what lets a utility read one
+   at use time, so switching a theme repaints without rebuilding the CSS. */
+@theme inline {
+  --color-background: var(--background);
+  --color-title-bar: var(--title-bar-background);
+  --color-tab-bar: var(--tab-bar-background);
+  --color-tab: var(--tab-foreground);
+  --color-tab-active: var(--tab-active-foreground);
+  --color-separator: var(--separator);
+  --color-accent: var(--accent);
+  --color-scrollbar-thumb: var(--scrollbar-thumb);
+  --color-scrollbar-thumb-hover: var(--scrollbar-thumb-hover);
+  --font-ui: var(--ui-font-family);
+  --font-terminal: var(--font-family);
+  --font-markdown: var(--markdown-font-family);
+}
+
+:root {
+  --scrollbar-size: 6px;
+  /* centers a document at a reading width against a full-bleed background;
+     the percentage resolves against whichever element reads it */
+  --reading-inset: max(32px, calc((100% - 880px) / 2));
+}
 
 /* ---------- Window chrome ---------- */
 
@@ -39,32 +73,13 @@ select {
   font-family: inherit;
 }
 
-/* Replaces the hidden native title bar (titleBarStyle: hiddenInset in
-   main/index.ts). app-region: drag keeps the native behaviors: dragging
-   moves the window, double-click zooms it. */
-#title-bar {
-  flex: none;
-  height: 36px; /* vertically centers the inset traffic lights */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  -webkit-app-region: drag;
-  background: var(--title-bar-background);
-  color: var(--tab-active-foreground);
-  font: 600 13px var(--ui-font-family);
-}
-
 /* One scrollbar everywhere: a slim square thumb in the theme's grey, on
    xterm's scrollback, the markdown view, code blocks and the tab strips
    alike. Styling ::-webkit-scrollbar at all replaces Chromium's own
    rounded overlay bar, which is the only way to square its corners. It also
    makes the bar a classic one: it takes its width out of the scroll
    container's content box, and Chromium clips content at that edge, so
-   nothing of ours can be drawn under a bar (see .project-tree-scrollbar). */
-:root {
-  --scrollbar-size: 6px;
-}
-
+   nothing of ours can be drawn under a bar (see project-tree-scrollbar.ts). */
 ::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
@@ -82,30 +97,20 @@ select {
   background: var(--scrollbar-thumb-hover);
 }
 
-#workbench {
-  flex: 1;
-  display: flex;
-  min-height: 0; /* a flex child refuses to shrink below its content */
-  position: relative; /* the resizer is placed against this box */
+/* Mid-drag the panes and the panel ignore the pointer, so crossing a
+   terminal or Monaco does not start a selection under the cursor. */
+body.resizing #layout,
+body.resizing #project .project-panel {
+  pointer-events: none;
 }
 
-/* Rides over the sidebar's edge instead of taking a column of its own, so
-   widening it costs the layout nothing. --sidebar-width is a setting
-   (settings.ts); the drag writes it live and commits on release. */
-#sidebar-resizer {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(var(--sidebar-width) - 2px);
-  width: 5px;
-  z-index: 2; /* over Dockview's own chrome */
-  cursor: col-resize;
-}
-
-/* the strip is a 5px hit area; what lights up is a hairline over the
-   sidebar's own border, so grabbing it costs no width */
+/* Each drag handle is a 5px hit area over an edge; what lights up is a
+   hairline over the border already there, so grabbing it costs no width.
+   A drawn hairline is a pseudo-element, which no utility class can be. */
 #sidebar-resizer:hover::after,
-#sidebar-resizer.dragging::after {
+#sidebar-resizer.dragging::after,
+#project-resizer:hover::after,
+#project-resizer.dragging::after {
   content: "";
   position: absolute;
   top: 0;
@@ -115,100 +120,27 @@ select {
   background: var(--accent);
 }
 
-/* Mid-drag the panes ignore the pointer, so crossing a terminal or Monaco
-   does not start a selection under the cursor. */
-body.resizing #layout {
-  pointer-events: none;
+.project-tree-resizer:hover::after,
+.project-tree-resizer:focus-visible::after,
+.project-tree-resizer.dragging::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 2px;
+  width: 1px;
+  background: var(--accent);
 }
 
-/* The named workspace list at the top, settings gear at the bottom */
-#sidebar {
-  flex: none;
-  width: var(--sidebar-width);
-  display: flex;
-  flex-direction: column;
-  padding: 8px 0;
-  background: var(--tab-bar-background);
-  border-right: 1px solid var(--separator);
-}
-
-/* rows, not icons: everything shares the list's left edge. Sizes belong to
-   the rules below; an id-and-type selector here would outrank them. */
-#sidebar button {
-  border: none;
-  background: transparent;
-  color: var(--tab-foreground);
-  padding: 4px 12px;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-#sidebar button:hover {
-  color: var(--tab-active-foreground);
-}
-
-#settings-button {
-  margin-top: auto;
-  font-size: 18px;
-}
-
-#workspace-list {
-  display: flex;
-  flex-direction: column;
-}
-
-/* one full-width row per workspace: its name, and its × at the edge. Not a
-   button, so it names the colors the `#sidebar button` rule above gives the
-   others. */
-#sidebar .workspace-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--tab-foreground);
-  padding: 5px 12px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-#sidebar .workspace-row:hover {
-  color: var(--tab-active-foreground);
-}
-
-/* the name yields to the ×, ellipsizing rather than pushing it off the row */
-.workspace-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* the row's own padding is the ×'s hit area; it brings none of its own */
-#sidebar .workspace-close {
-  flex: none;
-  padding: 0;
-  /* a button takes neither from the page: the row's size, the row's shade */
-  font-size: inherit;
-  color: inherit;
-  line-height: 1;
-}
-
-/* the window always has a workspace to show, so the last row's × would be
-   a button that does nothing */
-#workspace-list .workspace-row:only-child .workspace-close {
-  display: none;
-}
-
-/* the active row shares the terminal's background, so it reads as the
-   surface the panes belong to */
-#sidebar .workspace-row.active {
+/* The active row shares the terminal's background, so it reads as the
+   surface the panes belong to, and wears the accent down its left edge.
+   One rule because the edge is a pseudo-element and has to live here. */
+.workspace-row.active {
   color: var(--tab-active-foreground);
   background: var(--background);
 }
 
-#sidebar .workspace-row.active::before {
+.workspace-row.active::before {
   content: "";
   position: absolute;
   left: 0;
@@ -218,27 +150,18 @@ body.resizing #layout {
   background: var(--accent);
 }
 
-#new-workspace-button {
-  font-size: 12px;
-  margin-top: 2px;
-}
-
-/* holds one Dockview root per workspace; the inactive ones are display:none */
-#layout {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-}
-
-.workspace-layout {
-  flex: 1;
-  min-width: 0;
+/* the window always has a workspace to show, so the last row's × would be
+   a button that does nothing */
+#workspace-list .workspace-row:only-child .workspace-close {
+  display: none;
 }
 
 /* ---------- Tab strip ---------- */
 
-/* Two classes: Dockview injects its stylesheet after this one, so source
-   order can't win; specificity must */
+/* Dockview draws its own chrome, so its look is set through the variables
+   it reads and the classes it puts on its own elements. Two classes: it
+   injects its stylesheet after this one, so source order can't win;
+   specificity must. */
 .dv-shell.dockview-theme-dark {
   --dv-group-view-background-color: var(--background);
   --dv-tabs-and-actions-container-background-color: var(--tab-bar-background);
@@ -294,100 +217,48 @@ body.resizing #layout {
   background: var(--background);
 }
 
-/* our custom tab content, rendered inside Dockview's .dv-tab */
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 100%;
-  font-family: var(--ui-font-family);
-}
-
-/* shell-set titles can be long paths */
-.tab-title {
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tab-close {
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
-  line-height: 1;
-  padding: 0;
-  cursor: pointer;
-}
-
-.tab-close:hover {
-  color: var(--tab-active-foreground);
-}
-
-.new-tab {
-  font-size: 15px;
-  font-family: var(--ui-font-family);
-  color: var(--tab-foreground);
-  background: transparent;
-  border: none;
-  padding: 4px 12px;
-  cursor: pointer;
-}
-
 /* ---------- Modals ---------- */
-
-dialog {
-  background: var(--tab-bar-background);
-  color: var(--tab-active-foreground);
-  border: 1px solid var(--separator);
-  border-radius: 10px;
-  padding: 16px;
-  width: 260px;
-  font-family: var(--ui-font-family);
-}
 
 dialog::backdrop {
   background: rgba(0, 0, 0, 0.35);
 }
 
-dialog h2 {
-  margin: 0 0 10px;
-  font-size: 13px;
-  font-weight: 600;
+/* The dialogs are where a utility per element lost: six identical fields,
+   and the same box and buttons twice over. Size and color stay at the use
+   site, so a utility beside these still wins. */
+@utility dialog-box {
+  width: 260px;
+  padding: 16px;
+  border: 1px solid var(--separator);
+  border-radius: 10px;
+  background: var(--tab-bar-background);
+  color: var(--tab-active-foreground);
 }
 
-dialog input,
-dialog select {
+@utility dialog-button {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+/* a form control takes its color from the browser, not from the page */
+@utility field {
   box-sizing: border-box;
-  width: 100%;
   padding: 5px 8px;
-  font: 13px var(--ui-font-family);
-  color: inherit;
-  background: var(--background);
   border: 1px solid var(--separator);
   border-radius: 5px;
+  background: var(--background);
+  color: inherit;
   outline: none;
-}
-
-dialog input:focus,
-dialog select:focus {
-  border-color: var(--accent);
-}
-
-/* groups the rows below it: Terminal, Interface, Markdown */
-.settings-section {
-  margin: 16px 0 8px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--tab-foreground);
+  &:focus {
+    border-color: var(--accent);
+  }
 }
 
 /* label text left, control right; the label wraps its control so clicking
    the text focuses it */
-.settings-row {
+@utility settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -397,257 +268,39 @@ dialog select:focus {
   white-space: nowrap;
 }
 
-.settings-row input,
-.settings-row select {
-  width: 140px;
-  font-size: 12px;
-}
-
-.dialog-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.dialog-buttons button {
-  font: 12px var(--ui-font-family);
-  color: inherit;
-  background: var(--separator);
-  border: none;
-  border-radius: 5px;
-  padding: 5px 12px;
-}
-
-.dialog-buttons button.default {
-  background: var(--accent);
-  /* the accent is bright in dark themes and dark in light ones, so the
-     page background is always the readable text color on top of it */
-  color: var(--background);
-}
-
-/* ---------- Markdown view ---------- */
-
-/* The pane is a toolbar over a scrolling body; the body holds either the
-   rendered document or the file's source. */
-.markdown-pane {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--background);
-}
-
-/* The workspace's editor, beside the pane layout rather than inside it.
-   Holds one panel per workspace; workspaces.ts displays the active one and
-   hides the host itself while that panel is closed. */
-#project {
-  flex: none;
-  width: var(--project-width);
-  min-width: 0;
-  position: relative; /* the resizer is placed against this box */
-  border-left: 1px solid var(--separator);
-  background: var(--background);
-}
-
-/* Rides over the panel's inner edge, the way the sidebar's handle does */
-#project-resizer {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -3px;
-  width: 5px;
-  z-index: 2; /* over Monaco's own chrome */
-  cursor: col-resize;
-}
-
-#project-resizer:hover::after,
-#project-resizer.dragging::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 2px;
-  width: 1px;
-  background: var(--accent);
-}
-
-/* Mid-drag the panel ignores the pointer too, so crossing Monaco does not
-   start a selection under the cursor. */
-body.resizing #project .project-panel {
-  pointer-events: none;
-}
-
-/* its header over the tree and the editor region */
-.project-panel {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--background);
-}
-
-/* what the Dockview tab used to say and do, for a panel that has none:
-   which project this is, and the × that takes it off screen */
-.project-header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  /* the tab strip's height, so the two line up across the window: Dockview
-     counts its own underline inside that 35px, so this has to as well */
-  box-sizing: border-box;
-  height: 35px;
-  background: var(--tab-bar-background);
-  border-bottom: 1px solid var(--separator);
-  color: var(--tab-active-foreground);
-  font-family: var(--ui-font-family);
-  font-size: 12px;
-}
-
-.project-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-hide {
-  flex: none;
-  border: none;
-  background: transparent;
-  padding: 0;
+/* groups the rows below it: Terminal, Interface, Markdown */
+@utility settings-section {
+  margin: 16px 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--tab-foreground);
-  font-size: inherit;
-  line-height: 1;
-  cursor: pointer;
 }
 
-.project-hide:hover {
-  color: var(--tab-active-foreground);
-}
-
-/* one editor region beside a resizable tree */
-.project-pane {
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--project-tree-width);
-  background: var(--background);
-}
-
-.project-tree {
-  min-width: 0;
-  overflow: auto;
-  border-left: 1px solid var(--separator);
-  background: var(--background);
-  color: var(--tab-foreground);
-  font-family: var(--ui-font-family);
-  font-size: 13px;
-}
+/* ---------- Project tree ---------- */
 
 /* A native bar would take its width out of the tree's content box, where
    Chromium clips the rows: a row's hover band would stop a bar's width short
    of the panel edge with a strip of background beside it. So the tree hides
-   the native one and floats this thumb over the rows instead, the way VS
+   the native one and floats its own thumb over the rows instead, the way VS
    Code's explorer does. project-tree-scrollbar.ts sizes and moves it. */
 .project-tree::-webkit-scrollbar {
   display: none;
-}
-
-.project-tree-scrollbar {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: var(--scrollbar-size);
-  z-index: 1;
-  display: none;
-  background: var(--scrollbar-thumb);
-}
-
-/* a tree short enough to fit shows nothing at all */
-.project-tree-scrollbar.visible {
-  display: block;
-}
-
-.project-tree-scrollbar:hover,
-.project-tree-scrollbar.dragging {
-  background: var(--scrollbar-thumb-hover);
-}
-
-.project-tree-resizer {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: calc(var(--project-tree-width) - 3px);
-  width: 5px;
-  z-index: 2;
-  cursor: col-resize;
-  outline: none;
-}
-
-.project-tree-resizer:hover::after,
-.project-tree-resizer:focus-visible::after,
-.project-tree-resizer.dragging::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 2px;
-  width: 1px;
-  background: var(--accent);
-}
-
-.project-tree-list {
-  margin: 0;
-  padding-left: 16px;
-  list-style: none;
-}
-
-.project-tree-root {
-  padding-left: 0;
-}
-
-.project-tree-row {
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  min-height: 24px;
-  overflow: hidden;
-  padding: 3px 8px;
-  color: inherit;
-  font: inherit;
-  line-height: 18px;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.project-tree-directory > summary {
-  padding-left: 4px;
-  list-style: none;
 }
 
 .project-tree-directory > summary::-webkit-details-marker {
   display: none;
 }
 
+/* Monaco bundles VS Code's Codicon font and its stable glyph mapping. A
+   glyph is drawn by a pseudo-element, so these stay CSS. */
 .project-tree-disclosure::before,
-.project-tree-icon::before {
+.project-tree-folder-icon::before,
+.project-tree-file-icon::before {
   font: normal normal normal 16px/1 codicon;
   text-align: center;
   -webkit-font-smoothing: antialiased;
-}
-
-/* Monaco bundles VS Code's Codicon font and its stable glyph mapping. */
-.project-tree-disclosure {
-  flex: none;
-  width: 16px;
-  height: 16px;
 }
 
 .project-tree-disclosure::before {
@@ -658,12 +311,6 @@ body.resizing #project .project-panel {
   content: "\eab4";
 }
 
-.project-tree-icon {
-  flex: none;
-  width: 16px;
-  height: 16px;
-}
-
 .project-tree-folder-icon::before {
   content: "\ea83";
 }
@@ -672,30 +319,13 @@ body.resizing #project .project-panel {
   content: "\eaf7";
 }
 
-.project-tree-file {
-  padding-left: 24px;
-  border: 0;
-  background: transparent;
-}
-
 .project-tree-file-icon::before {
   content: "\ea7b";
 }
 
-.project-tree-name {
-  min-width: 0;
-  overflow: hidden;
-  flex: 1;
-  text-overflow: ellipsis;
-}
-
-.project-tree-row:hover,
-.project-tree-row:focus-visible {
-  color: var(--tab-active-foreground);
-  background: var(--separator);
-  outline: none;
-}
-
+/* What Git says about a row is an attribute the row wears (project-tree.tsx),
+   so its color and its badge are selected on that attribute rather than on a
+   class a utility could be. */
 .project-tree-row[data-git-decoration="added"],
 .project-tree-row[data-git-decoration="intent-to-add"] {
   --project-tree-git-foreground: var(--git-added-foreground);
@@ -764,161 +394,11 @@ body.resizing #project .project-panel {
   -webkit-font-smoothing: antialiased;
 }
 
-.project-tree-message,
-.project-tree-root-error {
-  padding: 3px 8px;
-  color: var(--tab-foreground);
-  line-height: 18px;
-}
+/* ---------- Markdown view ---------- */
 
-.project-tree-error {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-
-.project-tree-retry {
-  padding: 2px 8px;
-  color: inherit;
-  background: var(--separator);
-  border: 0;
-  border-radius: 4px;
-  font: inherit;
-}
-
-.project-editor-region {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.project-editor-body {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-}
-
-.code-editor {
-  min-height: 0;
-  outline: none;
-}
-
-.project-editor {
-  position: absolute;
-  inset: 0;
-  display: none;
-}
-
-.project-editor.visible {
-  display: block;
-}
-
-.project-empty {
-  display: none;
-  padding: 24px;
-  color: var(--tab-foreground);
-  font-family: var(--ui-font-family);
-  font-size: 13px;
-}
-
-.project-empty.visible {
-  display: block;
-}
-
-/* shown instead of a file view when its path could not be read */
-.code-error {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 18px 24px;
-  color: var(--tab-active-foreground);
-  font-family: var(--ui-font-family);
-  font-size: 13px;
-}
-
-.project-file-error {
-  display: none;
-}
-
-.project-file-error.visible {
-  display: flex;
-}
-
-.markdown-toolbar {
-  flex: none;
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-  padding: 6px 10px 0;
-}
-
-.markdown-action {
-  font-size: 11px;
-  color: var(--tab-foreground);
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  padding: 2px 7px;
-  cursor: pointer;
-}
-
-.markdown-action:hover {
-  color: var(--tab-active-foreground);
-  background: var(--tab-bar-background);
-}
-
-/* the project tab's copy of the toolbar only surfaces for a markdown buffer */
-.project-markdown-toolbar {
-  display: none;
-}
-
-.project-markdown-toolbar.visible {
-  display: flex;
-}
-
-/* a markdown buffer's rendered face, over the editor's spot like the editor */
-.project-markdown {
-  position: absolute;
-  inset: 0;
-  display: none;
-}
-
-.project-markdown.visible {
-  display: block;
-}
-
-.markdown-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  outline: none;
-}
-
-/* the file as it is on disk, in the terminal's font */
-.markdown-raw {
-  margin: 0;
-  padding: 18px max(32px, calc((100% - 880px) / 2));
-  color: var(--tab-active-foreground);
-  font-family: var(--font-family);
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-/* GitHub's layout, our palette: every surface derives from the theme.
-   The padding formula centers content at a reading width, full-bleed
-   background. */
-.markdown-view {
-  padding: 24px max(32px, calc((100% - 880px) / 2));
-  color: var(--tab-active-foreground);
-  font-family: var(--markdown-font-family);
-  font-size: var(--markdown-font-size);
-  line-height: 1.6;
-  overflow-wrap: break-word;
-}
-
+/* GitHub's layout, our palette. The view element itself is built by
+   renderer/tabs/markdown.ts and wears utilities; everything below it is
+   markdown-it's HTML, which has no classes to hang them on. */
 .markdown-view > :first-child {
   margin-top: 0;
 }
@@ -1036,26 +516,7 @@ body.resizing #project .project-panel {
   max-width: 100%;
 }
 
-.markdown-view .task-list-item {
-  list-style: none;
-}
-
-.markdown-view .task-list-item-checkbox {
-  margin-right: 0.4em;
-  vertical-align: middle;
-}
-
-.markdown-view .mermaid-diagram {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 16px;
-}
-
 /* ---------- Terminal ---------- */
-
-.terminal-pane {
-  height: 100%;
-}
 
 /* The inset lives on .xterm, not the pane: the fit addon subtracts .xterm's
    padding but reads the pane's computed height, which in Chromium includes

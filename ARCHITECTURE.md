@@ -233,6 +233,27 @@ change it and update this list.
   second way for the window to find a page — `loadURL` in development,
   `loadFile` packaged — plus a CSP loose enough for the dev server's own
   injected scripts, which is not the policy we ship.
+- **Tailwind styles what we build; CSS keeps what a class cannot say.**
+  (Decided 2026-08-15, replacing a single 1074-line `style.css` with 500.) An
+  element the app creates carries its look in its class attribute, beside the
+  code that creates it, so changing a row is one edit rather than a hunt for
+  the selector that reaches it. The theme survives intact: `@theme inline`
+  maps each palette entry to a utility name (`--color-tab-bar:
+  var(--tab-bar-background)`), and `inline` resolves the variable at use time,
+  so `settings.ts` still repaints the window by writing custom properties onto
+  the root element. What stays in `style.css` is what has no class attribute
+  to write on: Dockview's and xterm's own elements, `::-webkit-scrollbar` and
+  `::backdrop`, the Codicon glyphs and Git badges drawn by `::before`, the
+  drag handles' hairlines, and markdown-it's generated HTML. Semantic names
+  (`.project-tree-row`, `.tab`) stay on the elements as hooks for those rules
+  and for the test suite. Two things we learned by doing it: **Preflight,
+  Tailwind's reset, must not be imported**, because it would reach inside the
+  three UIs that ship their own complete styling, so the page imports
+  `tailwindcss/theme.css` and `tailwindcss/utilities.css` directly; and a
+  utility per element loses where markup repeats, so the dialogs' six
+  identical fields are one `@utility` instead. Cost we accept: a build plugin
+  and two packages, and a stylesheet that no longer tells the whole story of
+  how the app looks.
 - **Monaco is loaded when the first project panel opens, not at boot.** It is
   about 4MB with every language grammar it ships. A dynamic `import()` where
   the editor is set up keeps that cost off the boot path entirely: a session

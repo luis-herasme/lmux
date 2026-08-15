@@ -26,8 +26,10 @@ export type MarkdownRender = {
 };
 
 export function renderMarkdown(markdown: string): MarkdownRender {
+  // style.css dresses the HTML inside it; this is the view's own look
   const view = document.createElement("article");
-  view.className = "markdown-view";
+  view.className =
+    "markdown-view px-(--reading-inset) py-6 font-markdown text-(length:--markdown-font-size) leading-[1.6] break-words text-tab-active";
   view.innerHTML = DOMPurify.sanitize(parser.render(markdown));
   renderTaskLists(view);
   return {
@@ -36,7 +38,7 @@ export function renderMarkdown(markdown: string): MarkdownRender {
   };
 }
 
-// GFM task lists: "[ ] " → disabled checkbox, styled in style.css
+// GFM task lists: "[ ] " → disabled checkbox, in place of the list marker
 function renderTaskLists(view: HTMLElement): void {
   for (const item of view.querySelectorAll("li")) {
     let textNode = item.firstChild;
@@ -60,10 +62,10 @@ function renderTaskLists(view: HTMLElement): void {
     checkbox.type = "checkbox";
     checkbox.disabled = true;
     checkbox.checked = checked;
-    checkbox.className = "task-list-item-checkbox";
+    checkbox.className = "mr-[0.4em] align-middle";
     textNode.textContent = " " + text.slice(4);
     textNode.parentNode?.insertBefore(checkbox, textNode);
-    item.classList.add("task-list-item");
+    item.classList.add("list-none");
     item.parentElement?.classList.add("contains-task-list");
   }
 }
@@ -127,7 +129,7 @@ async function renderMermaidDiagrams(view: HTMLElement): Promise<void> {
     try {
       const { svg } = await mermaid.render(elementId, source, diagramHost);
       const diagram = document.createElement("div");
-      diagram.className = "mermaid-diagram";
+      diagram.className = "mb-4 flex justify-center";
       diagram.innerHTML = svg;
       pre.replaceWith(diagram);
     } catch {

@@ -110,13 +110,13 @@ async function visibleProjectMarkdownView(): Promise<ProjectMarkdownView> {
       return {
         toolbarVisible:
           toolbarElement !== null &&
-          toolbarElement.classList.contains("visible"),
-        editorVisible: paneElement
+          !toolbarElement.classList.contains("hidden"),
+        editorVisible: !paneElement
           .querySelector(".project-editor")
-          .classList.contains("visible"),
-        renderedVisible: paneElement
+          .classList.contains("hidden"),
+        renderedVisible: !paneElement
           .querySelector(".project-markdown")
-          .classList.contains("visible"),
+          .classList.contains("hidden"),
         renderedHeading:
           headingElement === null ? null : headingElement.textContent,
         buttonLabel:

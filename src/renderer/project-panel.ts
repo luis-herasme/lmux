@@ -12,7 +12,12 @@ import type {
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
 } from "../ipc/bridge.ts";
-import { focusProjectTree, mountProjectTree } from "./project-tree.tsx";
+import {
+  TREE_MESSAGE_CLASS,
+  TREE_RETRY_CLASS,
+  focusProjectTree,
+  mountProjectTree,
+} from "./project-tree.tsx";
 import type { ProjectTree } from "./project-tree.tsx";
 import { buildProjectPanelElements } from "./project-panel-elements.ts";
 import {
@@ -75,14 +80,14 @@ export function showProjectFile(panel: ProjectPanel): void {
   const model = file?.model;
   const markdown = model !== undefined && model.getLanguageId() === "markdown";
   const rendered = markdown && file?.markdownMode === "rendered";
-  panel.emptyElement.classList.toggle("visible", file === undefined);
-  panel.errorElement.classList.toggle("visible", file?.error !== undefined);
+  panel.emptyElement.classList.toggle("hidden", file !== undefined);
+  panel.errorElement.classList.toggle("hidden", file?.error === undefined);
   panel.editorElement.classList.toggle(
-    "visible",
-    model !== undefined && !rendered,
+    "hidden",
+    model === undefined || rendered,
   );
-  panel.markdownToolbarElement.classList.toggle("visible", markdown);
-  panel.markdownElement.classList.toggle("visible", rendered);
+  panel.markdownToolbarElement.classList.toggle("hidden", !markdown);
+  panel.markdownElement.classList.toggle("hidden", !rendered);
 
   if (model === undefined) {
     panel.editor.setModel(null);
@@ -241,11 +246,11 @@ async function loadProjectTreeRoot({
   }
   if ("error" in result) {
     const messageElement = document.createElement("div");
-    messageElement.className = "project-tree-root-error";
+    messageElement.className = TREE_MESSAGE_CLASS;
     messageElement.textContent = `Could not load workspace: ${result.error}`;
 
     const retryElement = document.createElement("button");
-    retryElement.className = "project-tree-retry";
+    retryElement.className = TREE_RETRY_CLASS;
     retryElement.type = "button";
     retryElement.textContent = "Retry";
     retryElement.addEventListener("click", () => {

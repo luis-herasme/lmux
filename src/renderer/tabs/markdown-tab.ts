@@ -40,8 +40,10 @@ function markdownText({ result, filePath }: MarkdownTextOptions): string {
 // diagrams have too, so a caller can measure the finished document.
 async function showMarkdown(tab: MarkdownTab): Promise<void> {
   if (tab.mode === "raw") {
+    // the file as it is on disk, in the terminal's font
     const source = document.createElement("pre");
-    source.className = "markdown-raw";
+    source.className =
+      "m-0 px-(--reading-inset) py-[18px] font-terminal text-[13px] leading-[1.5] wrap-anywhere whitespace-pre-wrap text-tab-active";
     source.textContent = tab.markdown;
     tab.modeButton.textContent = "Rendered";
     tab.contentElement.replaceChildren(source);
@@ -105,15 +107,19 @@ type MarkdownPane = {
   modeButton: HTMLElement;
 };
 
+// shared with the project panel's copy of this toolbar
+export const MARKDOWN_ACTION_CLASS =
+  "markdown-action cursor-pointer rounded border-0 bg-transparent px-[7px] py-[2px] text-[11px] text-tab hover:bg-tab-bar hover:text-tab-active";
+
 // Built before the tab record exists, so only the affordances that need
 // nothing but the id are wired here; attachPaneHandlers does the rest.
 function buildMarkdownPane(id: number): MarkdownPane {
   const modeButton = document.createElement("button");
-  modeButton.className = "markdown-action";
+  modeButton.className = MARKDOWN_ACTION_CLASS;
   modeButton.title = "Show the file's source, or its rendering";
 
   const reloadButton = document.createElement("button");
-  reloadButton.className = "markdown-action";
+  reloadButton.className = MARKDOWN_ACTION_CLASS;
   reloadButton.textContent = "Reload";
   reloadButton.title = "Read the file again";
   reloadButton.addEventListener("click", () => {
@@ -124,15 +130,16 @@ function buildMarkdownPane(id: number): MarkdownPane {
   });
 
   const toolbar = document.createElement("div");
-  toolbar.className = "markdown-toolbar";
+  toolbar.className = "flex flex-none justify-end gap-1 px-2.5 pt-1.5";
   toolbar.append(modeButton, reloadButton);
 
   const contentElement = document.createElement("div");
-  contentElement.className = "markdown-scroll";
+  contentElement.className =
+    "markdown-scroll min-h-0 flex-1 overflow-auto outline-none";
   contentElement.tabIndex = -1;
 
   const paneElement = document.createElement("div");
-  paneElement.className = "markdown-pane";
+  paneElement.className = "flex h-full flex-col bg-background";
   paneElement.append(toolbar, contentElement);
 
   return {

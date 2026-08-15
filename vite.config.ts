@@ -2,8 +2,12 @@
 // CSS, Monaco's worker — and writes the bundle the window loads. Everything
 // outside src/renderer is `tsc`'s (ARCHITECTURE.md).
 import { defineConfig } from "vite";
+// Compiles style.css: the utilities the page actually uses, found by reading
+// the sources @source names there.
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
+  plugins: [tailwindcss()],
   root: "src/renderer", // index.html, beside the modules it pulls in
   // The window loads the page off disk, so every URL in the output has to be
   // relative to the page rather than to a site root.

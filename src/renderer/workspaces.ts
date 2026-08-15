@@ -96,7 +96,8 @@ const DOCKVIEW_OPTIONS = {
   },
   createRightHeaderActionComponent: (group: DockviewGroupPanel) => {
     const button = document.createElement("button");
-    button.className = "new-tab";
+    button.className =
+      "cursor-pointer border-0 bg-transparent px-3 py-1 font-ui text-[15px] text-tab";
     button.title = "New Tab (⌘T)";
     button.textContent = "+";
     button.addEventListener("click", () => {
@@ -117,7 +118,7 @@ export function createWorkspace(): Workspace {
   const id = nextWorkspaceId++;
 
   const element = document.createElement("div");
-  element.className = "workspace-layout";
+  element.className = "min-w-0 flex-1";
   element.style.display = "none";
   layoutElement.append(element);
 
@@ -125,16 +126,19 @@ export function createWorkspace(): Workspace {
   // nest; role, tabindex and the keydown below give back what the element
   // type stopped saying and doing. Same shape a tab has in the strip.
   const rowElement = document.createElement("div");
-  rowElement.className = "workspace-row";
+  rowElement.className =
+    "workspace-row relative flex cursor-pointer items-center gap-1.5 px-3 py-[5px] text-[12px] text-tab hover:text-tab-active";
   rowElement.role = "tab";
   rowElement.tabIndex = 0;
   rowElement.ariaSelected = "false";
 
   const nameElement = document.createElement("span");
-  nameElement.className = "workspace-name";
+  nameElement.className = "min-w-0 flex-1 truncate";
 
+  // the row's own padding is the ×'s hit area; it brings none of its own
   const closeElement = document.createElement("button");
-  closeElement.className = "workspace-close";
+  closeElement.className =
+    "workspace-close flex-none cursor-pointer border-0 bg-transparent p-0 text-[length:inherit] leading-none text-inherit";
   closeElement.textContent = "×";
   closeElement.title = "Close Workspace (⇧⌘W)";
   closeElement.ariaLabel = "Close workspace";
@@ -475,13 +479,15 @@ export function addPanel({
   // The row in the strip is built here rather than by the caller: every kind
   // of tab wears the same one, and only the pane below it differs.
   const titleElement = document.createElement("span");
-  titleElement.className = "tab-title";
+  // shell-set titles can be long paths
+  titleElement.className = "max-w-[160px] truncate";
   titleElement.textContent = title;
   titleElement.title = "Double-click to fill the window";
 
   // a button, not a span: it has to be reachable and pressable by keyboard
   const closeElement = document.createElement("button");
-  closeElement.className = "tab-close";
+  closeElement.className =
+    "cursor-pointer border-0 bg-transparent p-0 text-[length:inherit] leading-none text-inherit hover:text-tab-active";
   closeElement.textContent = "×";
   closeElement.title = "Close Tab (⌘W)";
   closeElement.ariaLabel = "Close tab";
@@ -494,7 +500,7 @@ export function addPanel({
   });
 
   const tabElement = document.createElement("div");
-  tabElement.className = "tab";
+  tabElement.className = "tab flex h-full items-center gap-1.5 font-ui";
   tabElement.dataset.tabId = String(id);
   tabElement.append(titleElement, closeElement);
   tabElement.addEventListener("contextmenu", (event) => {

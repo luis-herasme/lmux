@@ -46,11 +46,23 @@ export type ProjectTree = {
 
 function draw(projectTree: ProjectTree): void {
   projectTree.root.render(
-    <ul className="project-tree-list project-tree-root">
+    <ul className="project-tree-root m-0 list-none pl-0">
       <DirectoryContents projectTree={projectTree} directoryPath="" />
     </ul>,
   );
 }
+
+// A row is a <summary> or a <button>; each names its own horizontal padding,
+// because a button brings the browser's otherwise, and shares the rest.
+const ROW_CLASS =
+  "project-tree-row box-border flex min-h-6 w-full cursor-pointer items-center gap-1 overflow-hidden border-0 bg-transparent py-[3px] text-left text-[length:inherit] leading-[18px] whitespace-nowrap text-inherit outline-none hover:bg-separator hover:text-tab-active focus-visible:bg-separator focus-visible:text-tab-active";
+
+// a row that says something instead of naming a file, and the button
+// offering the read again; the panel's root error wears both too
+export const TREE_MESSAGE_CLASS = "px-2 py-[3px] leading-[18px] text-tab";
+
+export const TREE_RETRY_CLASS =
+  "rounded border-0 bg-separator px-2 py-[2px] text-[length:inherit] text-inherit";
 
 type GitDecorationPresentation = {
   label: string;
@@ -239,14 +251,14 @@ function DirectoryContents({
     return null;
   }
   if (directory.status === "loading") {
-    return <li className="project-tree-message">Loading…</li>;
+    return <li className={TREE_MESSAGE_CLASS}>Loading…</li>;
   }
   if (directory.status === "error") {
     return (
-      <li className="project-tree-message project-tree-error">
+      <li className={`${TREE_MESSAGE_CLASS} flex flex-col items-start gap-1`}>
         <span>{directory.message}</span>
         <button
-          className="project-tree-retry"
+          className={TREE_RETRY_CLASS}
           type="button"
           onClick={(event) => {
             // the row above it is a summary, and a click on that toggles
@@ -265,9 +277,9 @@ function DirectoryContents({
   }
   if (directory.entries.length === 0) {
     if (directoryPath === "") {
-      return <li className="project-tree-message">Empty workspace</li>;
+      return <li className={TREE_MESSAGE_CLASS}>Empty workspace</li>;
     }
-    return <li className="project-tree-message">Empty</li>;
+    return <li className={TREE_MESSAGE_CLASS}>Empty</li>;
   }
   return directory.entries.map((entry) => (
     <TreeEntry key={entry.path} projectTree={projectTree} entry={entry} />
@@ -297,7 +309,7 @@ function TreeEntry({ projectTree, entry }: TreeEntryProps): ReactNode {
     return (
       <li className="project-tree-item">
         <button
-          className="project-tree-row project-tree-file"
+          className={`${ROW_CLASS} project-tree-file pr-2 pl-6`}
           type="button"
           data-project-tree-kind="file"
           data-file-name={name}
@@ -307,10 +319,12 @@ function TreeEntry({ projectTree, entry }: TreeEntryProps): ReactNode {
           {...rowProps}
         >
           <span
-            className="project-tree-icon project-tree-file-icon"
+            className="project-tree-file-icon h-4 w-4 flex-none"
             aria-hidden="true"
           />
-          <span className="project-tree-name">{name}</span>
+          <span className="project-tree-name min-w-0 flex-1 truncate">
+            {name}
+          </span>
         </button>
       </li>
     );
@@ -336,19 +350,25 @@ function TreeEntry({ projectTree, entry }: TreeEntryProps): ReactNode {
           });
         }}
       >
+        {/* list-none takes the browser's own disclosure triangle off */}
         <summary
-          className="project-tree-row"
+          className={`${ROW_CLASS} list-none pr-2 pl-1`}
           data-project-tree-kind="directory"
           {...rowProps}
         >
-          <span className="project-tree-disclosure" aria-hidden="true" />
           <span
-            className="project-tree-icon project-tree-folder-icon"
+            className="project-tree-disclosure h-4 w-4 flex-none"
             aria-hidden="true"
           />
-          <span className="project-tree-name">{name}</span>
+          <span
+            className="project-tree-folder-icon h-4 w-4 flex-none"
+            aria-hidden="true"
+          />
+          <span className="project-tree-name min-w-0 flex-1 truncate">
+            {name}
+          </span>
         </summary>
-        <ul className="project-tree-list">
+        <ul className="m-0 list-none pl-4">
           <DirectoryContents
             projectTree={projectTree}
             directoryPath={entry.path}

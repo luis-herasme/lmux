@@ -81,7 +81,7 @@ export function openTerminalTab({
 }: OpenTerminalTabOptions): void {
   const tabId = nextTabId();
   const paneElement = document.createElement("div");
-  paneElement.className = "terminal-pane";
+  paneElement.className = "terminal-pane h-full";
 
   const { panel, titleElement } = addPanel({
     workspace,

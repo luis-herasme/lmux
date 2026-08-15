@@ -418,3 +418,26 @@ lmux uses React for the project panel's file tree and for nothing else. The
 tree is a view of data that arrives late and changes underneath — the case
 reconciliation is for. A terminal is not: xterm owns that DOM and draws it
 itself, and wrapping it in a component would buy nothing.
+
+## Tailwind / utility class / Preflight
+
+*Tailwind* is a CSS framework whose classes each set one thing: `flex` is
+`display: flex`, `px-2` is horizontal padding, `text-tab` is a color from the
+project's palette. Those are *utility classes*, and the point of them is that
+an element's look is written where the element is written, so the code that
+builds a row tells you what the row looks like with no selector to go find.
+Tailwind reads the source files, sees which class names appear, and generates
+only those rules.
+
+A *theme token* is a name Tailwind turns into utilities: declaring
+`--color-tab-bar` gives you `bg-tab-bar`, `text-tab-bar` and
+`border-tab-bar`. lmux declares its tokens with `@theme inline`, where
+`inline` means the utility carries the variable itself rather than a copy of
+its value, so changing the theme at runtime repaints everything using it.
+Where markup repeats the same combination too often to be worth reading,
+`@utility` names it once and the class attribute says only that name.
+
+*Preflight* is Tailwind's reset: a stylesheet that flattens browser defaults
+so utilities start from a blank page. lmux does not import it, because three
+libraries in the window (Dockview, xterm, Monaco) style their own DOM and a
+reset applies to every element on the page, theirs included.
