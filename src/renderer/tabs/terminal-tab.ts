@@ -113,7 +113,6 @@ export function openTerminalTab({
   const fitAddon = new FitAddon.FitAddon();
   terminal.loadAddon(fitAddon);
 
-  // Any visible box change re-fits the terminal grid.
   const observer = new ResizeObserver(() => {
     if (paneElement.clientWidth === 0 || paneElement.clientHeight === 0) {
       return;
