@@ -154,6 +154,10 @@ export function createCodeEditor({
     fontSize: settings.fontSize,
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
+    // lmux shows files, it does not write them: readOnly refuses the edit, and
+    // domReadOnly keeps a paste or an input method getting in around it
+    readOnly: true,
+    domReadOnly: true,
     // the panel is resized by a drag handle, which tells it nothing
     automaticLayout: true,
   });

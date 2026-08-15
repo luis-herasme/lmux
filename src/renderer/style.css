@@ -917,20 +917,6 @@ body.resizing #project .project-panel {
   display: flex;
 }
 
-/* a refused save says why, above the editor, until the tab closes */
-.code-status {
-  flex: none;
-  display: none;
-  padding: 6px 24px;
-  color: var(--tab-active-foreground);
-  font-family: var(--ui-font-family);
-  font-size: 12px;
-}
-
-.code-status.visible {
-  display: block;
-}
-
 .markdown-toolbar {
   flex: none;
   display: flex;

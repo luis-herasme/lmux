@@ -22,8 +22,8 @@ const sessionTabSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-// Only pinned file paths return. Contents, preview files, cursor positions
-// and undo history are transient and every file is re-read from disk.
+// Only pinned file paths return. Preview files, cursor positions and scroll
+// positions are transient and every file is re-read from disk.
 const sessionProjectSchema = z.object({
   workspaceRootPath: z.string(),
   files: z.array(z.string()),
@@ -83,7 +83,7 @@ export function sessionFromState(state: LmuxState): Session {
     if (workspace.project !== null) {
       const files: string[] = [];
       for (const file of workspace.project.files) {
-        if (!file.pinned || file.path === null) {
+        if (!file.pinned) {
           continue;
         }
         files.push(file.path);

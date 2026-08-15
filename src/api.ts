@@ -32,25 +32,6 @@ export const settingsSchema = z.object({
 
 export type Settings = z.infer<typeof settingsSchema>;
 
-type FileIdentity = {
-  path?: string;
-  untitledId?: number;
-};
-
-function hasExactlyOneFileIdentity(identity: FileIdentity): boolean {
-  if (identity.path !== undefined) {
-    return identity.untitledId === undefined;
-  }
-  return identity.untitledId !== undefined;
-}
-
-function hasAtMostOneFileIdentity(identity: FileIdentity): boolean {
-  if (identity.path !== undefined && identity.untitledId !== undefined) {
-    return false;
-  }
-  return true;
-}
-
 // `id` defaults to the active tab where optional. Tab ids are unique across
 // workspaces; group ids are resolved inside the tab's own workspace.
 // `projectTabId` names a workspace's project panel (the field name predates
@@ -98,8 +79,8 @@ export const commandSchema = z.discriminatedUnion("type", [
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
   }),
-  // Opens source in the workspace's project panel. A preview file is
-  // replaceable until edited or pinned; other command sources open pinned.
+  // Opens source in the workspace's project panel, for reading. A preview file
+  // is replaceable until it is pinned; other command sources open pinned.
   z.object({
     type: z.literal("open-file"),
     path: z.string(),
@@ -107,57 +88,28 @@ export const commandSchema = z.discriminatedUnion("type", [
     preview: z.boolean().optional(),
   }),
   z.object({
-    type: z.literal("new-file"),
-    projectTabId: z.number().optional(),
-  }),
-  z.object({
     type: z.literal("move-file"),
     projectTabId: z.number().optional(),
-    path: z.string().optional(),
-    untitledId: z.number().optional(),
+    path: z.string(),
     index: z.number(),
-  }).refine(hasExactlyOneFileIdentity, {
-    error: "move-file needs exactly one file identity",
   }),
   z.object({
     type: z.literal("activate-file"),
     projectTabId: z.number().optional(),
-    path: z.string().optional(),
-    untitledId: z.number().optional(),
-  }).refine(hasExactlyOneFileIdentity, {
-    error: "activate-file needs exactly one file identity",
+    path: z.string(),
   }),
   z.object({
     type: z.literal("close-file"),
     projectTabId: z.number().optional(),
-    path: z.string().optional(),
-    untitledId: z.number().optional(),
-  }).refine(hasExactlyOneFileIdentity, {
-    error: "close-file needs exactly one file identity",
+    path: z.string(),
   }),
-  // Shows a project file rendered, or back in its editor.
-  // `path` defaults to the visible file; a file that isn't markdown is
-  // ignored, so there is no untitledId to name one by.
+  // Shows a project file rendered, or back in its editor. `path` defaults to
+  // the visible file; a file that isn't markdown is ignored.
   z.object({
     type: z.literal("set-file-markdown-mode"),
     projectTabId: z.number().optional(),
     path: z.string().optional(),
     mode: markdownModeSchema,
-  }),
-  // Save guards on the mtime captured at read. Omitting a file identity means
-  // the visible file. destinationPath saves an untitled buffer without UI.
-  z.object({
-    type: z.literal("save-file"),
-    projectTabId: z.number().optional(),
-    path: z.string().optional(),
-    untitledId: z.number().optional(),
-    destinationPath: z.string().optional(),
-  }).refine(hasAtMostOneFileIdentity, {
-    error: "save-file accepts at most one file identity",
-  }),
-  z.object({
-    type: z.literal("save-all-files"),
-    projectTabId: z.number().optional(),
   }),
   // Shows the workspace's project panel, rooting it from a terminal the
   // first time. Hiding it keeps its files, so nothing is asked or lost.
@@ -258,63 +210,9 @@ export type LmuxEvent =
   // the file was re-read; its text is in the view, not in the state
   | { type: "markdown-reloaded"; id: number; state: LmuxState }
   | { type: "file-opened"; id: number; path: string; state: LmuxState }
-  | { type: "file-created"; id: number; untitledId: number; state: LmuxState }
-  | {
-      type: "file-moved";
-      id: number;
-      path: string | null;
-      untitledId?: number;
-      state: LmuxState;
-    }
-  | {
-      type: "file-activated";
-      id: number;
-      path: string | null;
-      untitledId?: number;
-      state: LmuxState;
-    }
-  | {
-      type: "file-closed";
-      id: number;
-      path: string | null;
-      untitledId?: number;
-      state: LmuxState;
-    }
-  | {
-      type: "dirty-changed";
-      id: number;
-      path: string | null;
-      untitledId?: number;
-      state: LmuxState;
-    }
-  | {
-      type: "file-saved";
-      id: number;
-      path: string;
-      previousUntitledId?: number;
-      state: LmuxState;
-    }
-  | {
-      type: "file-save-canceled";
-      id: number;
-      untitledId: number;
-      state: LmuxState;
-    }
-  | {
-      type: "file-save-failed";
-      id: number;
-      path: string | null;
-      untitledId?: number;
-      error: string;
-      state: LmuxState;
-    }
-  | {
-      type: "files-save-finished";
-      id: number;
-      failedPaths: string[];
-      failedUntitledIds: number[];
-      state: LmuxState;
-    }
+  | { type: "file-moved"; id: number; path: string; state: LmuxState }
+  | { type: "file-activated"; id: number; path: string; state: LmuxState }
+  | { type: "file-closed"; id: number; path: string; state: LmuxState }
   | {
       type: "workspace-root-changed";
       id: number;
@@ -322,19 +220,10 @@ export type LmuxEvent =
       state: LmuxState;
     };
 
-export type ProjectFileInfo =
-  | {
-      path: string;
-      dirty: boolean;
-      pinned: boolean;
-    }
-  | {
-      path: null;
-      title: "Untitled";
-      untitledId: number;
-      dirty: boolean;
-      pinned: true;
-    };
+export type ProjectFileInfo = {
+  path: string;
+  pinned: boolean;
+};
 
 export type TabInfo =
   | { id: number; title: string; kind: "terminal" }
@@ -351,7 +240,6 @@ export type ProjectInfo = {
   workspaceRootPath: string;
   visible: boolean; // hiding it keeps every file open behind it
   activeFilePath: string | null;
-  activeUntitledId?: number;
   files: ProjectFileInfo[];
 };
 

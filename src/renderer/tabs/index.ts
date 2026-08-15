@@ -6,13 +6,10 @@ import {
   changeProjectWorkspaceRoot,
   closeProjectFile,
   createProjectPanel,
-  createUntitledProjectFile,
   focusProjectPanel,
   moveProjectFile,
   openProjectFile,
   redrawProjectMarkdown,
-  saveAllProjectFiles,
-  saveProjectFile,
   setProjectFileMarkdownMode,
 } from "../project-panel.ts";
 import type { ProjectPanel } from "../project-panel.ts";
@@ -154,9 +151,10 @@ function buildTabElement(id: number): TabElements {
   closeElement.ariaLabel = "Close tab";
   closeElement.addEventListener("click", (event) => {
     event.stopPropagation();
-    // a person's × routes through main, so a dirty tab is asked about
-    // before it goes; an agent's close-tab Command goes the other way
-    bridge.closeTab(id);
+    executeCommand({
+      type: "close-tab",
+      id,
+    });
   });
 
   const tabElement = document.createElement("div");
@@ -610,14 +608,6 @@ export function executeCommand(command: Command): void {
       });
       return;
     }
-    case "new-file": {
-      const panel = resolveProject(command.projectTabId);
-      if (panel === undefined) {
-        return;
-      }
-      createUntitledProjectFile(panel);
-      return;
-    }
     case "move-file": {
       const panel = resolveProject(command.projectTabId);
       if (panel === undefined) {
@@ -626,7 +616,6 @@ export function executeCommand(command: Command): void {
       moveProjectFile({
         panel,
         filePath: command.path,
-        untitledId: command.untitledId,
         index: command.index,
       });
       return;
@@ -639,7 +628,6 @@ export function executeCommand(command: Command): void {
       activateProjectFile({
         panel,
         filePath: command.path,
-        untitledId: command.untitledId,
       });
       return;
     }
@@ -651,7 +639,6 @@ export function executeCommand(command: Command): void {
       closeProjectFile({
         panel,
         filePath: command.path,
-        untitledId: command.untitledId,
       });
       return;
     }
@@ -688,27 +675,6 @@ export function executeCommand(command: Command): void {
         id: resolved.id,
         tab: resolved.tab,
       });
-      return;
-    }
-    case "save-file": {
-      const panel = resolveProject(command.projectTabId);
-      if (panel === undefined) {
-        return;
-      }
-      saveProjectFile({
-        panel,
-        filePath: command.path,
-        untitledId: command.untitledId,
-        destinationPath: command.destinationPath,
-      });
-      return;
-    }
-    case "save-all-files": {
-      const panel = resolveProject(command.projectTabId);
-      if (panel === undefined) {
-        return;
-      }
-      saveAllProjectFiles(panel);
       return;
     }
     case "toggle-maximize": {
@@ -815,11 +781,8 @@ export function readScreen(request: ScreenRequest): ScreenResult {
   if (panel !== undefined) {
     let path: string | null = null;
     let language: string | null = null;
-    if (panel.activeFileKey !== undefined) {
-      const buffer = panel.files.get(panel.activeFileKey);
-      if (buffer?.filePath !== undefined) {
-        path = buffer.filePath;
-      }
+    if (panel.activeFilePath !== undefined) {
+      path = panel.activeFilePath;
       const model = panel.editor.getModel();
       if (model !== null) {
         language = model.getLanguageId();
@@ -912,7 +875,6 @@ export async function restoreSession(session: Session): Promise<void> {
         activateProjectFile({
           panel,
           filePath: saved.project.activeFilePath,
-          untitledId: undefined,
         });
       }
       // restored, not opened: the panel comes back on screen without the

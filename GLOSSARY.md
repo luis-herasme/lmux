@@ -277,32 +277,29 @@ shows the working-tree status when both exist.
 
 ## Project panel / file tab
 
-A **project panel** is the workspace's one editor, and the only place files
-open. It contains the file tree, a file-tab strip and one Monaco editor, under a
-header naming the workspace root folder. It is not a tab: there is exactly one
-per workspace, it lives in its own region beside the pane layout, and it cannot
-be dragged, split, reordered or moved to another workspace, the same way the
-workspace list itself cannot. Opening another file reuses it; files outside the
-workspace root are valid file tabs but do not change the tree. Hiding the panel
-(its header's ×, ⌘B, or `close-project`) is not closing it: every buffer stays
-open behind it, so nothing is asked and nothing is lost.
+A **project panel** is the workspace's one file viewer, and the only place
+files open. It contains the file tree, a file-tab strip and one read-only
+Monaco editor, under a header naming the workspace root folder. It is not a
+tab: there is exactly one per workspace, it lives in its own region beside the
+pane layout, and it cannot be dragged, split, reordered or moved to another
+workspace, the same way the workspace list itself cannot. Opening another file
+reuses it; files outside the workspace root are valid file tabs but do not
+change the tree. Hiding the panel (its header's ×, ⌘B, or `close-project`) is
+not closing it: every buffer stays open behind it, so nothing is lost.
 
 A **file tab** names one in-memory file buffer inside the project panel. A
-single tree click opens a replaceable **preview file tab**. Editing it or
-double-clicking its tree item makes it a **pinned file tab**, which remains
-until explicitly closed. File tabs can be dragged to reorder them. The file-tab
-strip, not Dockview, switches the one Monaco editor between those buffers.
+single tree click opens a replaceable **preview file tab**. Double-clicking its
+tree item makes it a **pinned file tab**, which remains until explicitly closed.
+File tabs can be dragged to reorder them. The file-tab strip, not Dockview,
+switches the one Monaco editor between those buffers.
 
-An **untitled file** is a blank buffer that has not been given a disk path.
-Double-clicking empty file-tab-strip space creates one named `Untitled`. Its
-hidden id distinguishes it from other untitled buffers without changing the
-visible title. Its first save is **Save As**, which asks for a disk path and
-turns the same buffer into a regular file tab.
+A **buffer** is a file's in-memory copy: its text, cursor and scroll position,
+keyed by the file's canonical path. Switching files keeps each buffer alive. A
+restart restores pinned paths from disk, never the temporary preview.
 
-A **buffer** is a file's in-memory model: its text, dirty state, undo history,
-cursor and scroll position. Switching files keeps each buffer alive. A restart
-restores pinned paths from disk, never unsaved buffer contents or the temporary
-preview.
+The editor is **read-only**: no Save, no Save As, and no write at all on the
+bridge between the page and the machine, so a buffer always says what the file
+said when it was read. The terminal beside the panel is where files change.
 
 ## Rendered vs. raw (a markdown tab's two modes)
 
@@ -316,23 +313,11 @@ Reload in the tab showing it.
 
 A markdown file inside the project panel has the same two faces, per open
 buffer. There its raw face is the editor itself, so the way back from rendered
-reads *Edit*, and there is no Reload: the rendering draws the buffer as it is in
-memory, unsaved edits included. The model stays on the hidden editor while its
-rendering shows, which is why dirty state, view state and saving never notice
-the swap. The toggle is the `set-file-markdown-mode` Command; each buffer keeps
-its mode while open, and a restart brings files back in the editor.
-
-## Dirty (a file buffer's unsaved work)
-
-A file buffer is *dirty* when its model holds text the file on disk does not. It
-becomes dirty on the first edit after opening or saving, which also pins a
-preview file. A blank untitled buffer starts clean, becomes dirty when it has
-content and becomes clean again when emptied. The ● in the file tab says so, and
-`dirty` rides on the project's file state so main can guard every kind of close.
-Tree badges are separate Git state, so an unsaved edit alone does not create
-`M`, while saving a change normally does. A save refuses to overwrite a file
-whose mtime changed since it was read, because the alternative is burying work
-the disk has and the editor does not.
+reads *Source*, and there is no Reload: the rendering draws the buffer as it was
+read. The model stays on the hidden editor while its rendering shows, which is
+why view state never notices the swap. The toggle is the
+`set-file-markdown-mode` Command; each buffer keeps its mode while open, and a
+restart brings files back in the editor.
 
 ## Drag-and-drop interception (the one-door rule)
 

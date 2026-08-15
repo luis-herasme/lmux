@@ -28,7 +28,6 @@ import {
   SOURCE_FILE_PATH,
   callTool,
   countTabs,
-  editOpenEditor,
   findProjectInfo,
   openWorkspace,
   screenSchema,
@@ -684,7 +683,6 @@ export const projectTree = describe("the project tree", () => {
         assert.deepEqual(secondProject.files, [
           {
             path: canonicalOtherFilePath,
-            dirty: false,
             pinned: false,
           },
         ]);
@@ -718,35 +716,7 @@ export const projectTree = describe("the project tree", () => {
           visible: true,
         });
 
-        const dirtying = waitForEvent(
-          (event) =>
-            event.type === "dirty-changed" &&
-            event.path === canonicalOtherFilePath,
-        );
-        const edited = await editOpenEditor({
-          expectedContent: "export const other = true;\n",
-          addedContent: "// modified\n",
-        });
-        assert.equal(edited.edited, true);
-        await dirtying;
-        const unsavedDecoration = await visibleGitDecoration({
-          relativePath: "other.ts",
-        });
-        assert.equal(
-          unsavedDecoration.decoration,
-          null,
-          "an unsaved editor change was mistaken for Git status",
-        );
-        sendCommand({
-          type: "save-file",
-          projectTabId: opened.id,
-          path: canonicalOtherFilePath,
-        });
-        await waitForEvent(
-          (event) =>
-            event.type === "file-saved" &&
-            event.path === canonicalOtherFilePath,
-        );
+        writeFileSync(otherFilePath, "export const other = false;\n");
         await pollUntil({
           check: async () => {
             const appearance = await visibleGitDecoration({
@@ -754,7 +724,7 @@ export const projectTree = describe("the project tree", () => {
             });
             return appearance.decoration === "modified";
           },
-          description: "the saved file to retain its Git modification",
+          description: "the changed file to show its Git modification",
         });
         const modifiedDecoration = await visibleGitDecoration({
           relativePath: "other.ts",
@@ -945,9 +915,6 @@ export const projectTree = describe("the project tree", () => {
         });
 
         for (const openFile of changedProject.files) {
-          if (openFile.path === null) {
-            throw new Error("the disk fixture became an untitled file");
-          }
           const closing = waitForEvent(
             (event) =>
               event.type === "file-closed" && event.path === openFile.path,

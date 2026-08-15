@@ -6,11 +6,10 @@ import { killAllShells } from "./shells.ts";
 import { savedWindowBounds, saveWindowBounds } from "./window-state.ts";
 import { savedSession, saveSession } from "./session-state.ts";
 import { sessionFromState } from "../session.ts";
-import { chooseDirtyClose, confirmKilling } from "./dialogs.ts";
+import { confirmKilling } from "./dialogs.ts";
 import { lmuxState } from "./bus.ts";
-import type { ProjectInfo } from "../api.ts";
-import { installAppMenu, saveDirtyProjects } from "./menus.ts";
-import "./files.js"; // registers file reads and writes
+import { installAppMenu } from "./menus.ts";
+import "./files.js"; // registers file reads
 import "./project-tree.js"; // registers project-tree:read
 import "./mcp.js"; // listens on the API socket
 
@@ -48,7 +47,6 @@ function createWindow(): void {
   }
   const browserWindow = new BrowserWindow(options);
   let closeApproved = false;
-  let closeInProgress = false;
 
   browserWindow.on("close", (event) => {
     if (closeApproved) {
@@ -60,52 +58,24 @@ function createWindow(): void {
       return;
     }
     event.preventDefault();
-    if (closeInProgress) {
-      return;
-    }
-    closeInProgress = true;
 
     const tabIds: number[] = [];
-    const allProjects: ProjectInfo[] = [];
     for (const workspace of lmuxState.workspaces) {
       for (const tab of workspace.tabs) {
         tabIds.push(tab.id);
       }
-      if (workspace.project !== null) {
-        allProjects.push(workspace.project);
-      }
     }
+    // the one question left, and it blocks, so no second close can arrive
     const killingConfirmed = confirmKilling({
       window: browserWindow,
       tabIds,
       action: "Close Window",
     });
     if (!killingConfirmed) {
-      closeInProgress = false;
       return;
     }
-    const dirtyChoice = chooseDirtyClose({
-      window: browserWindow,
-      projects: allProjects,
-      action: "Closing the window",
-    });
-    if (dirtyChoice === "cancel") {
-      closeInProgress = false;
-      return;
-    }
-    if (dirtyChoice === "discard") {
-      closeApproved = true;
-      browserWindow.close();
-      return;
-    }
-    saveDirtyProjects(allProjects).then((saved: boolean) => {
-      closeInProgress = false;
-      if (!saved) {
-        return;
-      }
-      closeApproved = true;
-      browserWindow.close();
-    });
+    closeApproved = true;
+    browserWindow.close();
   });
 
   browserWindow.on("closed", killAllShells);
