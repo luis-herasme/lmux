@@ -8,6 +8,7 @@ import {
   nextTabId,
   snapshot,
 } from "../workspaces.ts";
+import type { TabRow } from "../tab-strip.tsx";
 import type { Workspace } from "../workspaces.ts";
 import type { ScreenResult } from "../../api.ts";
 import { Terminal } from "@xterm/xterm";
@@ -19,7 +20,8 @@ import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
 export type TerminalTab = {
   kind: "terminal";
   panel: IDockviewPanel;
-  titleElement: HTMLElement;
+  row: TabRow; // its row in the strip
+  title: string;
   titlePinned: boolean;
   terminal: Terminal;
   observer: ResizeObserver;
@@ -83,11 +85,12 @@ export function openTerminalTab({
   const paneElement = document.createElement("div");
   paneElement.className = "terminal-pane h-full";
 
-  const { panel, titleElement } = addPanel({
+  const title = "Untitled";
+  const { panel, row } = addPanel({
     workspace,
     id: tabId,
     component: "terminal",
-    title: "Untitled",
+    title,
     paneElement,
     group,
   });
@@ -113,8 +116,9 @@ export function openTerminalTab({
   workspace.tabs.set(tabId, {
     kind: "terminal",
     panel,
+    row,
     terminal,
-    titleElement,
+    title,
     titlePinned: false,
     observer,
     fitAddon,

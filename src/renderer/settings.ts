@@ -19,9 +19,10 @@ export const MAX_SIDEBAR_WIDTH_PX = 400;
 export const MIN_PROJECT_WIDTH_PX = 320;
 export const MAX_PROJECT_WIDTH_PX = 1600;
 
-// every font size in the app, terminal and document alike
-const MIN_FONT_SIZE_PX = 8;
-const MAX_FONT_SIZE_PX = 32;
+// every font size in the app, terminal and document alike; the dialog's
+// number fields carry the same two as their own limits
+export const MIN_FONT_SIZE_PX = 8;
+export const MAX_FONT_SIZE_PX = 32;
 
 // THEMES has literal keys; lookups use user-supplied strings
 const themesByName: Record<string, Theme> = THEMES;

@@ -11,8 +11,8 @@ import {
 import { executeWorkspaceCommand } from "./workspace-commands.ts";
 import { applySettings } from "./settings-command.ts";
 import { openProjectFile } from "../project-panel.ts";
-import { openMarkdownTab } from "./markdown-tab.ts";
-import type { MarkdownTab } from "./markdown-tab.ts";
+import { openMarkdownTab } from "./markdown-tab.tsx";
+import type { MarkdownTab } from "./markdown-tab.tsx";
 import { openTerminalTab, readTerminalScreen } from "./terminal-tab.ts";
 import type { TerminalTab } from "./terminal-tab.ts";
 import {
@@ -69,15 +69,7 @@ export function executeCommand(command: Command): void {
 }
 
 export function getTabTitle(id: number): string | undefined {
-  const found = findTab(id);
-  if (!found) {
-    return undefined;
-  }
-  let title = found.tab.titleElement.textContent;
-  if (title === null) {
-    title = "";
-  }
-  return title;
+  return findTab(id)?.tab.title;
 }
 
 // What a tab shows, read out of xterm's own grid rather than off the wire:
@@ -208,9 +200,12 @@ export function removeTab(id: number): void {
   }
   const { workspace, tab } = found;
   workspace.tabs.delete(id);
+  tab.row.root.unmount();
   if (tab.kind === "terminal") {
     tab.observer.disconnect();
     tab.terminal.dispose();
+  } else {
+    tab.root.unmount();
   }
   if (id === workspace.activeId) {
     workspace.activeId = -1;

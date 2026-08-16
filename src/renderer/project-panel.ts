@@ -1,25 +1,24 @@
 // One workspace's file experience: its stable root, tree and read-only
 // editor. Not a tab: a workspace has exactly one of these, it lives in the
 // panel beside the pane layout, and it shows one file at a time.
+//
+// What the panel looks like is project-panel-view.tsx; this is what it holds
+// and what changes it. Every change ends in drawProjectPanel, which renders
+// the whole panel again and leaves the difference to React.
+import { createRef } from "react";
+import { createRoot } from "react-dom/client";
+import type { RefObject } from "react";
+import type { Root } from "react-dom/client";
 import { bridge } from "./bridge.ts";
-import {
-  createCodeEditor,
-  languageForPath,
-  loadMonaco,
-} from "./code.ts";
+import { createCodeEditor, languageForPath, loadMonaco } from "./code.ts";
 import type { Monaco } from "./code.ts";
 import type {
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
 } from "../ipc/bridge.ts";
-import {
-  TREE_MESSAGE_CLASS,
-  TREE_RETRY_CLASS,
-  focusProjectTree,
-  mountProjectTree,
-} from "./project-tree.tsx";
+import { createProjectTree, focusProjectTree } from "./project-tree.tsx";
 import type { ProjectTree } from "./project-tree.tsx";
-import { buildProjectPanelElements } from "./project-panel-elements.ts";
+import { drawProjectPanel } from "./project-panel-view.tsx";
 import {
   handleProjectTreeChange,
   startProjectTreeWatcher,
@@ -44,21 +43,26 @@ type ProjectFile = {
 
 export type ProjectPanel = {
   id: number; // what a command's projectTabId names
-  element: HTMLElement;
-  nameElement: HTMLElement;
+  element: HTMLElement; // the .project-panel host, hidden from workspaces.ts
+  root: Root;
+  // The four elements the rest of the panel writes into: Monaco's container,
+  // the tree's scroll box, the rendered document, and the message the
+  // keyboard is sent to. Each hosts DOM that is not React's, or is a focus
+  // target; nothing else about the panel is reached this way.
+  treeElement: RefObject<HTMLDivElement | null>;
+  editorElement: RefObject<HTMLDivElement | null>;
+  markdownElement: RefObject<HTMLDivElement | null>;
+  errorElement: RefObject<HTMLDivElement | null>;
   name: string; // the root folder's, worn by the panel's header
   visible: boolean;
-  treeElement: HTMLElement;
-  editorElement: HTMLElement;
-  emptyElement: HTMLElement;
-  errorElement: HTMLElement;
-  markdownElement: HTMLElement;
-  markdownToolbarElement: HTMLElement;
-  markdownModeButton: HTMLElement;
   workspaceRootPath: string;
-  projectTree: ProjectTree | undefined;
+  projectTree: ProjectTree | undefined; // undefined while its root is read
+  treeError: string | undefined; // and set instead when that read failed
+  treeRequest: ReadProjectTreeRequest; // the one Retry sends again
   monaco: Monaco;
-  editor: monacoEditor.IStandaloneCodeEditor;
+  // Monaco is built against the element the first render leaves behind, so
+  // it arrives one step after the panel does.
+  editor: monacoEditor.IStandaloneCodeEditor | undefined;
   file: ProjectFile | undefined;
   // a request counter each: an answer that arrives after the panel moved on
   // is dropped rather than shown
@@ -72,44 +76,52 @@ export type ProjectPanel = {
 // each; workspaces.ts decides which is on screen.
 const projectHostElement = requireElement("project");
 
-// The panel's one view, drawn from what it holds: the file in its editor or,
-// for markdown switched to rendered, that same model drawn as a document; the
-// error its path answered with; or the empty state.
-export function showProjectFile(panel: ProjectPanel): void {
+type ProjectFileView = {
+  model: monacoEditor.ITextModel | undefined;
+  markdown: boolean; // the open file is a markdown document
+  rendered: boolean; // and is being shown as one rather than as its source
+  error: string | undefined;
+};
+
+// What the open file means for the view: which of the panel's four faces is
+// up, and what the markdown button offers. The view draws from this and
+// showProjectFile fills the elements it left, so the two cannot disagree.
+export function projectFileView(panel: ProjectPanel): ProjectFileView {
   const file = panel.file;
   const model = file?.model;
   const markdown = model !== undefined && model.getLanguageId() === "markdown";
-  const rendered = markdown && file?.markdownMode === "rendered";
-  panel.emptyElement.classList.toggle("hidden", file !== undefined);
-  panel.errorElement.classList.toggle("hidden", file?.error === undefined);
-  panel.editorElement.classList.toggle(
-    "hidden",
-    model === undefined || rendered,
-  );
-  panel.markdownToolbarElement.classList.toggle("hidden", !markdown);
-  panel.markdownElement.classList.toggle("hidden", !rendered);
+  return {
+    model,
+    markdown,
+    rendered: markdown && file?.markdownMode === "rendered",
+    error: file?.error,
+  };
+}
 
-  if (model === undefined) {
-    panel.editor.setModel(null);
-    panel.markdownElement.replaceChildren();
-    if (file?.error !== undefined) {
-      panel.errorElement.textContent = file.error;
-      panel.errorElement.focus();
-    }
+// The panel's one view, drawn from what it holds: the file in its editor or,
+// for markdown switched to rendered, that same model drawn as a document; the
+// error its path answered with; or the empty state. React puts the right one
+// on screen; what is left here is the DOM that is not React's — Monaco's
+// model, the rendered document — and where the keyboard goes.
+export function showProjectFile(panel: ProjectPanel): void {
+  const { model, rendered, error } = projectFileView(panel);
+  drawProjectPanel(panel);
+  const markdownElement = panel.markdownElement.current;
+  panel.editor?.setModel(model ?? null);
+
+  if (rendered && model !== undefined) {
+    markdownElement?.replaceChildren(renderMarkdown(model.getValue()).view);
+    markdownElement?.focus();
     return;
   }
-  panel.editor.setModel(model);
-  if (rendered) {
-    // the button names the mode it would switch to, like a play button
-    panel.markdownModeButton.textContent = "Source";
-    const { view } = renderMarkdown(model.getValue());
-    panel.markdownElement.replaceChildren(view);
-    panel.markdownElement.focus();
+  markdownElement?.replaceChildren();
+  if (model !== undefined) {
+    panel.editor?.focus();
     return;
   }
-  panel.markdownModeButton.textContent = "Rendered";
-  panel.markdownElement.replaceChildren();
-  panel.editor.focus();
+  if (error !== undefined) {
+    panel.errorElement.current?.focus();
+  }
 }
 
 export function closeProjectFile(panel: ProjectPanel): void {
@@ -220,7 +232,7 @@ type LoadProjectTreeRootOptions = {
   emitWorkspaceRootChanged: boolean;
 };
 
-async function loadProjectTreeRoot({
+export async function loadProjectTreeRoot({
   panel,
   request,
   emitWorkspaceRootChanged,
@@ -229,11 +241,12 @@ async function loadProjectTreeRoot({
   panel.latestGitRequest += 1;
   const treeRequest = panel.latestTreeRequest;
   stopProjectTreeWatcher(panel);
-  // the message below is written straight into the element the old tree was
-  // drawn in, so that tree has to let go of it first
-  panel.projectTree?.root.unmount();
+  // no tree and no error is the state that says the root is being read; the
+  // request is kept because the button offering another one sends this one
   panel.projectTree = undefined;
-  panel.treeElement.textContent = "Loading workspace…";
+  panel.treeError = undefined;
+  panel.treeRequest = request;
+  drawProjectPanel(panel);
 
   let result: ReadProjectTreeResult;
   try {
@@ -245,28 +258,13 @@ async function loadProjectTreeRoot({
     return;
   }
   if ("error" in result) {
-    const messageElement = document.createElement("div");
-    messageElement.className = TREE_MESSAGE_CLASS;
-    messageElement.textContent = `Could not load workspace: ${result.error}`;
-
-    const retryElement = document.createElement("button");
-    retryElement.className = TREE_RETRY_CLASS;
-    retryElement.type = "button";
-    retryElement.textContent = "Retry";
-    retryElement.addEventListener("click", () => {
-      loadProjectTreeRoot({
-        panel,
-        request,
-        emitWorkspaceRootChanged: true,
-      });
-    });
-    panel.treeElement.replaceChildren(messageElement, retryElement);
+    panel.treeError = result.error;
+    drawProjectPanel(panel);
     return;
   }
 
   panel.workspaceRootPath = result.workspaceRootPath;
-  panel.projectTree = mountProjectTree({
-    treeElement: panel.treeElement,
+  panel.projectTree = createProjectTree({
     workspaceRootPath: result.workspaceRootPath,
     entries: result.entries,
     openFile: (filePath) => {
@@ -275,10 +273,12 @@ async function loadProjectTreeRoot({
         path: filePath,
       });
     },
+    redraw: () => {
+      drawProjectPanel(panel);
+    },
   });
   panel.name = result.name;
-  panel.nameElement.textContent = result.name;
-  panel.nameElement.title = result.workspaceRootPath;
+  drawProjectPanel(panel);
   await startProjectTreeWatcher({
     panel,
     treeRequest,
@@ -317,31 +317,35 @@ export async function createProjectPanel({
   workspaceRootPath,
   initialFilePath,
 }: CreateProjectPanelOptions): Promise<ProjectPanel> {
-  const pane = buildProjectPanelElements();
-  pane.panelElement.style.display = "none";
-  projectHostElement.append(pane.panelElement);
+  // The host carries the panel's identity and its display, because
+  // workspaces.ts hides it there; React draws everything inside it.
+  const element = document.createElement("div");
+  element.className = "project-panel flex h-full flex-col bg-background";
+  element.style.display = "none";
+  projectHostElement.append(element);
+
+  const request: ReadProjectTreeRequest = {
+    baseTabId,
+    workspaceRootPath,
+    filePath: initialFilePath,
+  };
   const monaco = await loadMonaco();
-  const editor = createCodeEditor({
-    monaco,
-    container: pane.editorElement,
-  });
   const panel: ProjectPanel = {
     id: nextTabId(),
-    element: pane.panelElement,
-    nameElement: pane.nameElement,
+    element,
+    root: createRoot(element),
+    treeElement: createRef(),
+    editorElement: createRef(),
+    markdownElement: createRef(),
+    errorElement: createRef(),
     name: "",
     visible: false,
-    treeElement: pane.treeElement,
-    editorElement: pane.editorElement,
-    emptyElement: pane.emptyElement,
-    errorElement: pane.errorElement,
-    markdownElement: pane.markdownElement,
-    markdownToolbarElement: pane.markdownToolbarElement,
-    markdownModeButton: pane.markdownModeButton,
     workspaceRootPath: "",
     projectTree: undefined,
+    treeError: undefined,
+    treeRequest: request,
     monaco,
-    editor,
+    editor: undefined,
     file: undefined,
     latestFileRequest: 0,
     latestTreeRequest: 0,
@@ -352,27 +356,21 @@ export async function createProjectPanel({
       retryTimer: undefined,
     },
   };
-  showProjectFile(panel);
 
-  pane.markdownModeButton.addEventListener("click", () => {
-    let mode: MarkdownMode = "rendered";
-    if (panel.file?.markdownMode === "rendered") {
-      mode = "raw";
-    }
-    executeCommand({
-      type: "set-file-markdown-mode",
-      projectTabId: panel.id,
-      mode,
-    });
+  // the first render leaves the element Monaco is built against
+  drawProjectPanel(panel);
+  const editorElement = panel.editorElement.current;
+  if (editorElement === null) {
+    throw new Error("the project panel drew no editor element");
+  }
+  panel.editor = createCodeEditor({
+    monaco,
+    container: editorElement,
   });
 
   await loadProjectTreeRoot({
     panel,
-    request: {
-      baseTabId,
-      workspaceRootPath,
-      filePath: initialFilePath,
-    },
+    request,
     emitWorkspaceRootChanged: false,
   });
   return panel;
@@ -399,17 +397,21 @@ export function focusProjectPanel(panel: ProjectPanel): void {
   if (file !== undefined && file.model !== undefined) {
     // a rendered file's editor is hidden; keys should scroll the document
     if (file.markdownMode === "rendered") {
-      panel.markdownElement.focus();
+      panel.markdownElement.current?.focus();
       return;
     }
-    panel.editor.focus();
+    panel.editor?.focus();
     return;
   }
-  if (panel.projectTree === undefined) {
-    panel.treeElement.focus();
+  const treeElement = panel.treeElement.current;
+  if (panel.projectTree === undefined || treeElement === null) {
+    treeElement?.focus();
     return;
   }
-  focusProjectTree(panel.projectTree);
+  focusProjectTree({
+    projectTree: panel.projectTree,
+    treeElement,
+  });
 }
 
 // Only a closing workspace disposes its panel; hiding one keeps its file
@@ -418,8 +420,8 @@ export function disposeProjectPanel(panel: ProjectPanel): void {
   panel.latestTreeRequest += 1;
   panel.latestGitRequest += 1;
   stopProjectTreeWatcher(panel);
-  panel.projectTree?.root.unmount();
   panel.file?.model?.dispose();
-  panel.editor.dispose();
+  panel.editor?.dispose();
+  panel.root.unmount();
   panel.element.remove();
 }

@@ -414,10 +414,21 @@ cannot guess: that is what a *key* is for. Give each row the path it shows as
 its key, and a directory that gained a file in the middle keeps every other
 row exactly as it was, rather than shuffling their contents up by one.
 
-lmux uses React for the project panel's file tree and for nothing else. The
-tree is a view of data that arrives late and changes underneath — the case
-reconciliation is for. A terminal is not: xterm owns that DOM and draws it
-itself, and wrapping it in a component would buy nothing.
+lmux uses React for everything on screen that is a *view of state*: the file
+tree, the project panel, the sidebar's workspace rows, the title bar, a tab's
+row in the strip, a document's toolbar, and the two dialogs. Each of those is
+data the app already holds, drawn — the case reconciliation is for. A terminal
+is not: xterm owns that DOM and draws it itself, and wrapping it in a component
+would buy nothing. Nor is a drag handle, which answers a pointer rather than
+showing a value.
+
+Three words for how it is wired here. A *root* is where React takes over — in
+lmux always the *children* of an element the page already has, so that element
+keeps its own class and place. A *ref* is a handle to a real element, which is
+how the code reaches DOM that React did not write (Monaco's box, a rendered
+document) or asks for focus, which nothing can be declared. And `flushSync`
+makes a render happen now rather than soon, so the line after "draw this" can
+count on what the drawing left behind.
 
 ## Tailwind / utility class / Preflight
 

@@ -22,6 +22,9 @@ import type {
 } from "dockview";
 import "dockview/dist/styles/dockview.css";
 import { bridge } from "./bridge.ts";
+import { drawChrome } from "./chrome.tsx";
+import { mountTabRow } from "./tab-strip.tsx";
+import type { TabRow } from "./tab-strip.tsx";
 import { requireElement } from "./dom.ts";
 
 type SerializedGridNode = SerializedDockview["grid"]["root"];
@@ -31,8 +34,6 @@ export type Workspace = {
   id: number;
   name: string;
   element: HTMLElement; // its Dockview root, hidden unless active
-  rowElement: HTMLElement; // its row in the sidebar
-  nameElement: HTMLElement; // the name in that row, beside its ×
   dockview: DockviewComponent;
   tabs: Map<number, Tab>;
   activeId: number;
@@ -56,10 +57,8 @@ export function nextTabId(): number {
   return nextId++;
 }
 
-const titleBarElement = requireElement("title-bar");
 const layoutElement = requireElement("layout");
 const projectHostElement = requireElement("project");
-const workspaceListElement = requireElement("workspace-list");
 
 // The element a panel shows is built by the caller of addPanel; Dockview's
 // factories only ever hand it over.
@@ -122,66 +121,10 @@ export function createWorkspace(): Workspace {
   element.style.display = "none";
   layoutElement.append(element);
 
-  // A row and not a button, because the × in it is one and buttons do not
-  // nest; role, tabindex and the keydown below give back what the element
-  // type stopped saying and doing. Same shape a tab has in the strip.
-  const rowElement = document.createElement("div");
-  rowElement.className =
-    "workspace-row relative flex cursor-pointer items-center gap-1.5 px-3 py-[5px] text-[12px] text-tab hover:text-tab-active";
-  rowElement.role = "tab";
-  rowElement.tabIndex = 0;
-  rowElement.ariaSelected = "false";
-
-  const nameElement = document.createElement("span");
-  nameElement.className = "min-w-0 flex-1 truncate";
-
-  // the row's own padding is the ×'s hit area; it brings none of its own
-  const closeElement = document.createElement("button");
-  closeElement.className =
-    "workspace-close flex-none cursor-pointer border-0 bg-transparent p-0 text-[length:inherit] leading-none text-inherit";
-  closeElement.textContent = "×";
-  closeElement.title = "Close Workspace (⇧⌘W)";
-  closeElement.ariaLabel = "Close workspace";
-  closeElement.addEventListener("click", (event) => {
-    event.stopPropagation();
-    // Through main rather than straight onto the bus: closing a workspace
-    // ends every shell in it, and only main can ask about the busy ones.
-    bridge.closeWorkspace(id);
-  });
-
-  rowElement.append(nameElement, closeElement);
-  rowElement.addEventListener("click", () => {
-    executeCommand({
-      type: "activate-workspace",
-      id,
-    });
-  });
-  rowElement.addEventListener("keydown", (event) => {
-    // the × is a button of its own and answers both of these itself
-    if (event.target !== rowElement) {
-      return;
-    }
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault(); // Space scrolls, and the page must never scroll
-    executeCommand({
-      type: "activate-workspace",
-      id,
-    });
-  });
-  rowElement.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    bridge.showWorkspaceMenu(id);
-  });
-  workspaceListElement.append(rowElement);
-
   const workspace: Workspace = {
     id,
     name: "", // refreshWorkspaceName fills it in, below
     element,
-    rowElement,
-    nameElement,
     dockview: new DockviewComponent(element, DOCKVIEW_OPTIONS),
     tabs: new Map(),
     activeId: -1,
@@ -301,7 +244,7 @@ export function focusWorkspace(): void {
     tab.terminal.focus();
   }
   if (tab?.kind === "markdown") {
-    tab.contentElement.focus();
+    tab.contentElement.current?.focus();
   }
 }
 
@@ -328,15 +271,13 @@ export function refreshProjectPanel(): void {
 export function activateWorkspace(workspace: Workspace): void {
   if (activeWorkspace) {
     activeWorkspace.element.style.display = "none";
-    activeWorkspace.rowElement.classList.remove("active");
-    activeWorkspace.rowElement.ariaSelected = "false";
   }
   activeWorkspace = workspace;
   workspace.element.style.display = "";
   refreshProjectPanel();
-  workspace.rowElement.classList.add("active");
-  workspace.rowElement.ariaSelected = "true";
-  titleBarElement.textContent = workspace.name;
+  // which row is marked and what the title bar says both follow from the
+  // line above, so drawing the chrome is all it takes to show them
+  drawChrome();
   // Dockview measured its container while it was hidden, so it holds a zero
   // size; hand it the real one back.
   workspace.dockview.layout(
@@ -357,7 +298,9 @@ export function activateWorkspace(workspace: Workspace): void {
 
 export function removeWorkspace(workspace: Workspace): void {
   for (const [tabId, tab] of workspace.tabs) {
-    if (tab.kind !== "terminal") {
+    tab.row.root.unmount();
+    if (tab.kind === "markdown") {
+      tab.root.unmount();
       continue;
     }
     bridge.killShell(tabId);
@@ -370,7 +313,7 @@ export function removeWorkspace(workspace: Workspace): void {
   workspaces.delete(workspace.id);
   workspace.dockview.dispose();
   workspace.element.remove();
-  workspace.rowElement.remove();
+  drawChrome();
   if (activeWorkspace !== workspace) {
     return;
   }
@@ -391,12 +334,8 @@ export function setWorkspaceName({
   name,
 }: SetWorkspaceNameOptions): void {
   workspace.name = name;
-  workspace.nameElement.textContent = name;
-  // the row ellipsizes a long name; the tooltip always has it whole
-  workspace.rowElement.title = name;
-  if (workspace === activeWorkspace) {
-    titleBarElement.textContent = name;
-  }
+  // its row wears it, and the title bar too while it is the active one
+  drawChrome();
 }
 
 // A workspace wears its active tab's title, the way a tab wears the title
@@ -408,8 +347,8 @@ export function refreshWorkspaceName(workspace: Workspace): void {
   }
   let name = `Workspace ${workspace.id}`;
   const activeTab = workspace.tabs.get(workspace.activeId);
-  if (activeTab && activeTab.titleElement.textContent !== null) {
-    name = activeTab.titleElement.textContent;
+  if (activeTab) {
+    name = activeTab.title;
   }
   setWorkspaceName({
     workspace,
@@ -465,7 +404,7 @@ type AddPanelOptions = {
 
 type AddedPanel = {
   panel: IDockviewPanel;
-  titleElement: HTMLElement; // the tab's title in the strip, for retitling
+  row: TabRow; // the tab's row in the strip, for retitling and disposal
 };
 
 export function addPanel({
@@ -478,38 +417,13 @@ export function addPanel({
 }: AddPanelOptions): AddedPanel {
   // The row in the strip is built here rather than by the caller: every kind
   // of tab wears the same one, and only the pane below it differs.
-  const titleElement = document.createElement("span");
-  // shell-set titles can be long paths
-  titleElement.className = "max-w-[160px] truncate";
-  titleElement.textContent = title;
-  titleElement.title = "Double-click to fill the window";
-
-  // a button, not a span: it has to be reachable and pressable by keyboard
-  const closeElement = document.createElement("button");
-  closeElement.className =
-    "cursor-pointer border-0 bg-transparent p-0 text-[length:inherit] leading-none text-inherit hover:text-tab-active";
-  closeElement.textContent = "×";
-  closeElement.title = "Close Tab (⌘W)";
-  closeElement.ariaLabel = "Close tab";
-  closeElement.addEventListener("click", (event) => {
-    event.stopPropagation();
-    executeCommand({
-      type: "close-tab",
-      id,
-    });
-  });
-
-  const tabElement = document.createElement("div");
-  tabElement.className = "tab flex h-full items-center gap-1.5 font-ui";
-  tabElement.dataset.tabId = String(id);
-  tabElement.append(titleElement, closeElement);
-  tabElement.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    bridge.showTabMenu(id);
+  const row = mountTabRow({
+    id,
+    title,
   });
 
   handOffPaneElement = paneElement;
-  handOffTabElement = tabElement;
+  handOffTabElement = row.element;
   let position: AddPanelPositionOptions | undefined;
   if (group !== undefined) {
     position = { referenceGroup: group };
@@ -524,7 +438,7 @@ export function addPanel({
   });
   return {
     panel,
-    titleElement,
+    row,
   };
 }
 
@@ -570,10 +484,6 @@ projectHostElement.addEventListener("mousedown", () => {
   }
 });
 
-requireElement("new-workspace-button").addEventListener("click", () => {
-  executeCommand({ type: "new-workspace" });
-});
-
 // The empty strip under the list belongs to the sidebar itself, so a click
 // whose target is the sidebar and not one of its buttons landed there, and
 // reads as the same request the + button makes. A double click, like the one
@@ -608,10 +518,7 @@ function buildLayout({
       if (!tab) {
         continue;
       }
-      let title = tab.titleElement.textContent;
-      if (title === null) {
-        title = "";
-      }
+      const title = tab.title;
       if (tab.kind === "markdown") {
         tabList.push({
           id: Number(panelId),

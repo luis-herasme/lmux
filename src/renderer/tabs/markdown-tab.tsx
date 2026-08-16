@@ -1,8 +1,19 @@
 // Everything a Markdown tab does: its pane, modes, reload and links.
+//
+// React draws the pane — the toolbar's two buttons and the box the document
+// scrolls in — from what the tab holds. The document inside that box is not
+// React's: markdown-it and mermaid build it (markdown.ts), and the pane
+// hosts it the way the project panel hosts Monaco.
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { createRef } from "react";
+import type { ReactNode, RefObject } from "react";
+import type { Root } from "react-dom/client";
 import { bridge } from "../bridge.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { executeCommand } from "./index.ts";
 import { addPanel, nextTabId, snapshot } from "../workspaces.ts";
+import type { TabRow } from "../tab-strip.tsx";
 import type { Workspace } from "../workspaces.ts";
 import type { MarkdownMode } from "../../api.ts";
 import type { ReadFileResult } from "../../ipc/bridge.ts";
@@ -11,11 +22,11 @@ import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
 export type MarkdownTab = {
   kind: "markdown";
   panel: IDockviewPanel;
-  titleElement: HTMLElement;
+  row: TabRow; // its row in the strip
+  title: string;
   titlePinned: boolean;
-  element: HTMLElement;
-  contentElement: HTMLElement;
-  modeButton: HTMLElement;
+  root: Root; // over the pane host Dockview was handed
+  contentElement: RefObject<HTMLDivElement | null>; // the document's box
   filePath: string;
   baseTabId: number | undefined;
   mode: MarkdownMode;
@@ -36,31 +47,96 @@ function markdownText({ result, filePath }: MarkdownTextOptions): string {
   return result.content;
 }
 
-// The text lands synchronously; the returned promise settles once any
-// diagrams have too, so a caller can measure the finished document.
+// shared with the project panel's copy of this toolbar
+export const MARKDOWN_ACTION_CLASS =
+  "markdown-action cursor-pointer rounded border-0 bg-transparent px-[7px] py-[2px] text-[11px] text-tab hover:bg-tab-bar hover:text-tab-active";
+
+type MarkdownPaneProps = {
+  tab: MarkdownTab;
+};
+
+function MarkdownPane({ tab }: MarkdownPaneProps): ReactNode {
+  return (
+    <>
+      <div className="flex flex-none justify-end gap-1 px-2.5 pt-1.5">
+        {/* the button names the mode it would switch to, like a play button */}
+        <button
+          className={MARKDOWN_ACTION_CLASS}
+          type="button"
+          title="Show the file's source, or its rendering"
+          onClick={() => {
+            executeCommand({
+              type: "set-markdown-mode",
+              id: tab.row.id,
+              mode: tab.mode === "raw" ? "rendered" : "raw",
+            });
+          }}
+        >
+          {tab.mode === "raw" ? "Rendered" : "Raw"}
+        </button>
+        <button
+          className={MARKDOWN_ACTION_CLASS}
+          type="button"
+          title="Read the file again"
+          onClick={() => {
+            executeCommand({
+              type: "reload-markdown",
+              id: tab.row.id,
+            });
+          }}
+        >
+          Reload
+        </button>
+      </div>
+      <div
+        className="markdown-scroll min-h-0 flex-1 overflow-auto outline-none"
+        tabIndex={-1}
+        ref={tab.contentElement}
+        onClick={(event) => {
+          openDocumentLink({
+            tab,
+            event: event.nativeEvent,
+          });
+        }}
+      />
+    </>
+  );
+}
+
+// The pane is drawn synchronously, because the text goes straight into the
+// box that render leaves behind; the returned promise settles once any
+// diagrams have landed too, so a caller can measure the finished document.
 async function showMarkdown(tab: MarkdownTab): Promise<void> {
+  flushSync(() => {
+    tab.root.render(<MarkdownPane tab={tab} />);
+  });
+  const contentElement = tab.contentElement.current;
+  if (contentElement === null) {
+    return;
+  }
   if (tab.mode === "raw") {
     // the file as it is on disk, in the terminal's font
     const source = document.createElement("pre");
     source.className =
       "m-0 px-(--reading-inset) py-[18px] font-terminal text-[13px] leading-[1.5] wrap-anywhere whitespace-pre-wrap text-tab-active";
     source.textContent = tab.markdown;
-    tab.modeButton.textContent = "Rendered";
-    tab.contentElement.replaceChildren(source);
+    contentElement.replaceChildren(source);
     return;
   }
   const { view, ready } = renderMarkdown(tab.markdown);
-  tab.modeButton.textContent = "Raw";
-  tab.contentElement.replaceChildren(view);
+  contentElement.replaceChildren(view);
   await ready;
 }
 
 // Redraw in place: the restore waits for the diagrams, or the document is
 // still short and the browser clamps the position being restored.
 export async function redrawMarkdown(tab: MarkdownTab): Promise<void> {
-  const scrollTop = tab.contentElement.scrollTop;
+  const contentElement = tab.contentElement.current;
+  const scrollTop = contentElement?.scrollTop ?? 0;
   await showMarkdown(tab);
-  tab.contentElement.scrollTop = scrollTop;
+  if (contentElement !== null) {
+    contentElement.scrollTop = scrollTop;
+  }
 }
 
 // scheme-carrying links (http:, mailto:, file:) are left to main, which
@@ -101,81 +177,6 @@ function openDocumentLink({ tab, event }: DocumentLinkOptions): void {
   });
 }
 
-type MarkdownPane = {
-  paneElement: HTMLElement;
-  contentElement: HTMLElement;
-  modeButton: HTMLElement;
-};
-
-// shared with the project panel's copy of this toolbar
-export const MARKDOWN_ACTION_CLASS =
-  "markdown-action cursor-pointer rounded border-0 bg-transparent px-[7px] py-[2px] text-[11px] text-tab hover:bg-tab-bar hover:text-tab-active";
-
-// Built before the tab record exists, so only the affordances that need
-// nothing but the id are wired here; attachPaneHandlers does the rest.
-function buildMarkdownPane(id: number): MarkdownPane {
-  const modeButton = document.createElement("button");
-  modeButton.className = MARKDOWN_ACTION_CLASS;
-  modeButton.title = "Show the file's source, or its rendering";
-
-  const reloadButton = document.createElement("button");
-  reloadButton.className = MARKDOWN_ACTION_CLASS;
-  reloadButton.textContent = "Reload";
-  reloadButton.title = "Read the file again";
-  reloadButton.addEventListener("click", () => {
-    executeCommand({
-      type: "reload-markdown",
-      id,
-    });
-  });
-
-  const toolbar = document.createElement("div");
-  toolbar.className = "flex flex-none justify-end gap-1 px-2.5 pt-1.5";
-  toolbar.append(modeButton, reloadButton);
-
-  const contentElement = document.createElement("div");
-  contentElement.className =
-    "markdown-scroll min-h-0 flex-1 overflow-auto outline-none";
-  contentElement.tabIndex = -1;
-
-  const paneElement = document.createElement("div");
-  paneElement.className = "flex h-full flex-col bg-background";
-  paneElement.append(toolbar, contentElement);
-
-  return {
-    paneElement,
-    contentElement,
-    modeButton,
-  };
-}
-
-type AttachPaneHandlersOptions = {
-  id: number;
-  tab: MarkdownTab;
-};
-
-// The affordances that need the tab record itself.
-function attachPaneHandlers({ id, tab }: AttachPaneHandlersOptions): void {
-  tab.modeButton.addEventListener("click", () => {
-    let mode: MarkdownMode = "raw";
-    if (tab.mode === "raw") {
-      mode = "rendered";
-    }
-    executeCommand({
-      type: "set-markdown-mode",
-      id,
-      mode,
-    });
-  });
-
-  tab.contentElement.addEventListener("click", (event) => {
-    openDocumentLink({
-      tab,
-      event,
-    });
-  });
-}
-
 type OpenMarkdownTabOptions = {
   workspace: Workspace;
   filePath: string;
@@ -196,7 +197,10 @@ export async function openMarkdownTab({
     path: filePath,
     baseTabId,
   });
-  const pane = buildMarkdownPane(id);
+
+  // the host Dockview is handed; React draws the toolbar and the box inside
+  const paneElement = document.createElement("div");
+  paneElement.className = "flex h-full flex-col bg-background";
 
   let resolvedPath = filePath;
   if (!("error" in result)) {
@@ -205,23 +209,23 @@ export async function openMarkdownTab({
   // the renderer has no node:path; a document's name is its last segment
   const title = resolvedPath.slice(resolvedPath.lastIndexOf("/") + 1);
 
-  const { panel, titleElement } = addPanel({
+  const { panel, row } = addPanel({
     workspace,
     id,
     component: "markdown",
     title,
-    paneElement: pane.paneElement,
+    paneElement,
     group,
   });
 
   const tab: MarkdownTab = {
     kind: "markdown",
     panel,
-    titleElement,
+    row,
+    title,
     titlePinned: true,
-    element: pane.paneElement,
-    contentElement: pane.contentElement,
-    modeButton: pane.modeButton,
+    root: createRoot(paneElement),
+    contentElement: createRef(),
     filePath: resolvedPath,
     baseTabId,
     mode: "rendered",
@@ -230,10 +234,6 @@ export async function openMarkdownTab({
       filePath,
     }),
   };
-  attachPaneHandlers({
-    id,
-    tab,
-  });
   showMarkdown(tab);
 
   workspace.tabs.set(id, tab);
@@ -243,7 +243,7 @@ export async function openMarkdownTab({
     state: snapshot(),
   });
   tab.panel.api.setActive();
-  tab.contentElement.focus();
+  tab.contentElement.current?.focus();
 }
 
 type SetMarkdownModeOptions = {

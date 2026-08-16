@@ -17,151 +17,25 @@
     <link rel="stylesheet" id="highlight-css" />
   </head>
   <body>
-    <!-- <dialog> + showModal(): real modality (backdrop, focus trap,
-         Escape) from the browser engine. Electron has no native
-         text-input dialog. -->
-    <dialog id="rename-dialog" class="dialog-box">
-      <form method="dialog">
-        <!-- the heading names the target: a tab or a workspace -->
-        <h2 id="rename-heading" class="mt-0 mb-2.5 text-[13px] font-semibold">
-          Rename Tab
-        </h2>
-        <input
-          id="rename-input"
-          type="text"
-          spellcheck="false"
-          class="field w-full text-[13px]"
-        />
-        <div class="mt-3.5 flex justify-end gap-2">
-          <!-- Cancel is type=button so Enter always means Rename -->
-          <button
-            type="button"
-            id="rename-cancel"
-            class="dialog-button bg-separator text-inherit"
-          >
-            Cancel
-          </button>
-          <button
-            value="rename"
-            class="dialog-button bg-accent text-background"
-          >
-            Rename
-          </button>
-        </div>
-      </form>
-    </dialog>
-    <!-- Controls apply live: each change is an update-settings Command
-         (settings-dialog.ts) -->
-    <dialog id="settings-dialog" class="dialog-box">
-      <h2 class="mt-0 mb-2.5 text-[13px] font-semibold">Settings</h2>
-      <label class="settings-row">
-        Theme
-        <select
-          id="settings-theme"
-          class="field w-[140px] text-[12px]"
-        ></select>
-      </label>
-      <h3 class="settings-section">Terminal</h3>
-      <label class="settings-row">
-        Font
-        <input
-          id="settings-font-family"
-          type="text"
-          spellcheck="false"
-          class="field w-[140px] text-[12px]"
-        />
-      </label>
-      <label class="settings-row">
-        Font size
-        <input
-          id="settings-font-size"
-          type="number"
-          min="8"
-          max="32"
-          class="field w-[140px] text-[12px]"
-        />
-      </label>
-      <h3 class="settings-section">Interface</h3>
-      <label class="settings-row">
-        Font
-        <input
-          id="settings-ui-font-family"
-          type="text"
-          spellcheck="false"
-          class="field w-[140px] text-[12px]"
-        />
-      </label>
-      <h3 class="settings-section">Markdown</h3>
-      <label class="settings-row">
-        Font
-        <input
-          id="settings-markdown-font-family"
-          type="text"
-          spellcheck="false"
-          class="field w-[140px] text-[12px]"
-        />
-      </label>
-      <label class="settings-row">
-        Font size
-        <input
-          id="settings-markdown-font-size"
-          type="number"
-          min="8"
-          max="32"
-          class="field w-[140px] text-[12px]"
-        />
-      </label>
-      <div class="mt-3.5 flex justify-end gap-2">
-        <button
-          id="settings-done"
-          class="dialog-button bg-accent text-background"
-        >
-          Done
-        </button>
-      </div>
-    </dialog>
+    <!-- The two modals, drawn only while one is open (chrome.tsx) -->
+    <div id="dialogs"></div>
     <!-- The painted title bar; the native one is hidden (titleBarStyle:
          hiddenInset in main/index.ts). app-region: drag keeps the native
          behaviors: dragging moves the window, double-click zooms it, and the
-         36px height vertically centers the inset traffic lights. Replaced by
-         the active workspace's name as soon as one exists. -->
+         36px height vertically centers the inset traffic lights. What it
+         says is the active workspace's name (chrome.tsx). -->
     <div
       id="title-bar"
       class="flex h-9 flex-none items-center justify-center bg-title-bar text-[13px] font-semibold text-tab-active [-webkit-app-region:drag]"
-    >
-      lmux
-    </div>
+    ></div>
     <div id="workbench" class="relative flex min-h-0 flex-1">
-      <!-- the named workspace list at the top, settings gear at the bottom -->
+      <!-- the named workspace list at the top, settings gear at the bottom;
+           both are drawn by chrome.tsx, and the empty strip below them
+           belongs to this element (workspaces.ts) -->
       <div
         id="sidebar"
         class="flex w-(--sidebar-width) flex-none flex-col border-r border-separator bg-tab-bar py-2"
-      >
-        <!-- one row per workspace, filled by workspaces.ts. A tablist:
-             picking one swaps which set of panes is on screen. -->
-        <div
-          id="workspace-list"
-          role="tablist"
-          aria-label="Workspaces"
-          class="flex flex-col"
-        ></div>
-        <!-- rows, not icons: every button shares the list's left edge -->
-        <button
-          id="new-workspace-button"
-          title="New Workspace (⇧⌘T)"
-          class="mt-0.5 cursor-pointer border-0 bg-transparent px-3 py-1 text-left text-[12px] whitespace-nowrap text-tab hover:text-tab-active"
-        >
-          + New Workspace
-        </button>
-        <button
-          id="settings-button"
-          title="Settings"
-          aria-label="Settings"
-          class="mt-auto cursor-pointer border-0 bg-transparent px-3 py-1 text-left text-[18px] whitespace-nowrap text-tab hover:text-tab-active"
-        >
-          ⚙
-        </button>
-      </div>
+      ></div>
       <!-- Rides over the sidebar's edge instead of taking a column of its
            own, so widening it costs the layout nothing (edge-resize.ts) -->
       <div

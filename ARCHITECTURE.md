@@ -182,10 +182,12 @@ and writes the window geometry and the last session to disk.
 
 **The renderer owns the screen.** It boots settings into CSS and wires the
 cable, keeps the workspace store (one layout and one project panel each) and the
-tab store whose one dispatcher hands every Command to its family, draws terminal
-and Markdown panes, hosts the project panel with its lazy tree (the one React
-component in the app), its one open file and Monaco, and owns the modals, the
-settings and the drag handles.
+tab store whose one dispatcher hands every Command to its family, draws the
+window's own furniture (title bar, sidebar, modals), the strip's tab rows and
+the terminal and Markdown panes, hosts the project panel with its lazy tree, its
+one open file and Monaco, and owns the settings and the drag handles. Everything
+in it that is a view of state is a React component; everything that hosts
+somebody else's DOM, or answers a pointer, is not.
 
 **The tests** boot the real app, drive the bus, and assert on the state that
 comes back.
@@ -316,23 +318,41 @@ change it and update this list.
   Retry after filesystem failures. Root changes show one loading state and
   commit the root, title and tree together. Row virtualization and paged reads
   remain in #44; tree mutation controls remain out of scope.
-- **React draws the file tree, and nothing else.** (Decided 2026-08-15, the
-  first framework in the project.) The tree is the one part of the app that
-  is a *view of data*: directories arrive one at a time, a watcher replaces
-  them underneath, and Git decorations repaint rows that did not otherwise
-  change. Written by hand that meant a keyed reconciler — match the new
-  entries against the rows already in the DOM, reuse what survived, prune
-  what vanished, and keep generation counters so a late answer could not
-  overwrite a newer one. That is the algorithm React is, so the tree now
-  declares what each directory looks like and React works out the DOM. The
-  state stays a plain object outside React, changed by the same asynchronous
-  functions as before; each of them ends by rendering the whole tree again,
-  which is cheap because working out the difference is React's job. What
-  changed is who writes the DOM, not who owns the state. Deliberately not
-  React: xterm, Monaco and Dockview own their DOM and would only be wrapped,
-  and every affordance still issues Commands. Cost we accept: a framework and
-  its two packages in the page's bundle, and one file whose dialect (JSX,
-  `.tsx`) is not the rest of the codebase's.
+- **React draws every view of state; nothing else uses it.** (Decided
+  2026-08-15, the first framework in the project; widened the same day from
+  "the file tree, and nothing else".) A *view of state* is a piece of the page
+  whose whole content follows from data the app already holds: the file tree,
+  the project panel's four faces, the sidebar's list of workspaces, the title
+  bar, a tab's row in the strip, a document pane's toolbar, and the two
+  dialogs. Written by hand, each of those was the same algorithm — work out
+  what changed and edit the DOM to match — and each kept an element handle per
+  thing it might later have to write to. The tree needed a keyed reconciler for
+  it; the rest needed `classList.toggle` and `textContent =` scattered across
+  the module that changed the state. That is the algorithm React is, so each of
+  them now declares what it looks like and React works out the DOM. **The state
+  stays plain objects outside React** — the workspace store, the panel record,
+  the tab record, the settings — changed by the same functions as before; each
+  ends by drawing its region again, which is cheap because working out the
+  difference is React's job. What changed is who writes the DOM, not who owns
+  the state — the one thing React holds is what a dialog is mid-edit, a name
+  being typed or a font not yet committed, which belongs to nobody else.
+
+  Three rules keep it predictable. **A root renders a host's children, never
+  the host**: `#sidebar`, `#title-bar`, the `.project-panel` div, a tab's row
+  and a document's pane keep their own class and their own place in the page,
+  and React draws inside them. **Every draw is synchronous** (`flushSync`), so
+  the code that changes state can go straight on to fill what the render left —
+  Monaco's container, a document's box — and the page a Command's Event
+  describes is the page that is on screen. **A ref is for DOM that is not
+  React's**: Monaco, markdown-it's output, and the elements focus is asked for
+  by name. Deliberately not React: xterm, Monaco and Dockview own their DOM and
+  would only be wrapped; the drag handles and the tree's scrollbar, which track
+  a pointer and write geometry rather than showing state; the CSS custom
+  properties settings become; the `display` that hides a background workspace;
+  and the strip's `+`, a control whose content never changes and so has nothing
+  to redraw. Every affordance still issues Commands. Cost we accept: a
+  framework and its two packages in the page's bundle, and a second dialect
+  (JSX, `.tsx`) in the renderer's own files.
 - **Explorer decorations are Git state.** Main reads NUL-delimited porcelain
   status and the Git index after the tree commits its root. The result is
   compared with the current `HEAD`, not specifically the repository's main
@@ -1120,7 +1140,7 @@ change it and update this list.
   a table of contents. Nothing about the bus changed — still exactly one
   function every Command arrives at, still the only place state changes — so
   the one-door rule is untouched. The project panel was split the same way:
-  its DOM (`project-panel-elements.ts`), its resize handle
+  its markup (`project-panel-view.tsx`), its resize handle
   (`project-tree-resize.ts`) and its file watcher with the git decorations
   and retries (`project-tree-watcher.ts`) were three jobs it had
   accumulated. Two things fell out along the way: opening a tab of either

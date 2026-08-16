@@ -5,10 +5,8 @@
 // The state is a plain object outside React (the ProjectTree below), because
 // what changes it is asynchronous and belongs to the panel: a directory is
 // expanded, a watcher reports a change, Git decorations come back. Every one
-// of those ends in draw(), which renders the whole tree again and leaves the
-// difference to React.
-import { createRoot } from "react-dom/client";
-import type { Root } from "react-dom/client";
+// of those ends in redraw(), which draws the panel again — its rows included
+// — and leaves the difference to React.
 import type { ReactNode } from "react";
 import { bridge } from "./bridge.ts";
 import type {
@@ -28,10 +26,11 @@ type DirectoryState =
   | { status: "loaded"; entries: ProjectTreeEntry[] };
 
 export type ProjectTree = {
-  treeElement: HTMLElement;
-  root: Root;
   workspaceRootPath: string;
   openFile: OpenTreeFile;
+  // Draws the panel these rows are rendered in. The tree owns no root of its
+  // own: it is one region of the panel's, so a change here is a change there.
+  redraw: () => void;
   // keyed by workspace-relative directory path; "" is the workspace root
   directories: Map<string, DirectoryState>;
   // how many reads each directory has asked for: an answer to any but the
@@ -44,25 +43,49 @@ export type ProjectTree = {
   focusedPath: string | undefined;
 };
 
-function draw(projectTree: ProjectTree): void {
-  projectTree.root.render(
-    <ul className="project-tree-root m-0 list-none pl-0">
-      <DirectoryContents projectTree={projectTree} directoryPath="" />
-    </ul>,
-  );
-}
-
 // A row is a <summary> or a <button>; each names its own horizontal padding,
 // because a button brings the browser's otherwise, and shares the rest.
 const ROW_CLASS =
   "project-tree-row box-border flex min-h-6 w-full cursor-pointer items-center gap-1 overflow-hidden border-0 bg-transparent py-[3px] text-left text-[length:inherit] leading-[18px] whitespace-nowrap text-inherit outline-none hover:bg-separator hover:text-tab-active focus-visible:bg-separator focus-visible:text-tab-active";
 
-// a row that says something instead of naming a file, and the button
-// offering the read again; the panel's root error wears both too
-export const TREE_MESSAGE_CLASS = "px-2 py-[3px] leading-[18px] text-tab";
+// a row that says something instead of naming a file
+const TREE_MESSAGE_CLASS = "px-2 py-[3px] leading-[18px] text-tab";
 
-export const TREE_RETRY_CLASS =
-  "rounded border-0 bg-separator px-2 py-[2px] text-[length:inherit] text-inherit";
+type TreeMessageProps = {
+  children: ReactNode;
+};
+
+export function TreeMessage({ children }: TreeMessageProps): ReactNode {
+  return <li className={TREE_MESSAGE_CLASS}>{children}</li>;
+}
+
+type TreeErrorProps = {
+  message: string;
+  retry: () => void;
+};
+
+// A read that failed, and the button offering it again. The workspace root's
+// failure wears this too, which is why it is a component and not markup
+// written twice.
+export function TreeError({ message, retry }: TreeErrorProps): ReactNode {
+  return (
+    <li className={`${TREE_MESSAGE_CLASS} flex flex-col items-start gap-1`}>
+      <span>{message}</span>
+      <button
+        className="rounded border-0 bg-separator px-2 py-[2px] text-[length:inherit] text-inherit"
+        type="button"
+        onClick={(event) => {
+          // the row above it is a summary, and a click on that toggles
+          event.preventDefault();
+          event.stopPropagation();
+          retry();
+        }}
+      >
+        Retry
+      </button>
+    </li>
+  );
+}
 
 type GitDecorationPresentation = {
   label: string;
@@ -202,7 +225,7 @@ async function readDirectory({
   projectTree.requests.set(directoryPath, request);
   if (waitedOn) {
     projectTree.directories.set(directoryPath, { status: "loading" });
-    draw(projectTree);
+    projectTree.redraw();
   }
 
   let result: ReadProjectTreeResult;
@@ -223,7 +246,7 @@ async function readDirectory({
         status: "error",
         message: result.error,
       });
-      draw(projectTree);
+      projectTree.redraw();
     }
     return;
   }
@@ -231,7 +254,7 @@ async function readDirectory({
     status: "loaded",
     entries: result.entries,
   });
-  draw(projectTree);
+  projectTree.redraw();
 }
 
 type DirectoryContentsProps = {
@@ -242,7 +265,7 @@ type DirectoryContentsProps = {
 // One directory's children, in whichever of its states it is in. The root's
 // emptiness reads differently from a subdirectory's, because an empty
 // workspace is a thing the reader may have to fix.
-function DirectoryContents({
+export function DirectoryContents({
   projectTree,
   directoryPath,
 }: DirectoryContentsProps): ReactNode {
@@ -251,35 +274,26 @@ function DirectoryContents({
     return null;
   }
   if (directory.status === "loading") {
-    return <li className={TREE_MESSAGE_CLASS}>Loading…</li>;
+    return <TreeMessage>Loading…</TreeMessage>;
   }
   if (directory.status === "error") {
     return (
-      <li className={`${TREE_MESSAGE_CLASS} flex flex-col items-start gap-1`}>
-        <span>{directory.message}</span>
-        <button
-          className={TREE_RETRY_CLASS}
-          type="button"
-          onClick={(event) => {
-            // the row above it is a summary, and a click on that toggles
-            event.preventDefault();
-            event.stopPropagation();
-            readDirectory({
-              projectTree,
-              directoryPath,
-            });
-          }}
-        >
-          Retry
-        </button>
-      </li>
+      <TreeError
+        message={directory.message}
+        retry={() => {
+          readDirectory({
+            projectTree,
+            directoryPath,
+          });
+        }}
+      />
     );
   }
   if (directory.entries.length === 0) {
     if (directoryPath === "") {
-      return <li className={TREE_MESSAGE_CLASS}>Empty workspace</li>;
+      return <TreeMessage>Empty workspace</TreeMessage>;
     }
-    return <li className={TREE_MESSAGE_CLASS}>Empty</li>;
+    return <TreeMessage>Empty</TreeMessage>;
   }
   return directory.entries.map((entry) => (
     <TreeEntry key={entry.path} projectTree={projectTree} entry={entry} />
@@ -379,24 +393,23 @@ function TreeEntry({ projectTree, entry }: TreeEntryProps): ReactNode {
   );
 }
 
-type MountProjectTreeOptions = {
-  treeElement: HTMLElement;
+type CreateProjectTreeOptions = {
   workspaceRootPath: string;
   entries: ProjectTreeEntry[];
   openFile: OpenTreeFile;
+  redraw: () => void;
 };
 
-export function mountProjectTree({
-  treeElement,
+export function createProjectTree({
   workspaceRootPath,
   entries,
   openFile,
-}: MountProjectTreeOptions): ProjectTree {
-  const projectTree: ProjectTree = {
-    treeElement,
-    root: createRoot(treeElement),
+  redraw,
+}: CreateProjectTreeOptions): ProjectTree {
+  return {
     workspaceRootPath,
     openFile,
+    redraw,
     // the panel read the root already, to learn the workspace's name, so the
     // tree starts with one directory it never has to ask for
     directories: new Map([["", { status: "loaded", entries }]]),
@@ -405,8 +418,6 @@ export function mountProjectTree({
     propagatedGitDecorations: new Map(),
     focusedPath: undefined,
   };
-  draw(projectTree);
-  return projectTree;
 }
 
 type RefreshProjectTreePathsOptions = {
@@ -492,25 +503,34 @@ export function setProjectTreeGitDecorations({
       separatorPosition = directoryPath.lastIndexOf("/");
     }
   }
-  draw(projectTree);
+  projectTree.redraw();
 }
 
+type FocusProjectTreeOptions = {
+  projectTree: ProjectTree;
+  treeElement: HTMLElement;
+};
+
 // The row the keyboard was last on, by path rather than by element: the one
-// that held it may have been replaced by a re-read since.
-export function focusProjectTree(projectTree: ProjectTree): void {
+// that held it may have been replaced by a re-read since. Focus is the one
+// thing React has no way to declare, so it is asked for by hand here.
+export function focusProjectTree({
+  projectTree,
+  treeElement,
+}: FocusProjectTreeOptions): void {
   let rowElement: HTMLElement | null = null;
   if (projectTree.focusedPath !== undefined) {
-    rowElement = projectTree.treeElement.querySelector(
+    rowElement = treeElement.querySelector(
       `.project-tree-row[data-project-tree-path="${CSS.escape(
         projectTree.focusedPath,
       )}"]`,
     );
   }
   if (rowElement === null) {
-    rowElement = projectTree.treeElement.querySelector(".project-tree-row");
+    rowElement = treeElement.querySelector(".project-tree-row");
   }
   if (rowElement === null) {
-    projectTree.treeElement.focus();
+    treeElement.focus();
     return;
   }
   projectTree.focusedPath = rowElement.dataset.projectTreePath;

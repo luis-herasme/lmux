@@ -5,7 +5,7 @@ import { bridge } from "../bridge.ts";
 import { getSettings, updateSettings } from "../settings.ts";
 import { refreshCodeTheme } from "../code.ts";
 import { showProjectFile } from "../project-panel.ts";
-import { redrawMarkdown } from "./markdown-tab.ts";
+import { redrawMarkdown } from "./markdown-tab.tsx";
 import { refreshTerminalTabSettings } from "./terminal-tab.ts";
 import { activeWorkspace, snapshot, workspaces } from "../workspaces.ts";
 import type { Settings } from "../../api.ts";
@@ -25,7 +25,7 @@ export function applySettings(partial: Partial<Settings>): void {
   for (const workspace of workspaces.values()) {
     const panel = workspace.project;
     if (panel !== undefined) {
-      panel.editor.updateOptions({
+      panel.editor?.updateOptions({
         fontFamily: settings.fontFamily,
         fontSize: settings.fontSize,
       });

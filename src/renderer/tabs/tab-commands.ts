@@ -7,8 +7,9 @@ import {
   openMarkdownTab,
   reloadMarkdownTab,
   setMarkdownMode,
-} from "./markdown-tab.ts";
+} from "./markdown-tab.tsx";
 import { openTerminalTab } from "./terminal-tab.ts";
+import { drawTabRow } from "../tab-strip.tsx";
 import {
   activeWorkspace,
   findGroup,
@@ -226,7 +227,11 @@ export function executeTabCommand(command: Command): void {
       if (title === "") {
         title = "Untitled";
       }
-      tab.titleElement.textContent = title;
+      tab.title = title;
+      drawTabRow({
+        row: tab.row,
+        title,
+      });
       tab.panel.setTitle(title);
       refreshWorkspaceName(resolved.workspace);
       bridge.emitEvent({
