@@ -17,7 +17,7 @@ export type MarkdownMode = z.infer<typeof markdownModeSchema>;
 // (renderer/settings.ts holds THEMES and corrects an unknown one).
 // fontFamily/fontSize are the terminal's, uiFontFamily the chrome's,
 // markdownFont* the rendered document's.
-export const settingsSchema = z.object({
+const settingsSchema = z.object({
   theme: z.string(),
   fontFamily: z.string(),
   fontSize: z.number(),
