@@ -429,13 +429,8 @@ JavaScript and TypeScript itself rather than leaning on `tsc`, so it is fast
 and needs no ESLint configuration layer.
 
 *anti-slop* is a set of opinionated Oxlint rules that reject low-evidence
-TypeScript patterns: chained `as` assertions, `unknown` contracts, ad hoc
-`typeof` narrowing, and widening annotations that discard known types. It is
-*vendored*, not installed: its source is copied into `tools/oxlint/anti-slop`
-and maintained here, so its rules can be changed to match this repo's
-standards. `oxlint.config.ts` registers it and enables twelve of its fifteen
-rules; three are off because they contradict conventions this repo already
-holds in AGENTS.md: `no-reflect-get` (the page-global read in `bridge.ts` uses
-`Reflect.get` by design), and `no-unknown-parameters` and `no-unknown-returns`
-(data fetchers and IPC boundary callbacks use `unknown`, validated by the
-caller with Zod).
+TypeScript patterns: chained `as` assertions, ad hoc `typeof` narrowing, and
+widening annotations that discard known types. It is *vendored*, not
+installed: its source is copied into `tools/oxlint/anti-slop` and maintained
+here, so its rules can be changed to match this repo's standards.
+`oxlint.config.ts` registers it and enables its twelve rules.

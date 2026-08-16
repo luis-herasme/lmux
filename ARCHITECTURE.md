@@ -989,17 +989,17 @@ change it and update this list.
   kind is now one call that allocates its own id, with `addPanel` building
   the strip row every tab wears, and `focusWorkspace` moved to
   `workspaces.ts`, where the `focus` field it reads already lived.
-- **Oxlint runs anti-slop, vendored, with three rules off.** (Decided
+- **Oxlint runs anti-slop, vendored and trimmed to twelve rules.** (Decided
   2026-08-16.) The repo had no linter; `npm run check` was `tsc --noEmit`
   alone. anti-slop (github.com/dmmulroy/anti-slop) is a set of opinionated
   Oxlint rules that reject low-evidence TypeScript and JavaScript patterns,
   meant to be copied into a repo rather than depended on: its source now
   lives in `tools/oxlint/anti-slop`, outside `tsconfig`'s `include`, and
-  `oxlint.config.ts` registers it and enables twelve of its fifteen rules as
-  errors. `npm run check` is now `tsc --noEmit && oxlint src`. Three rules
-  are off because they contradict conventions this repo already holds in
-  AGENTS.md: `no-reflect-get` (the page-global read in `bridge.ts` uses
-  `Reflect.get` by design), and `no-unknown-parameters` and
+  `oxlint.config.ts` registers it and enables all twelve rules as errors.
+  `npm run check` is now `tsc --noEmit && oxlint src`. Three rules that
+  contradicted conventions this repo already holds in AGENTS.md were removed
+  rather than shipped off: `no-reflect-get` (the page-global read in
+  `bridge.ts` uses `Reflect.get` by design), and `no-unknown-parameters` and
   `no-unknown-returns` (data fetchers and IPC boundary callbacks use
   `unknown`, validated by the caller with Zod). Two real violations were
   fixed rather than excused: `GIT_DECORATION_PRESENTATIONS` widened to a
