@@ -3,8 +3,7 @@ import { execFile } from "child_process";
 import * as os from "os";
 import * as path from "path";
 import * as pty from "node-pty";
-import type { ShellDataMessage, ShellSizeMessage } from "../ipc/bridge.ts";
-import { SOCKET_PATH } from "./mcp.ts";
+import type { ShellDataMessage, ShellSizeMessage } from "../inter-process-communication/bridge.ts";
 
 const shells = new Map<number, pty.IPty>();
 
@@ -22,13 +21,6 @@ ipcMain.on("shell:spawn", (event, size: ShellSizeMessage) => {
     cols: size.cols,
     rows: size.rows,
     cwd: os.homedir(),
-    // What an agent started in this tab needs to drive lmux: where the API
-    // socket is, and which tab it is itself sitting in.
-    env: {
-      ...process.env,
-      LMUX_SOCKET: SOCKET_PATH,
-      LMUX_TAB_ID: String(size.id),
-    },
   });
   shells.set(size.id, shell);
 

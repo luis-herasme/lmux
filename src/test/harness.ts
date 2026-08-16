@@ -87,9 +87,6 @@ try {
 await import("../main/index.ts");
 await app.whenReady();
 
-const { SOCKET_PATH } = await import("../main/mcp.ts");
-export const API_SOCKET_PATH = SOCKET_PATH;
-
 const openWindows = BrowserWindow.getAllWindows();
 if (openWindows.length === 0) {
   throw new Error("lmux booted without a window");

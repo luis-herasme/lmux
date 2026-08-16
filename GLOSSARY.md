@@ -69,7 +69,7 @@ browser page that can show UI but is sandboxed away from your system, like any
 web page. The xterm.js screen lives in the renderer; the PTY lives in main. They
 are separate operating-system processes and share no memory.
 
-## IPC (inter-process communication)
+## Inter-process communication
 
 How the main and renderer processes talk: named messages passed between them
 (`ipcMain` / `ipcRenderer` in Electron). Ours carry the per-tab shell protocol
@@ -82,8 +82,8 @@ The two halves of lmux's public interface. A **command** is an imperative
 request flowing *into* lmux ("open a tab", "type this text"), named in the
 imperative mood. An **event** is a fact flowing *out* ("tab 3 opened"), named in
 the past tense, and carrying a snapshot of the resulting state. Keeping the two directions as two words (borrowed from the CQRS pattern)
-matters because an external driver, like an agent, needs both: send commands,
-observe events. One word would muddle which way the arrow points.
+matters because an outside caller needs both: send commands, observe events.
+One word would muddle which way the arrow points.
 
 ## Menu accelerator
 
@@ -182,8 +182,7 @@ width survives a relaunch.
 ## Scrollback
 
 The lines that have scrolled off the top of the screen. xterm.js keeps a buffer
-of them (1000 lines by default) so you can scroll up, and a `screen` read
-reaches back into it.
+of them (1000 lines by default) so you can scroll up.
 
 ## OSC (Operating System Command)
 
@@ -257,7 +256,7 @@ renderer, the public state and main's filesystem reads.
 
 The tree loads lazily: it reads the root first, then a directory's immediate
 children only when a person expands it, so collapsed subtrees cost no filesystem
-work, IPC payload or DOM rows. Filesystem events reconcile directories that have
+work, inter-process communication payload or DOM rows. Filesystem events reconcile directories that have
 already loaded while preserving their expanded descendants.
 
 ## Git state / file decoration
@@ -325,42 +324,11 @@ mutates anything and can be cancelled. We cancel every drop, translate it into
 the equivalent Command (`move-tab` for strip and pane-center drops, `split-tab`
 for pane-edge drops), and dispatch that through `executeCommand`, which performs
 the identical move via Dockview's programmatic API (`panel.api.moveTo`). The
-gesture becomes just another Command source, the same door as the menus, the
-devtools console, and an agent. The one exception is clicking a Dockview tab to
+gesture becomes just another Command source, the same door as the menus and the
+devtools console. The one exception is clicking a Dockview tab to
 activate it: that's focus, not layout, and the mousedown that activates is the same one that begins a drag, so
 activation is applied by Dockview and announced on the bus afterwards as a
 `tab-activated` Event.
-
-## Unix domain socket
-
-A socket that lives in the filesystem as a file rather than on a network port.
-Two processes on the same machine talk through it exactly as they would over
-TCP, but it is never reachable from another machine and never from a web page.
-Its access control is the file's own permissions, which is why the API socket is
-one: a loopback port is open to every process on the machine and needs a
-credential invented to guard it, while a socket file at 0600, in a directory
-macOS already keeps at 0700, is restricted to the user who owns it and needs
-nothing else.
-
-## JSON-RPC
-
-A convention for calling a function in another process: send an object saying
-which `method` and which `params`, get one back carrying either a `result` or an
-`error`, matched to the call by the `id` you chose. A message with no `id` is a
-*notification*, which is acted on and never answered. It says nothing about how
-the bytes travel, so the same messages work over a pipe, a socket, or HTTP. lmux
-frames them one per line, which is what MCP over a stream calls for.
-
-## MCP (Model Context Protocol)
-
-The convention an LLM agent uses to discover and call tools someone else wrote.
-A server answers `initialize` with what it can do, `tools/list` with each tool's
-name, description and a JSON Schema for its arguments, and `tools/call` by
-running one. It is JSON-RPC, so a unix socket is a complete transport and `nc
--U` is a complete client: lmux speaks MCP on its socket directly, and there is
-no separate server to install. lmux's tool schemas are generated from the same
-schema the Command union itself is declared as, so a new Command becomes a new
-agent capability with nothing to update by hand.
 
 ## Session (what survives a quit)
 

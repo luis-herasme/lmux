@@ -38,7 +38,7 @@ joined by a serial cable. We keep that exact split:
 | 1978                  | This app                              |
 | --------------------- | ------------------------------------- |
 | VT100 (screen + keys) | renderer process running xterm.js     |
-| serial cable          | IPC channel (the bridge's messages)   |
+| serial cable          | inter-process communication (the bridge's messages)   |
 | the computer          | main process holding a PTY + zsh      |
 
 Everything in the codebase is on one side of that cable or the other. When a
@@ -67,8 +67,6 @@ closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row
 readFile({path, baseTabId})  renderer → main   "read a document or project file" (request/response)
 readProjectTree({...})       renderer → main   "resolve a root and list one directory" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
-onScreenRead({readId, ...})  main → renderer   "what is tab `id` showing?" (request/response, the only one this way)
-answerScreenRead({readId, result}) renderer → main "here is what it shows"
 ```
 
 Rules that keep this boundary healthy:
@@ -78,9 +76,7 @@ Rules that keep this boundary healthy:
    is running; the main process never knows how the screen is drawn. The
    one deliberate exception is the command bus (next section): a pair of
    channels carrying typed `Command`/`LmuxEvent` objects, whose shapes are
-   declared once and compile-checked on both sides. The screen query is
-   the same exception in the other direction, and for the same reason: the
-   answer is characters, which only the renderer holds.
+   declared once and compile-checked on both sides.
 2. **The renderer stays a dumb screen.** Anything that touches the OS
    (processes, files, clipboard writes are the one pragmatic exception)
    belongs in main.
@@ -124,8 +120,7 @@ unions *are* lmux's public API, and they are where to start reading.
 ```mermaid
 flowchart LR
     S["Command sources:
-    the app menu,
-    the API socket"] --> M
+    the app menu"] --> M
     M["main
     dispatch(command)"] -->|command| R
     R["renderer
@@ -155,12 +150,12 @@ Two consequences worth naming:
 - **Events carry a state snapshot** (`{workspaces, activeWorkspaceId}`, each
   workspace holding its own tabs, layout and active tab), so an observer
   never needs a query protocol: whatever arrives last is the truth. Main
-  keeps the latest snapshot as the read model the API socket answers from.
-- **There are three doors, and they are the same door.** The app menu, the
-  devtools console (`window.lmux.command({type: "new-tab"})` in ⌥⌘I), and
-  the API socket an agent drives all issue the same Commands into the same
-  switch. Adding the socket cost no change to the bus at all: it is a
-  second caller of `dispatch`, which is exactly what this design was for.
+  keeps the latest snapshot as the read model the menu and the close handler
+  read from.
+- **There are two doors, and they are the same door.** The app menu and the
+  devtools console (`window.lmux.command({type: "new-tab"})` in ⌥⌘I) both
+  issue the same Commands every UI affordance does, into the same switch, so
+  an outside caller can never be left behind the UI.
 
 ## The parts
 
@@ -176,9 +171,9 @@ it.
 
 **Main owns the machine.** It boots the window and the app lifecycle, keeps one
 PTY per tab and relays its bytes, builds the app and context menus, dispatches
-Commands into the renderer and keeps the read model Events arrive in, serves the
-API socket, reads files and directories with their Git status and watches them,
-and writes the window geometry and the last session to disk.
+Commands into the renderer and keeps the read model Events arrive in, reads
+files and directories with their Git status and watches them, and writes the
+window geometry and the last session to disk.
 
 **The renderer owns the screen.** It boots settings into CSS and wires the
 cable, keeps the workspace store (one layout and one project panel each) and the
@@ -372,7 +367,7 @@ change it and update this list.
   up to three delayed rebind attempts. Incoming remote arrows, an SCM view and
   editor-tab Git decorations are separate VS Code features and remain out of
   scope.
-- **The IPC contract is a type.** One module declares `Bridge`;
+- **The inter-process communication contract is a type.** One module declares `Bridge`;
   the preload implements it and the renderer consumes it, so the two sides of the
   boundary cannot silently drift apart; drift is now a compile error.
 - **Types are modules, not declaration files.** (Replaced the earlier
@@ -424,10 +419,10 @@ change it and update this list.
   "busy" is simply that name differing from the shell we spawned, which is
   the same test Terminal.app applies. Both prompts live in main, because
   only main can show a native dialog, only main knows what is in a PTY,
-  and only main can cancel a window close. The API is deliberately not
-  covered: a `close-workspace` Command issued from the console or a future
-  agent proceeds without a dialog, since a caller that isn't a person has
-  nothing to answer it with. The affordances a person uses (the menu item,
+  and only main can cancel a window close. A `close-workspace` Command
+  issued from the console proceeds without a dialog, since a caller that
+  isn't a person has nothing to answer it with. The affordances a person
+  uses (the menu item,
   the accelerator, the workspace's context menu, the × on its sidebar row)
   all route through main already, so they all ask. The × is the one that
   is not already there: it is a click in the page, so it needs a message of
@@ -458,7 +453,7 @@ change it and update this list.
   *event* = fact out) because an external driver needs both directions and
   one word muddles the arrow. The consumer (`executeCommand`) lives in the
   renderer because tab state lives there; the intake (`dispatch`) lives in
-  main because the future server must live where Node is. Every UI control
+  main because the app menu lives there. Every UI control
   issues Commands rather than calling functions, so the API cannot lag
   behind the UI; every state change emits an Event carrying a full
   snapshot, so observers need no query protocol. Costs we accept: one
@@ -610,10 +605,10 @@ change it and update this list.
   terminal's font family and size, and the UI font used by everything
   else.) The current value lives in the renderer
   and persists in localStorage: settings are renderer-only state, so no
-  IPC message was needed; the first entry from the "renderer-only"
+  inter-process communication message was needed; the first entry from the "renderer-only"
   feature list to ship. Changes enter as an `update-settings` Command
-  (the settings dialog's controls, a devtools call, and a future agent
-  all use the same door), and the consumer *corrects* rather than
+  (the settings dialog's controls and a devtools call use the same door),
+  and the consumer *corrects* rather than
   rejects: an unknown theme name is ignored, a wild font size clamped;
   then a `settings-changed` Event reports the values as they actually
   took, and xterm's options are updated on every live terminal with an
@@ -671,10 +666,10 @@ change it and update this list.
   with no helper functions between the schema and its two call sites. This is
   the project's first non-UI runtime dependency, deliberately used only
   where untrusted data enters (localStorage, `update-settings` payloads);
-  the IPC contract stays compile-checked only, until an outside caller
-  (the future API server) makes those inputs untrusted too. (Amended
-  2026-08-07: one such caller turned out to exist already, and `Command` is
-  now a schema. See the next entry.) It is imported by both sides, which for
+  the inter-process communication contract stays compile-checked only. (Amended
+  2026-08-07: `Command` is now a schema too, because the console door
+  `window.lmux.command` takes input from outside the compiled code. See the
+  next entry.) It is imported by both sides, which for
   a long time meant importing it by a relative `node_modules` path: the
   browser resolves every import itself, and a bare `"zod"` meant nothing to
   it. (Amended 2026-08-15: the page is built by Vite, which resolves the
@@ -719,7 +714,7 @@ change it and update this list.
   browsable in place, while anything carrying a scheme is left to main and
   every other relative path is ignored rather than followed.
 - **Terminal URLs open through the existing window-open interception, not a
-  new IPC channel.** (Decided 2026-08-11.) Cmd+clicking a URL link calls
+  new inter-process communication channel.** (Decided 2026-08-11.) Cmd+clicking a URL link calls
   `window.open(url)`; main's `setWindowOpenHandler` already denies the
   popup and hands the URL to `openExternally`, so the protocol allowlist
   keeps living in the one place it always has.
@@ -796,7 +791,7 @@ change it and update this list.
   ids stay unique across workspaces, so main's `Map<id, pty>`, `readFile`
   and the OSC title path needed no change at all; this shipped as a pure bus
   change (`new-workspace`, `close-workspace`, `activate-workspace`,
-  `rename-workspace`, four matching Events) plus one new IPC pair for the
+  `rename-workspace`, four matching Events) plus one new inter-process communication pair for the
   workspace context menu, which is the tab-menu pattern repeated.
   `LmuxState` grew a level to match the model: `{workspaces,
   activeWorkspaceId}`, each workspace carrying the tabs/layout/activeId
@@ -839,7 +834,6 @@ change it and update this list.
   | `/bin/zsh` fallback, spawned `-l` | shell spawning | `$SHELL` is usually right; Windows needs a different shell entirely |
   | `Menlo` as the default terminal font | the theme defaults | a font that exists there |
   | `role: "appMenu"` | the app menu | macOS puts the app menu first; other platforms do not have one |
-  | A unix socket for the API, and `nc -U` as the documented client | the API socket, and the README | Windows has no unix sockets in the same sense; a named pipe, and a different client |
   | `/` used to derive file labels and workspace-relative headers | the project panel's labels | path-aware values supplied by main instead of slicing renderer paths |
   | ⌘/⇧⌘/⌃ typed into tooltips and menu labels | Command descriptions, tab and workspace chrome, the page | labels computed per platform (the accelerators themselves already use `CmdOrCtrl`) |
 
@@ -891,7 +885,7 @@ change it and update this list.
   the Open VSX registry rather than Microsoft's marketplace (whose license
   covers only official VS Code builds).
 
-- **`Command` is a schema, and the doors check it.** (Decided 2026-08-07,
+- **`Command` is a schema, and the console door checks it.** (Decided 2026-08-07,
   amending the zod entry above.) The Commands are declared as a
   zod `discriminatedUnion` and their TypeScript type is derived from it with
   `z.infer`, so there is still exactly one definition and it cannot drift
@@ -919,158 +913,6 @@ change it and update this list.
   now loaded by both the page (which cannot resolve a bare specifier) and
   main.
 
-- **The API socket: lmux speaks MCP itself.** (Designed and built
-  2026-08-07, replacing the HTTP design written the same day, which is kept
-  below as the road not taken.) The endgame named at the top of this
-  document, now shipped: main listens on `api.sock` in `userData` and feeds the
-  same bus the menu does. Six decisions:
-
-  1. **A unix domain socket, not a TCP port.** A loopback port is reachable
-     by every process on the machine and by any page that can be tricked
-     into fetching it; a socket file is reachable by whoever the filesystem
-     says.
-  2. **Authentication is the socket's file permissions (0600).** No token,
-     because a token stored on the same disk, readable by the same user,
-     protects against nothing the permissions do not already cover. macOS
-     already keeps the containing directory at 0700, which is the fence that
-     actually holds; the `chmod` after `listen` is what makes the socket
-     itself say so, since `listen` creates it at 0755 under a normal umask.
-     The honest statement of the exposure: any process running as you can
-     drive lmux, which is the same power your shell already gives it.
-  3. **MCP on the socket directly, rather than HTTP with a translator.**
-     This is the decision that replaced the original. MCP is JSON-RPC over a
-     stream and a socket is a stream, so `nc -U` is a complete client, and
-     the adapter process the HTTP design implied is not merely small but
-     unnecessary. It was chosen on evidence rather than taste: Claude Code's
-     MCP client takes an arbitrary stdio command, and it connects, lists and
-     calls through `nc` with nothing in between. The price is real and worth
-     naming. `curl --unix-socket`, which is what decision 1 originally
-     bought, no longer applies, and lmux's wire format is now a protocol
-     somebody else versions. Both are smaller than a process: one line of
-     JSON through `nc` probes the socket just as well, and the server has no
-     version-specific behaviour, so it echoes back whatever
-     `protocolVersion` the client asked for and has no dated string to rot.
-  4. **One `command` tool carrying the whole union, not one tool per
-     Command.** Its input schema is `z.toJSONSchema` of `commandSchema`, so
-     the agent's capabilities are generated from the same definition the
-     compiler checks our own code against: a new Command reaches the agent
-     with nothing in the socket server to update, and the one-door rule holds by
-     construction rather than by discipline. Twenty flat tools would also
-     avoid drift, but they would sit in the agent's context forever, and the
-     generated `oneOf` was verified against the real client, which produced
-     correct Commands from it first try.
-  5. **The whole Command union, including `write`.** Not a safe subset: a
-     server exposing part of the bus would rot within a release, which is
-     exactly the drift the one-door rule exists to prevent. This does mean
-     the API can run arbitrary programs, because `write` types into a shell.
-     That is the feature.
-  6. **Two reads, and no event stream.** `state` answers from the snapshot
-     main already keeps, so a client can start cold. `screen` is what a tab
-     shows (see its own entry below). `GET /events` was dropped rather than
-     ported: a tool call is request/response, so there is nowhere for an
-     unsolicited Event to land, and since every Event carries a full
-     snapshot, a `command`'s own answer already tells a caller what changed.
-     A stream is only worth building when a client wants to be woken by
-     something it did not cause, and nothing does yet.
-
-  **`file:read` is still not exposed**, and `screen` is shaped to keep it
-  that way: a markdown tab answers with its path and mode, never the file's
-  text, so `open-markdown` plus a read cannot be assembled back into it. An
-  agent that can drive a shell can already `cat` a file, so exposing it adds
-  nothing it lacks while adding a way to read with no shell running and
-  nothing on screen.
-
-  Three hazards this ships with, named rather than fixed. An agent closing
-  the last tab quits the app under its own connection, and Claude Code does
-  not reconnect a dead stdio server. If a tab it closes has something
-  running, main's own `confirmKilling` opens a native modal that no agent
-  can answer, and the tool call blocks until a human clicks it. And two
-  lmux instances share one socket path, so the last one to start owns it.
-
-- **A Command over the API is answered by waiting for lmux to go quiet.**
-  (Decided 2026-08-07.) A caller that opens a tab needs its id back, but the
-  bus has no replies: a Command produces however many Events its work
-  produced, which may be none, so there is no particular Event to wait for.
-  Worse, some of the work outlives `executeCommand` entirely. `open-markdown`
-  reads a document from disk, and `close-tab` only kills a shell, with
-  `tab-closed` arriving later from `onShellExit`. So an acknowledgement sent
-  when `executeCommand` returned would be a lie for exactly the commands
-  whose answer matters most, and it would have cost a change to the IPC
-  protocol to say it.
-  `runCommand` instead dispatches and then waits for 50ms with
-  no Event, capped at 500ms, and answers with the read model that left
-  behind. A no-op Command returns the unchanged state, which is the correct
-  answer for a no-op. The cap is there because a human clicking around
-  during a Command emits Events too, and would otherwise hold the answer
-  open. The honest cost: every call to the API pays 50ms, and a command
-  slower than the cap answers with a state that does not yet contain its
-  work. Measured on this machine, `open-markdown` and `close-tab` both land
-  inside the quiet window, shell death included.
-
-- **`dispatch` targets a window, not the focused one.** (Fixed 2026-08-07,
-  with the API socket.) It used to send to `getFocusedWindow()`, which is
-  `null` whenever the human is in another app, and every Command was
-  silently dropped while the caller was told nothing. That is not an edge
-  case for an agent, it is the normal case: nobody is looking at lmux while
-  it works. The test harness had already hit this and worked around it by
-  bypassing `dispatch` altogether, which is the kind of workaround that
-  should have been read as a bug report. It now takes the focused window if
-  there is one and the first window otherwise.
-
-- **The road not taken: HTTP over the socket.** (Designed 2026-08-07,
-  replaced the same day by the entry above, kept because the reasoning is
-  still what justifies the socket.) The original plan was `POST /command`,
-  `GET /state`, `GET /events` and `GET /tabs/:id/output` over plain HTTP, on
-  the same socket, with a separate MCP server process translating tool calls
-  into requests. HTTP was chosen so any client could speak it, and that
-  argument is what fell: Claude Code's MCP client cannot point an HTTP
-  transport at a socket file, so HTTP was precisely what forced the second
-  process to exist. `GET /tabs/:id/output` also promised more than it could
-  give. Teeing the PTY bytes main already relays is honest for a stream and
-  useless for a tool call, which has nothing to tee from, and raw bytes are
-  escape sequences that only a terminal emulator can read: main would have
-  needed a ring buffer plus a worse copy of the emulator the renderer
-  already runs. Reading xterm's grid replaced it.
-
-- **What an agent sees is xterm's grid, and it is a query, not a Command.**
-  (Decided and built 2026-08-07.) `write` takes a tab id, so the bus can
-  already act on tabs the caller is not sitting in, and without a read that
-  is a write-only API pointed at a void. The reason to drive a multiplexer
-  at all is the other panes: start a dev server in a split, then find out
-  whether it compiled.
-  The read comes out of xterm's own buffer (`buffer.active`, one
-  `translateToString` per row) rather than off the wire, because the
-  escape sequences are already interpreted there, into exactly the
-  characters the human is looking at. It needs no addon, it works for a tab
-  in a hidden workspace, and for a full-screen program it returns the
-  painted screen rather than a pile of cursor movements. It reads up from
-  the bottom of the buffer, not the viewport, so the answer is the newest
-  output wherever the human has scrolled to, and `rows` reaches back into
-  scrollback from there. Wrapped rows rejoin, because a path broken at
-  column 80 is text that was never printed.
-  It is a query and not a Command for two reasons. There is no UI
-  affordance that reads a pane, since a person reads by looking, so making
-  it a Command would break the rule that every Command is something a
-  person can do. And a Command is answered with a state snapshot broadcast
-  to every observer, which is the wrong shape for one caller asking about
-  one tab: state is small and changes rarely, so it is pushed; a screen is
-  kilobytes and changes on every byte, so it is pulled. Same reasoning as
-  "restore is not a Command".
-  This is the first question main asks the page. Electron has no
-  `webContents.invoke`, so `screen:read` carries an id and `screen:answer`
-  carries it back, with a pending map on main's side and a two second timeout
-  that throws rather than answering, because a page that has gone silent is
-  a broken app and not a missing tab. `executeJavaScript` would have been a
-  native round trip and was rejected: the harness uses it because nothing
-  typed can express a DOM read across processes, and here everything typed
-  can, so the shipping path should not be a string.
-  One consequence worth knowing before it bites: a shell takes about a
-  second to start, and a `write` sent before then waits in the terminal and
-  runs when it is ready. An agent that reads too early sees the typed text
-  with no output and concludes the write was lost. Re-sending it runs the
-  command twice, which is harmless for `echo` and not for `git push`, so
-  the tool's own description says to read again rather than write again.
-
 - **A session is what can honestly be rebuilt, not the state.** (Decided
   2026-08-07, the second half of the window-geometry entry above.) Quitting
   used to lose every workspace, tab and document. Main now writes
@@ -1091,7 +933,7 @@ change it and update this list.
   whether its name is pinned or follows its active tab.
   Restore is not a Command. It is the boot path deciding what to open, it
   needs the tab records as it makes them rather than a snapshot afterwards,
-  and the bus stays a description of what a user or an agent does.
+  and the bus stays a description of what a user does.
   Three things this deliberately does not do, each of which is a separate
   piece of work if it ever matters: splits are not rebuilt (a workspace comes
   back as one group holding its tabs, measured, rather than crashing), a
@@ -1104,8 +946,8 @@ change it and update this list.
   `npm test` starts Electron with the test entry, which imports the ordinary boot: the same window, preload, menu and
   shells `npm start` produces, with no mock anywhere. A case is then
   "send these Commands, assert on the state that comes back", using the
-  snapshot main already keeps as its read model, which is the same thing the
-  future server will answer from. Three facts are read out of the page instead:
+  snapshot main already keeps as its read model. Three facts are read out of
+  the page instead:
   a terminal's fitted rows, a document's scroll position and file-tree clicks.
   Those go through `executeJavaScript`, the one place the project accepts an
   unverified code string, because nothing typed can express a DOM read across
@@ -1158,15 +1000,13 @@ A quick map so features land on the right side of the cable:
 - **Main-only** (no protocol change): default working directory, shell
   choice, window size persistence.
 - **New capabilities** now usually mean new Commands and Events;
-  the bus is the protocol growing point. A new Command needs nothing at all
-  from the API socket: the agent's tool schema is generated from
-  `commandSchema`, so it grows on its own.
+  the bus is the protocol growing point.
 - **Protocol changes** (the expensive kind, design first): config file (a
   `config:get` message or similar), shell integration/OSC hooks (new main →
   renderer events), VS Code view (a message telling the renderer what port
   openvscode-server landed on). Splits proved the tier system: they
   shipped as a bus change (`split-tab`, `LmuxState.layout`) with zero
-  IPC change, because each split's terminal reuses the per-tab shell
+  inter-process communication change, because each split's terminal reuses the per-tab shell
   machinery unchanged. Workspaces proved it again at a larger size: a whole
   second lmux inside the window cost four Commands and no shell-protocol
   change, because tab ids were already the only thing main knew about.

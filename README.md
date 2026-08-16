@@ -1,8 +1,8 @@
 # lmux
 
 A terminal emulator for macOS, built with [Electron](https://www.electronjs.org/)
-and [xterm.js](https://xtermjs.org/), with a public command API an agent can
-drive. The project's vocabulary is defined in [GLOSSARY.md](GLOSSARY.md).
+and [xterm.js](https://xtermjs.org/), with a public command API. The project's
+vocabulary is defined in [GLOSSARY.md](GLOSSARY.md).
 
 ## Run it
 
@@ -36,7 +36,7 @@ app also ships Electron's default icon until one is drawn.
 ## How it works
 
 The app is two processes. Each tab pairs one xterm.js instance (renderer)
-with one shell in a PTY (main); every IPC message carries the tab's id so
+with one shell in a PTY (main); every inter-process communication message carries the tab's id so
 the two sides stay paired:
 
 ```mermaid
@@ -114,34 +114,3 @@ That door checks what it is handed: a Command that isn't one is refused
 with a reason, rather than quietly doing nothing. The affordances inside
 the page are compile-checked instead, and skip it.
 
-## Letting an agent drive it
-
-The same bus is on a unix domain socket, speaking [MCP](GLOSSARY.md), so an
-LLM agent drives lmux through exactly the door the menu uses. MCP is
-JSON-RPC over a stream, and a socket is a stream, so `nc` is the whole
-client and there is no server to install:
-
-```sh
-claude mcp add --transport stdio lmux -- nc -U "$LMUX_SOCKET"
-```
-
-Run that from a terminal inside lmux, where `$LMUX_SOCKET` is set, so the
-shell expands it to the real path. It is set in every shell lmux spawns,
-alongside `$LMUX_TAB_ID`, which is that tab's own id. Three tools:
-`command` takes any Command and answers with the state it produced, `state`
-is the whole read model, and `screen` is what a tab is showing, with the
-escape sequences already interpreted into the characters a human sees.
-
-Nothing about the socket is MCP-specific. One line of JSON drives it too,
-which is the quickest way to see whether it is alive (one line, because
-that is the framing):
-
-```sh
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"command","arguments":{"command":{"type":"new-tab"}}}}' | nc -U "$LMUX_SOCKET"
-```
-
-The socket is `api.sock` in lmux's application-support directory, at 0600
-inside a 0700 directory: anyone who can reach it is already you. It carries
-the whole Command union, `write` included, so an agent holding it can run
-programs. That is the feature, and it is the reason it is not a network
-port.

@@ -7,11 +7,11 @@ import {
   projectTreeChangeMessageSchema,
   readProjectTreeGitDecorationsResultSchema,
   watchProjectTreeResultSchema,
-} from "../ipc/bridge.ts";
+} from "../inter-process-communication/bridge.ts";
 import type {
   ReadProjectTreeGitDecorationsResult,
   WatchProjectTreeResult,
-} from "../ipc/bridge.ts";
+} from "../inter-process-communication/bridge.ts";
 import {
   refreshProjectTreePaths,
   setProjectTreeGitDecorations,

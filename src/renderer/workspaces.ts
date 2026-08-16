@@ -40,7 +40,7 @@ export let activeWorkspace: Workspace | undefined;
 let nextWorkspaceId = 1;
 
 // Tabs and project panels share one counter, so a panel can be named by a
-// command the same way a tab is (see readScreen).
+// command the same way a tab is.
 let nextId = 0;
 
 export function nextTabId(): number {

@@ -4,7 +4,6 @@ import { applyCssVariables } from "./settings.ts";
 import {
   executeCommand,
   handleShellData,
-  readScreen,
   removeTab,
   restoreSession,
 } from "./tabs/index.ts";
@@ -21,12 +20,6 @@ drawChrome();
 
 bridge.onCommand(executeCommand);
 bridge.onShellData(handleShellData);
-bridge.onScreenRead(({ readId, request }) => {
-  bridge.answerScreenRead({
-    readId,
-    result: readScreen(request),
-  });
-});
 bridge.onShellExit(removeTab);
 bridge.onRenameRequest((id) => {
   openRenameDialog({

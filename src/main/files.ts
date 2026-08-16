@@ -3,7 +3,7 @@ import { readFile, realpath, stat } from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { getShellCwd } from "./shells.ts";
-import type { ReadFileRequest, ReadFileResult } from "../ipc/bridge.ts";
+import type { ReadFileRequest, ReadFileResult } from "../inter-process-communication/bridge.ts";
 
 const MAX_FILE_BYTES = 5_000_000; // rendering a huge file would freeze the page
 

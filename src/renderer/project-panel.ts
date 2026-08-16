@@ -15,7 +15,7 @@ import type { Monaco } from "./monaco.ts";
 import type {
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
-} from "../ipc/bridge.ts";
+} from "../inter-process-communication/bridge.ts";
 import { createProjectTree, focusProjectTree } from "./project-tree.tsx";
 import type { ProjectTree } from "./project-tree.tsx";
 import { drawProjectPanel } from "./project-panel-view.tsx";

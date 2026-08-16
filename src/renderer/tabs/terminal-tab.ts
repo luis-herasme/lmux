@@ -10,7 +10,6 @@ import {
 } from "../workspaces.ts";
 import type { TabRow } from "../tab-strip.tsx";
 import type { Workspace } from "../workspaces.ts";
-import type { ScreenResult } from "../../api.ts";
 import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -37,13 +36,6 @@ type RefreshTerminalTabSettingsOptions = {
   tab: TerminalTab;
   fit: boolean;
 };
-
-type ReadTerminalScreenOptions = {
-  tab: TerminalTab;
-  rows: number | undefined;
-};
-
-type TerminalScreenResult = Extract<ScreenResult, { kind: "terminal" }>;
 
 function copyOnCommandC(event: KeyboardEvent): boolean {
   if (!activeWorkspace) {
@@ -197,49 +189,4 @@ export function refreshTerminalTabSettings({
     return;
   }
   tab.fitAddon.fit();
-}
-
-export function readTerminalScreen({
-  tab,
-  rows,
-}: ReadTerminalScreenOptions): TerminalScreenResult {
-  const buffer = tab.terminal.buffer.active;
-  let rowCount = tab.terminal.rows;
-  if (rows !== undefined) {
-    rowCount = rows;
-  }
-
-  // Read from the bottom of the buffer, not the visible viewport.
-  let top = buffer.length - rowCount;
-  if (top < 0) {
-    top = 0;
-  }
-
-  const lines: string[] = [];
-  for (let row = top; row < buffer.length; row++) {
-    const line = buffer.getLine(row);
-    if (line === undefined) {
-      continue;
-    }
-    const next = buffer.getLine(row + 1);
-    let continues = false;
-    if (next !== undefined && next.isWrapped) {
-      continues = true;
-    }
-    const text = line.translateToString(!continues);
-    const previous = lines.at(-1);
-    if (line.isWrapped && previous !== undefined) {
-      lines[lines.length - 1] = previous + text;
-      continue;
-    }
-    lines.push(text);
-  }
-  while (lines.at(-1) === "") {
-    lines.pop();
-  }
-  return {
-    kind: "terminal",
-    lines,
-    alternate: buffer.type === "alternate",
-  };
 }

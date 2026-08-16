@@ -14,7 +14,7 @@ import type {
   ProjectTreeEntry,
   ProjectTreeGitDecoration,
   ReadProjectTreeResult,
-} from "../ipc/bridge.ts";
+} from "../inter-process-communication/bridge.ts";
 
 type OpenTreeFile = (filePath: string) => void;
 

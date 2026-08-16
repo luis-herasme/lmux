@@ -22,15 +22,14 @@ import {
   waitForEvent,
 } from "./harness.ts";
 import { lmuxState } from "../main/bus.ts";
+import { getShellCwd } from "../main/shells.ts";
 import { sessionFromState } from "../session.ts";
-import { readProjectTreeGitDecorationsResultSchema } from "../ipc/bridge.ts";
+import { readProjectTreeGitDecorationsResultSchema } from "../inter-process-communication/bridge.ts";
 import {
   SOURCE_FILE_PATH,
-  callTool,
   countTabs,
   findProjectInfo,
   openWorkspace,
-  screenSchema,
 } from "./shared.ts";
 
 // every model the page still holds, to catch a replaced file leaking its own
@@ -544,33 +543,15 @@ export const projectTree = describe("the project tree", () => {
         const terminalId = terminalTab.id;
         const quotedNestedPath =
           "'" + nestedPath.replaceAll("'", "'\"'\"'") + "'";
-        const PROJECT_READY = "LMUX_TREE_PROJECT_READY";
         sendCommand({
           type: "write",
           id: terminalId,
-          text: `cd ${quotedNestedPath} && printf 'LMUX_TREE_PROJECT_%s\\n' READY\n`,
+          text: `cd ${quotedNestedPath}\n`,
         });
+        const nestedDirectoryPath = realpathSync(nestedPath);
         await pollUntil({
-          check: async () => {
-            const terminalScreen = screenSchema.parse(
-              await callTool({
-                name: "screen",
-                toolArguments: { tabId: terminalId },
-              }),
-            );
-            if (
-              terminalScreen.kind !== "terminal" ||
-              terminalScreen.lines === undefined
-            ) {
-              return false;
-            }
-            for (const line of terminalScreen.lines) {
-              if (line.includes(PROJECT_READY)) {
-                return true;
-              }
-            }
-            return false;
-          },
+          check: async () =>
+            (await getShellCwd(terminalId)) === nestedDirectoryPath,
           description: "the test shell to enter the nested workspace directory",
         });
 
@@ -599,16 +580,6 @@ export const projectTree = describe("the project tree", () => {
           visible: true,
           filePath: null,
         });
-
-        const projectScreen = screenSchema.parse(
-          await callTool({
-            name: "screen",
-            toolArguments: { tabId: opened.id },
-          }),
-        );
-        assert.equal(projectScreen.kind, "project");
-        assert.equal(projectScreen.workspaceRootPath, canonicalRootPath);
-        assert.equal(projectScreen.path, null);
 
         assert.equal(await visibleTreeItemExists("nested/nested.ts"), false);
         assert.equal(await expandVisibleTreeDirectory("nested"), true);

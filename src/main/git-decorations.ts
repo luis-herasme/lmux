@@ -2,7 +2,7 @@
 // string parsing: no process, no filesystem, no Electron. The git process
 // itself, and the directory reads, stay in project-tree.ts, which calls these.
 import * as path from "path";
-import type { GitDecorationStatus } from "../ipc/bridge.ts";
+import type { GitDecorationStatus } from "../inter-process-communication/bridge.ts";
 
 const CONFLICTING_GIT_STATUS_PAIRS = new Set([
   "DD",

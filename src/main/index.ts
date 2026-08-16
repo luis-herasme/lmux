@@ -11,7 +11,6 @@ import { lmuxState } from "./bus.ts";
 import { installAppMenu } from "./menus.ts";
 import "./files.js"; // registers file reads
 import "./project-tree.js"; // registers project-tree:read
-import "./mcp.js"; // listens on the API socket
 
 // Everything else (file:, and any scheme an OS handler would claim) is
 // dropped rather than handed to the OS.
@@ -35,7 +34,7 @@ function createWindow(): void {
     backgroundColor: THEMES[DEFAULT_SETTINGS.theme].background,
     titleBarStyle: "hiddenInset",
     webPreferences: {
-      preload: path.join(import.meta.dirname, "../ipc/preload.cjs"),
+      preload: path.join(import.meta.dirname, "../inter-process-communication/preload.cjs"),
     },
   };
   const saved = savedWindowBounds();

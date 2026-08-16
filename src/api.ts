@@ -135,37 +135,6 @@ export const commandSchema = z.discriminatedUnion("type", [
 
 export type Command = z.infer<typeof commandSchema>;
 
-// The one question beside the bus. State is pushed with every Event because
-// it is small and changes rarely; a screen changes on every byte and is
-// kilobytes, so it is pulled, by whoever wants it, when they want it.
-// Inbound like a Command, so it is checked like one.
-export const screenRequestSchema = z.object({
-  tabId: z.number(),
-  // counted up from the bottom of the buffer, so the newest output is what
-  // a caller gets without asking for anything
-  rows: z.number().int().positive().max(1000).optional(),
-});
-
-export type ScreenRequest = z.infer<typeof screenRequestSchema>;
-
-export type ScreenResult =
-  // `alternate` means a full-screen program owns the tab (vim, htop): there
-  // is no scrollback behind what it painted, and a `write` reaches that
-  // program rather than a shell.
-  | { kind: "terminal"; lines: string[]; alternate: boolean }
-  // A document has no screen. Its text is the file's, and an agent that can
-  // drive a shell can already read files; saying which file it shows is the
-  // part lmux knows and the caller doesn't.
-  | { kind: "markdown"; path: string; mode: MarkdownMode }
-  // The project panel combines a workspace tree and the one file it shows.
-  | {
-      kind: "project";
-      workspaceRootPath: string;
-      path: string | null;
-      language: string | null;
-    }
-  | { kind: "no-such-tab" };
-
 // Every event carries the full state it produced.
 export type LmuxEvent =
   | { type: "tab-opened"; id: number; state: LmuxState }

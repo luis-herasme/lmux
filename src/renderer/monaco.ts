@@ -47,7 +47,7 @@ async function importMonaco(): Promise<Monaco> {
   };
   Reflect.set(self, "MonacoEnvironment", environment);
   const monaco: Monaco = await import("monaco-editor");
-  // the console door: an agent (or a driver) can reach the editors through
+  // the console door: a caller in devtools can reach the editors through
   // Monaco's own registry, the way window.lmux is the command door
   Reflect.set(self, "monaco", monaco);
   defineTheme(monaco);

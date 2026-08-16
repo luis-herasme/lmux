@@ -6,14 +6,13 @@ import { executeTabCommand } from "./tab-commands.ts";
 import {
   ensureProjectPanel,
   executeProjectCommand,
-  resolveProject,
 } from "./project-commands.ts";
 import { executeWorkspaceCommand } from "./workspace-commands.ts";
 import { applySettings } from "./settings-command.ts";
 import { openProjectFile } from "../project-panel.ts";
 import { openMarkdownTab } from "./markdown-tab.tsx";
 import type { MarkdownTab } from "./markdown-tab.tsx";
-import { openTerminalTab, readTerminalScreen } from "./terminal-tab.ts";
+import { openTerminalTab } from "./terminal-tab.ts";
 import type { TerminalTab } from "./terminal-tab.ts";
 import { snapshot } from "../snapshot.ts";
 import {
@@ -25,9 +24,9 @@ import {
   setWorkspaceName,
 } from "../workspaces.ts";
 import type { Workspace } from "../workspaces.ts";
-import type { Command, ScreenRequest, ScreenResult } from "../../api.ts";
+import type { Command } from "../../api.ts";
 import type { Session } from "../../session.ts";
-import type { ShellDataMessage } from "../../ipc/bridge.ts";
+import type { ShellDataMessage } from "../../inter-process-communication/bridge.ts";
 
 export type Tab = TerminalTab | MarkdownTab;
 
@@ -70,50 +69,6 @@ export function executeCommand(command: Command): void {
 
 export function getTabTitle(id: number): string | undefined {
   return findTab(id)?.tab.title;
-}
-
-// What a tab shows, read out of xterm's own grid rather than off the wire:
-// the escape sequences are already interpreted here, into exactly the
-// characters the human is looking at. Not a Command, because there is no
-// button that reads a pane (a person reads by looking), and because a
-// Command is answered with a state snapshot broadcast to every observer,
-// which is the wrong shape for one caller asking about one tab.
-export function readScreen(request: ScreenRequest): ScreenResult {
-  // a panel's id shares the counter the tabs draw from, so it is asked for
-  // the same way a tab is
-  const panel = resolveProject(request.tabId);
-  if (panel !== undefined) {
-    let path: string | null = null;
-    let language: string | null = null;
-    const file = panel.file;
-    if (file !== undefined) {
-      path = file.filePath;
-      if (file.model !== undefined) {
-        language = file.model.getLanguageId();
-      }
-    }
-    return {
-      kind: "project",
-      workspaceRootPath: panel.workspaceRootPath,
-      path,
-      language,
-    };
-  }
-  const found = findTab(request.tabId);
-  if (found === undefined) {
-    return { kind: "no-such-tab" };
-  }
-  if (found.tab.kind === "markdown") {
-    return {
-      kind: "markdown",
-      path: found.tab.filePath,
-      mode: found.tab.mode,
-    };
-  }
-  return readTerminalScreen({
-    tab: found.tab,
-    rows: request.rows,
-  });
 }
 
 // Rebuilding what the last run left behind. Not a Command: it is the boot

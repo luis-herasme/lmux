@@ -7,7 +7,7 @@
 // with `declare global`) makes a name that appears from nowhere. Everything
 // unchecked about the page is therefore these three lines, and a preload
 // that did not run says so here instead of at whichever call happened first.
-import type { Bridge } from "../ipc/bridge.ts";
+import type { Bridge } from "../inter-process-communication/bridge.ts";
 
 const installed = Reflect.get(window, "bridge");
 if (!installed) {

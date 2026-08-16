@@ -16,7 +16,7 @@ import {
   readProjectTreeGitDecorationsRequestSchema,
   unwatchProjectTreeRequestSchema,
   watchProjectTreeRequestSchema,
-} from "../ipc/bridge.ts";
+} from "../inter-process-communication/bridge.ts";
 import type {
   ProjectTreeEntry,
   ProjectTreeGitDecoration,
@@ -25,7 +25,7 @@ import type {
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
   WatchProjectTreeResult,
-} from "../ipc/bridge.ts";
+} from "../inter-process-communication/bridge.ts";
 
 const MAX_DIRECTORY_ENTRY_COUNT = 10_000;
 const GIT_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;

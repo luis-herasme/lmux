@@ -17,7 +17,7 @@ import { addPanel, nextTabId } from "../workspaces.ts";
 import type { TabRow } from "../tab-strip.tsx";
 import type { Workspace } from "../workspaces.ts";
 import type { MarkdownMode } from "../../api.ts";
-import type { ReadFileResult } from "../../ipc/bridge.ts";
+import type { ReadFileResult } from "../../inter-process-communication/bridge.ts";
 import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
 
 export type MarkdownTab = {

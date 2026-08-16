@@ -1,12 +1,7 @@
 // tsc refuses if preload.cts and the renderer disagree about this
 // shape. The shell protocol carries bytes/sizes/tab ids; the command
 // bus is the one structured channel.
-import type {
-  Command,
-  LmuxEvent,
-  ScreenRequest,
-  ScreenResult,
-} from "../api.ts";
+import type { Command, LmuxEvent } from "../api.ts";
 import type { Session } from "../session.ts";
 import { z } from "zod";
 
@@ -125,18 +120,6 @@ export type ProjectTreeChangeMessage = z.infer<
   typeof projectTreeChangeMessageSchema
 >;
 
-// Electron has no invoke in this direction, so main asks with an id and the
-// page answers with it: the only question main ever puts to the page.
-export type ScreenReadMessage = {
-  readId: number;
-  request: ScreenRequest;
-};
-
-export type ScreenAnswerMessage = {
-  readId: number;
-  result: ScreenResult;
-};
-
 export type Bridge = {
   spawnShell: (size: ShellSizeMessage) => void;
   writeToShell: (message: ShellDataMessage) => void;
@@ -146,8 +129,6 @@ export type Bridge = {
   onShellExit: (callback: (id: number) => void) => void;
   onCommand: (callback: (command: Command) => void) => void;
   emitEvent: (event: LmuxEvent) => void;
-  onScreenRead: (callback: (message: ScreenReadMessage) => void) => void;
-  answerScreenRead: (message: ScreenAnswerMessage) => void;
   showTabMenu: (id: number) => void;
   onRenameRequest: (callback: (id: number) => void) => void;
   showWorkspaceMenu: (id: number) => void;

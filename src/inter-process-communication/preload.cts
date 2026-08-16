@@ -1,7 +1,7 @@
 // Runs with access to both worlds and exposes exactly these capabilities
 // to the sandboxed page as window.bridge; nothing else crosses the
 // boundary. The Bridge type keeps this and the renderer in sync.
-import type { Bridge, ScreenReadMessage, ShellDataMessage } from "./bridge.ts";
+import type { Bridge, ShellDataMessage } from "./bridge.ts";
 import { contextBridge, ipcRenderer } from "electron";
 
 const bridge: Bridge = {
@@ -18,11 +18,6 @@ const bridge: Bridge = {
   onCommand: (callback) =>
     ipcRenderer.on("command", (_event, command) => callback(command)),
   emitEvent: (event) => ipcRenderer.send("event", event),
-  onScreenRead: (callback) =>
-    ipcRenderer.on("screen:read", (_event, message: ScreenReadMessage) =>
-      callback(message),
-    ),
-  answerScreenRead: (message) => ipcRenderer.send("screen:answer", message),
   showTabMenu: (id) => ipcRenderer.send("tab:menu", id),
   onRenameRequest: (callback) =>
     ipcRenderer.on("tab:rename-request", (_event, id) => callback(id)),

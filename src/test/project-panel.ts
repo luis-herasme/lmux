@@ -14,12 +14,10 @@ import { lmuxState } from "../main/bus.ts";
 import {
   FIXTURE_PATH,
   SOURCE_FILE_PATH,
-  callTool,
   countTabs,
   findProjectInfo,
   findWorkspace,
   openWorkspace,
-  screenSchema,
 } from "./shared.ts";
 
 const VISIBLE_CODE_TOKEN_CLASSES = `(() => {
@@ -173,17 +171,6 @@ export const projectPanel = describe("the project panel", () => {
         description: "the TypeScript grammar to colour the tokens",
       });
 
-      const screen = screenSchema.parse(
-        await callTool({
-          name: "screen",
-          toolArguments: {
-            tabId: opened.id,
-          },
-        }),
-      );
-      assert.equal(screen.kind, "project");
-      assert.equal(screen.path, SOURCE_FILE_PATH);
-      assert.equal(screen.language, "typescript");
     },
   });
 

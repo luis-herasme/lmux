@@ -1,9 +1,7 @@
 // Only what more than one area file needs; the rest lives with its one area.
-import * as net from "net";
 import * as path from "path";
 import { realpathSync } from "fs";
-import { z } from "zod";
-import { API_SOCKET_PATH, sendCommand, waitForEvent } from "./harness.ts";
+import { sendCommand, waitForEvent } from "./harness.ts";
 import { lmuxState } from "../main/bus.ts";
 import type { LmuxState, ProjectInfo, WorkspaceInfo } from "../api.ts";
 
@@ -24,8 +22,7 @@ export const SOURCE_FILE_PATH = realpathSync(
   ),
 );
 
-// Structural, so it counts both a real state and the narrower one a case
-// parses back out of the socket.
+// Structural, so it counts a full state and any narrower view of one.
 type StateWithTabs = {
   workspaces: { tabs: unknown[] }[];
 };
@@ -85,76 +82,3 @@ export async function openWorkspace(): Promise<WorkspaceInfo> {
   }
   return workspace;
 }
-
-// The API is reached the way any client reaches it, over the socket, so
-// what a case exercises is the door rather than a function behind it. One
-// connection per call, which is also the shortest way to prove the server
-// answers a client that never said hello.
-function callSocket(message: unknown): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection(API_SOCKET_PATH);
-    let buffered = "";
-    socket.on("error", reject);
-    socket.on("data", (chunk) => {
-      buffered += chunk.toString();
-      const newline = buffered.indexOf("\n");
-      if (newline === -1) {
-        return;
-      }
-      socket.end();
-      resolve(JSON.parse(buffered.slice(0, newline)));
-    });
-    socket.write(JSON.stringify(message) + "\n");
-  });
-}
-
-const toolAnswerSchema = z.object({
-  result: z.object({
-    content: z.array(
-      z.object({
-        text: z.string(),
-      }),
-    ),
-    isError: z.boolean().optional(),
-  }),
-});
-
-type CallToolOptions = {
-  name: string;
-  toolArguments: Record<string, unknown>;
-};
-
-// Every tool answers with its own result as JSON, so a case gets back the
-// same type the API declares.
-export async function callTool({
-  name,
-  toolArguments,
-}: CallToolOptions): Promise<unknown> {
-  const answer = await callSocket({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "tools/call",
-    params: {
-      name,
-      arguments: toolArguments,
-    },
-  });
-  const parsed = toolAnswerSchema.parse(answer);
-  const first = parsed.result.content.at(0);
-  if (first === undefined) {
-    throw new Error(`the ${name} tool answered with no content`);
-  }
-  if (parsed.result.isError) {
-    throw new Error(`the ${name} tool refused: ${first.text}`);
-  }
-  return JSON.parse(first.text);
-}
-
-export const screenSchema = z.object({
-  kind: z.string(),
-  lines: z.array(z.string()).optional(),
-  alternate: z.boolean().optional(),
-  language: z.string().nullable().optional(),
-  path: z.string().nullable().optional(),
-  workspaceRootPath: z.string().optional(),
-});

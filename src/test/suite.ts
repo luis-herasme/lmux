@@ -15,7 +15,6 @@ import { projectPanel } from "./project-panel.ts";
 import { projectTree } from "./project-tree.ts";
 import { projectFiles } from "./project-files.ts";
 import { busRefusals } from "./refusals.ts";
-import { mcpSocket } from "./mcp-socket.ts";
 import { linkMatching } from "./terminal-links.ts";
 import { gitStatusParsing } from "./git-decorations.ts";
 
@@ -25,7 +24,6 @@ await projectPanel;
 await projectTree;
 await projectFiles;
 await busRefusals;
-await mcpSocket;
 await linkMatching;
 await gitStatusParsing;
 endRun();
