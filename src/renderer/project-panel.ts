@@ -417,9 +417,11 @@ export function focusProjectPanel(panel: ProjectPanel): void {
 // Only a closing workspace disposes its panel; hiding one keeps its file
 // open behind it.
 export function disposeProjectPanel(panel: ProjectPanel): void {
+  panel.latestFileRequest += 1;
   panel.latestTreeRequest += 1;
   panel.latestGitRequest += 1;
   stopProjectTreeWatcher(panel);
+  panel.projectTree = undefined;
   panel.file?.model?.dispose();
   panel.editor?.dispose();
   panel.root.unmount();

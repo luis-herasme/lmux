@@ -20,6 +20,9 @@ import { executeCommand } from "./tabs/index.ts";
 // elements this render leaves behind — Monaco's container, the document's
 // box — and to move the keyboard into one of them.
 export function drawProjectPanel(panel: ProjectPanel): void {
+  if (!panel.element.isConnected) {
+    return;
+  }
   flushSync(() => {
     panel.root.render(<ProjectPanelView panel={panel} />);
   });
