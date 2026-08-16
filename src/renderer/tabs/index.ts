@@ -6,9 +6,9 @@ import { executeTabCommand } from "./tab-commands.ts";
 import {
   ensureProjectPanel,
   executeProjectCommand,
-} from "./project-commands.ts";
-import { executeWorkspaceCommand } from "./workspace-commands.ts";
-import { applySettings } from "./settings-command.ts";
+} from "../project-commands.ts";
+import { executeWorkspaceCommand } from "../workspace-commands.ts";
+import { applySettings } from "../settings-command.ts";
 import { openProjectFile } from "../project-panel.ts";
 import { openMarkdownTab } from "./markdown-tab.tsx";
 import type { MarkdownTab } from "./markdown-tab.tsx";
