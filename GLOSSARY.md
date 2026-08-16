@@ -420,3 +420,22 @@ Where markup repeats the same combination too often to be worth reading,
 so utilities start from a blank page. lmux does not import it, because three
 libraries in the window (Dockview, xterm, Monaco) style their own DOM and a
 reset applies to every element on the page, theirs included.
+
+## Linter / Oxlint / anti-slop
+
+A *linter* reads source and reports patterns that compile fine but are poor
+practice. *Oxlint* is the linter lmux uses, from the Oxc project: it parses
+JavaScript and TypeScript itself rather than leaning on `tsc`, so it is fast
+and needs no ESLint configuration layer.
+
+*anti-slop* is a set of opinionated Oxlint rules that reject low-evidence
+TypeScript patterns: chained `as` assertions, `unknown` contracts, ad hoc
+`typeof` narrowing, and widening annotations that discard known types. It is
+*vendored*, not installed: its source is copied into `tools/oxlint/anti-slop`
+and maintained here, so its rules can be changed to match this repo's
+standards. `oxlint.config.ts` registers it and enables twelve of its fifteen
+rules; three are off because they contradict conventions this repo already
+holds in AGENTS.md: `no-reflect-get` (the page-global read in `bridge.ts` uses
+`Reflect.get` by design), and `no-unknown-parameters` and `no-unknown-returns`
+(data fetchers and IPC boundary callbacks use `unknown`, validated by the
+caller with Zod).

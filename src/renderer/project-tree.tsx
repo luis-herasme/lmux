@@ -92,10 +92,7 @@ type GitDecorationPresentation = {
   badge: string | undefined;
 };
 
-const GIT_DECORATION_PRESENTATIONS: Record<
-  GitDecorationStatus,
-  GitDecorationPresentation
-> = {
+const GIT_DECORATION_PRESENTATIONS = {
   added: { label: "Index Added", badge: "A" },
   conflicting: { label: "Conflict", badge: "!" },
   copied: { label: "Index Copied", badge: "C" },
@@ -110,7 +107,7 @@ const GIT_DECORATION_PRESENTATIONS: Record<
   submodule: { label: "Submodule", badge: "S" },
   "type-changed": { label: "Type Changed", badge: "T" },
   untracked: { label: "Untracked", badge: "U" },
-};
+} satisfies Record<GitDecorationStatus, GitDecorationPresentation>;
 
 // What a directory does not inherit from something below it: a deleted or
 // ignored child says nothing about the directory holding it.

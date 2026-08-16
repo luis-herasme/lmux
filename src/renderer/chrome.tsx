@@ -313,6 +313,7 @@ function SettingsDialog(): ReactNode {
       <SettingsField
         label="Font size"
         value={settings.fontSize}
+        numeric
         commit={(text) => save({ fontSize: Number(text) }).fontSize}
       />
       <h3 className="settings-section">Interface</h3>
@@ -330,6 +331,7 @@ function SettingsDialog(): ReactNode {
       <SettingsField
         label="Font size"
         value={settings.markdownFontSize}
+        numeric
         commit={(text) =>
           save({ markdownFontSize: Number(text) }).markdownFontSize
         }
@@ -351,7 +353,8 @@ function SettingsDialog(): ReactNode {
 
 type SettingsFieldProps = {
   label: string;
-  value: string | number; // a size field is one whose setting is a number
+  value: string | number; // string for families, number for sizes
+  numeric?: boolean; // size fields render a number input with min and max
   commit: (text: string) => string | number;
 };
 
@@ -361,19 +364,19 @@ type SettingsFieldProps = {
 function SettingsField({
   label,
   value,
+  numeric = false,
   commit,
 }: SettingsFieldProps): ReactNode {
   const [text, setText] = useState(String(value));
-  const size = typeof value === "number";
   return (
     <label className="settings-row">
       {label}
       <input
         className="field w-[140px] text-[12px]"
-        type={size ? "number" : "text"}
+        type={numeric ? "number" : "text"}
         spellCheck={false}
-        min={size ? MIN_FONT_SIZE_PX : undefined}
-        max={size ? MAX_FONT_SIZE_PX : undefined}
+        min={numeric ? MIN_FONT_SIZE_PX : undefined}
+        max={numeric ? MAX_FONT_SIZE_PX : undefined}
         value={text}
         onChange={(event) => {
           setText(event.target.value);
