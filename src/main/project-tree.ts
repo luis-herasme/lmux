@@ -531,12 +531,6 @@ async function resolveWorkspaceRoot(
   }
   try {
     const canonicalWorkspaceRootPath = await realpath(workspaceRootPath);
-    if (
-      request.workspaceRelativeDirectoryPath !== undefined &&
-      canonicalWorkspaceRootPath !== workspaceRootPath
-    ) {
-      return { error: "Workspace root changed on disk" };
-    }
     return { workspaceRootPath: canonicalWorkspaceRootPath };
   } catch (error) {
     return { error: String(error) };
