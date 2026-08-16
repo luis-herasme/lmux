@@ -10,7 +10,7 @@ import { confirmKilling } from "./dialogs.ts";
 import { lmuxState } from "./bus.ts";
 import { installAppMenu } from "./menus.ts";
 import "./files.js"; // registers file reads
-import "./project-tree.js"; // registers project-tree:read
+import "./file-tree.js"; // registers file-tree:read
 
 // Everything else (file:, and any scheme an OS handler would claim) is
 // dropped rather than handed to the OS.

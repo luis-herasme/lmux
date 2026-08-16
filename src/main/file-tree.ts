@@ -13,31 +13,31 @@ import {
 } from "./git-decorations.ts";
 import { getShellCwd } from "./shells.ts";
 import {
-  readProjectTreeGitDecorationsRequestSchema,
-  unwatchProjectTreeRequestSchema,
-  watchProjectTreeRequestSchema,
+  readFileTreeGitDecorationsRequestSchema,
+  unwatchFileTreeRequestSchema,
+  watchFileTreeRequestSchema,
 } from "../inter-process-communication/bridge.ts";
 import type {
-  ProjectTreeEntry,
-  ProjectTreeGitDecoration,
-  ProjectTreeChangeMessage,
-  ReadProjectTreeGitDecorationsResult,
-  ReadProjectTreeRequest,
-  ReadProjectTreeResult,
-  WatchProjectTreeResult,
+  FileTreeEntry,
+  FileTreeGitDecoration,
+  FileTreeChangeMessage,
+  ReadFileTreeGitDecorationsResult,
+  ReadFileTreeRequest,
+  ReadFileTreeResult,
+  WatchFileTreeResult,
 } from "../inter-process-communication/bridge.ts";
 
 const MAX_DIRECTORY_ENTRY_COUNT = 10_000;
 const GIT_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
-const PROJECT_TREE_WATCH_DEBOUNCE_MS = 200;
-const PROJECT_TREE_WATCH_PATH_LIMIT = 1_000;
+const FILE_TREE_WATCH_DEBOUNCE_MS = 200;
+const FILE_TREE_WATCH_PATH_LIMIT = 1_000;
 
 type RunGitOptions = {
   directoryPath: string;
   arguments: string[];
 };
 
-type ActiveProjectTreeWatcher = {
+type ActiveFileTreeWatcher = {
   watcherId: number;
   sender: WebContents;
   fileSystemWatchers: FSWatcher[];
@@ -47,13 +47,13 @@ type ActiveProjectTreeWatcher = {
   senderDestroyedListener: () => void;
 };
 
-type ScheduleProjectTreeChangeOptions = {
+type ScheduleFileTreeChangeOptions = {
   watcherId: number;
   changedPath: string | undefined;
 };
 
 type AddFileSystemWatcherOptions = {
-  activeWatcher: ActiveProjectTreeWatcher;
+  activeWatcher: ActiveFileTreeWatcher;
   watchedPath: string;
   workspaceRootPath: string;
   gitMetadata: boolean;
@@ -69,8 +69,8 @@ type PathIsInsideOptions = {
   candidatePath: string;
 };
 
-const activeProjectTreeWatchers = new Map<number, ActiveProjectTreeWatcher>();
-let nextProjectTreeWatcherId = 1;
+const activeFileTreeWatchers = new Map<number, ActiveFileTreeWatcher>();
+let nextFileTreeWatcherId = 1;
 
 function runGit({
   directoryPath,
@@ -105,7 +105,7 @@ function pathIsInside({
 
 async function readGitDecorations(
   workspaceRootPath: string,
-): Promise<ProjectTreeGitDecoration[]> {
+): Promise<FileTreeGitDecoration[]> {
   const gitRootPath = await gitRootForDirectory(workspaceRootPath);
   if (gitRootPath === undefined) {
     return [];
@@ -138,7 +138,7 @@ async function readGitDecorations(
     });
   }
 
-  const result: ProjectTreeGitDecoration[] = [];
+  const result: FileTreeGitDecoration[] = [];
   for (const [decorationPath, status] of decorations) {
     const absoluteDecorationPath = path.resolve(
       gitRootPath,
@@ -165,12 +165,12 @@ async function readGitDecorations(
   return result;
 }
 
-function closeProjectTreeWatcher(watcherId: number): void {
-  const activeWatcher = activeProjectTreeWatchers.get(watcherId);
+function closeFileTreeWatcher(watcherId: number): void {
+  const activeWatcher = activeFileTreeWatchers.get(watcherId);
   if (activeWatcher === undefined) {
     return;
   }
-  activeProjectTreeWatchers.delete(watcherId);
+  activeFileTreeWatchers.delete(watcherId);
   if (activeWatcher.debounceTimer !== undefined) {
     clearTimeout(activeWatcher.debounceTimer);
   }
@@ -183,14 +183,14 @@ function closeProjectTreeWatcher(watcherId: number): void {
   }
 }
 
-function sendProjectTreeChanges(watcherId: number): void {
-  const activeWatcher = activeProjectTreeWatchers.get(watcherId);
+function sendFileTreeChanges(watcherId: number): void {
+  const activeWatcher = activeFileTreeWatchers.get(watcherId);
   if (activeWatcher === undefined) {
     return;
   }
   activeWatcher.debounceTimer = undefined;
   if (activeWatcher.sender.isDestroyed()) {
-    closeProjectTreeWatcher(watcherId);
+    closeFileTreeWatcher(watcherId);
     return;
   }
   let changedPaths: string[] | null = Array.from(activeWatcher.changedPaths);
@@ -199,18 +199,18 @@ function sendProjectTreeChanges(watcherId: number): void {
   }
   activeWatcher.changedPaths.clear();
   activeWatcher.unknownPathChanged = false;
-  const message: ProjectTreeChangeMessage = {
+  const message: FileTreeChangeMessage = {
     watcherId,
     paths: changedPaths,
   };
-  activeWatcher.sender.send("project-tree:changed", message);
+  activeWatcher.sender.send("file-tree:changed", message);
 }
 
-function scheduleProjectTreeChange({
+function scheduleFileTreeChange({
   watcherId,
   changedPath,
-}: ScheduleProjectTreeChangeOptions): void {
-  const activeWatcher = activeProjectTreeWatchers.get(watcherId);
+}: ScheduleFileTreeChangeOptions): void {
+  const activeWatcher = activeFileTreeWatchers.get(watcherId);
   if (activeWatcher === undefined) {
     return;
   }
@@ -228,7 +228,7 @@ function scheduleProjectTreeChange({
     }
     activeWatcher.changedPaths.add(normalizedPath);
     if (
-      activeWatcher.changedPaths.size > PROJECT_TREE_WATCH_PATH_LIMIT
+      activeWatcher.changedPaths.size > FILE_TREE_WATCH_PATH_LIMIT
     ) {
       activeWatcher.changedPaths.clear();
       activeWatcher.unknownPathChanged = true;
@@ -238,8 +238,8 @@ function scheduleProjectTreeChange({
     return;
   }
   activeWatcher.debounceTimer = setTimeout(() => {
-    sendProjectTreeChanges(watcherId);
-  }, PROJECT_TREE_WATCH_DEBOUNCE_MS);
+    sendFileTreeChanges(watcherId);
+  }, FILE_TREE_WATCH_DEBOUNCE_MS);
 }
 
 function addFileSystemWatcher({
@@ -266,7 +266,7 @@ function addFileSystemWatcher({
           );
         }
       }
-      scheduleProjectTreeChange({
+      scheduleFileTreeChange({
         watcherId: activeWatcher.watcherId,
         changedPath,
       });
@@ -275,14 +275,14 @@ function addFileSystemWatcher({
   fileSystemWatcher.on("error", () => {
     if (!gitMetadata) {
       if (!activeWatcher.sender.isDestroyed()) {
-        const message: ProjectTreeChangeMessage = {
+        const message: FileTreeChangeMessage = {
           watcherId: activeWatcher.watcherId,
           paths: null,
           stopped: true,
         };
-        activeWatcher.sender.send("project-tree:changed", message);
+        activeWatcher.sender.send("file-tree:changed", message);
       }
-      closeProjectTreeWatcher(activeWatcher.watcherId);
+      closeFileTreeWatcher(activeWatcher.watcherId);
       return;
     }
     const watcherPosition = activeWatcher.fileSystemWatchers.indexOf(
@@ -310,7 +310,7 @@ type ReadWorkspaceDirectoryOptions = {
 };
 
 type ReadWorkspaceDirectoryResult =
-  | { entries: ProjectTreeEntry[] }
+  | { entries: FileTreeEntry[] }
   | { error: string };
 
 // Git failure leaves the candidate directory as the workspace root.
@@ -354,7 +354,7 @@ async function gitMetadataDirectory({
 }
 
 async function workspaceRootForFile(
-  request: ReadProjectTreeRequest,
+  request: ReadFileTreeRequest,
 ): Promise<ResolveWorkspaceRootResult | undefined> {
   if (request.filePath === undefined) {
     return undefined;
@@ -376,7 +376,7 @@ async function workspaceRootForFile(
 }
 
 async function resolveWorkspaceRoot(
-  request: ReadProjectTreeRequest,
+  request: ReadFileTreeRequest,
 ): Promise<ResolveWorkspaceRootResult> {
   let workspaceRootPath = request.workspaceRootPath;
   if (workspaceRootPath === undefined) {
@@ -414,7 +414,7 @@ async function resolveWorkspaceRoot(
 }
 
 async function resolveWorkspaceDirectory(
-  request: ReadProjectTreeRequest,
+  request: ReadFileTreeRequest,
   workspaceRootPath: string,
 ): Promise<ResolveWorkspaceDirectoryResult> {
   let requestedDirectoryPath = workspaceRootPath;
@@ -448,7 +448,7 @@ async function readWorkspaceDirectory({
   workspaceRootPath,
   directoryPath,
 }: ReadWorkspaceDirectoryOptions): Promise<ReadWorkspaceDirectoryResult> {
-  const entries: ProjectTreeEntry[] = [];
+  const entries: FileTreeEntry[] = [];
   let entryCount = 0;
 
   try {
@@ -500,11 +500,11 @@ async function readWorkspaceDirectory({
 }
 
 ipcMain.handle(
-  "project-tree:read",
+  "file-tree:read",
   async (
     _event,
-    request: ReadProjectTreeRequest,
-  ): Promise<ReadProjectTreeResult> => {
+    request: ReadFileTreeRequest,
+  ): Promise<ReadFileTreeResult> => {
     const resolvedRoot = await resolveWorkspaceRoot(request);
     if ("error" in resolvedRoot) {
       return resolvedRoot;
@@ -537,13 +537,13 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
-  "project-tree:read-git-decorations",
+  "file-tree:read-git-decorations",
   async (
     _event,
     unvalidatedRequest: unknown,
-  ): Promise<ReadProjectTreeGitDecorationsResult> => {
+  ): Promise<ReadFileTreeGitDecorationsResult> => {
     const requestResult =
-      readProjectTreeGitDecorationsRequestSchema.safeParse(
+      readFileTreeGitDecorationsRequestSchema.safeParse(
         unvalidatedRequest,
       );
     if (!requestResult.success) {
@@ -569,16 +569,16 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
-  "project-tree:watch",
+  "file-tree:watch",
   async (
     event,
     unvalidatedRequest: unknown,
-  ): Promise<WatchProjectTreeResult> => {
-    const requestResult = watchProjectTreeRequestSchema.safeParse(
+  ): Promise<WatchFileTreeResult> => {
+    const requestResult = watchFileTreeRequestSchema.safeParse(
       unvalidatedRequest,
     );
     if (!requestResult.success) {
-      return { error: "Invalid project-tree watch request" };
+      return { error: "Invalid file-tree watch request" };
     }
 
     let workspaceRootPath: string;
@@ -615,12 +615,12 @@ ipcMain.handle(
       return { error: "Renderer closed before the watcher started" };
     }
 
-    const watcherId = nextProjectTreeWatcherId;
-    nextProjectTreeWatcherId += 1;
+    const watcherId = nextFileTreeWatcherId;
+    nextFileTreeWatcherId += 1;
     const senderDestroyedListener = (): void => {
-      closeProjectTreeWatcher(watcherId);
+      closeFileTreeWatcher(watcherId);
     };
-    const activeWatcher: ActiveProjectTreeWatcher = {
+    const activeWatcher: ActiveFileTreeWatcher = {
       watcherId,
       sender: event.sender,
       fileSystemWatchers: [],
@@ -629,7 +629,7 @@ ipcMain.handle(
       debounceTimer: undefined,
       senderDestroyedListener,
     };
-    activeProjectTreeWatchers.set(watcherId, activeWatcher);
+    activeFileTreeWatchers.set(watcherId, activeWatcher);
     event.sender.once("destroyed", senderDestroyedListener);
 
     try {
@@ -640,7 +640,7 @@ ipcMain.handle(
         gitMetadata: false,
       });
     } catch (error) {
-      closeProjectTreeWatcher(watcherId);
+      closeFileTreeWatcher(watcherId);
       return { error: String(error) };
     }
 
@@ -683,15 +683,15 @@ ipcMain.handle(
 );
 
 ipcMain.on(
-  "project-tree:unwatch",
+  "file-tree:unwatch",
   (event, unvalidatedRequest: unknown) => {
-    const requestResult = unwatchProjectTreeRequestSchema.safeParse(
+    const requestResult = unwatchFileTreeRequestSchema.safeParse(
       unvalidatedRequest,
     );
     if (!requestResult.success) {
       return;
     }
-    const activeWatcher = activeProjectTreeWatchers.get(
+    const activeWatcher = activeFileTreeWatchers.get(
       requestResult.data.watcherId,
     );
     if (
@@ -700,6 +700,6 @@ ipcMain.on(
     ) {
       return;
     }
-    closeProjectTreeWatcher(requestResult.data.watcherId);
+    closeFileTreeWatcher(requestResult.data.watcherId);
   },
 );

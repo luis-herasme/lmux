@@ -4,12 +4,12 @@
 import { bridge } from "../bridge.ts";
 import { executeTabCommand } from "./tab-commands.ts";
 import {
-  ensureProjectPanel,
-  executeProjectCommand,
-} from "../project-commands.ts";
+  ensureEditor,
+  executeEditorCommand,
+} from "../editor-commands.ts";
 import { executeWorkspaceCommand } from "../workspace-commands.ts";
 import { applySettings } from "../settings-command.ts";
-import { openProjectFile } from "../project-panel.ts";
+import { openEditorFile } from "../editor.ts";
 import { openMarkdownTab } from "./markdown-tab.tsx";
 import type { MarkdownTab } from "./markdown-tab.tsx";
 import { openTerminalTab } from "./terminal-tab.ts";
@@ -19,7 +19,7 @@ import {
   activateWorkspace,
   createWorkspace,
   findTab,
-  refreshProjectPanel,
+  refreshEditor,
   refreshWorkspaceName,
   setWorkspaceName,
 } from "../workspaces.ts";
@@ -47,13 +47,13 @@ export function executeCommand(command: Command): void {
     case "reload-markdown":
       executeTabCommand(command);
       return;
-    case "open-project":
-    case "close-project":
+    case "show-editor":
+    case "hide-editor":
     case "change-workspace-root":
     case "open-file":
     case "close-file":
     case "set-file-markdown-mode":
-      executeProjectCommand(command);
+      executeEditorCommand(command);
       return;
     case "new-workspace":
     case "close-workspace":
@@ -107,21 +107,21 @@ export async function restoreSession(session: Session): Promise<void> {
       }
       openTerminalTab({ workspace });
     }
-    if (saved.project !== null) {
-      const panel = await ensureProjectPanel({
+    if (saved.editor !== null) {
+      const editor = await ensureEditor({
         workspace,
-        workspaceRootPath: saved.project.workspaceRootPath,
+        workspaceRootPath: saved.editor.workspaceRootPath,
       });
-      if (saved.project.filePath !== null) {
-        await openProjectFile({
-          panel,
-          filePath: saved.project.filePath,
+      if (saved.editor.filePath !== null) {
+        await openEditorFile({
+          editor,
+          filePath: saved.editor.filePath,
         });
       }
-      // restored, not opened: the panel comes back on screen without the
+      // restored, not opened: the editor comes back on screen without the
       // keyboard, which belongs to the tab that was active
-      panel.visible = saved.project.visible;
-      refreshProjectPanel();
+      editor.visible = saved.editor.visible;
+      refreshEditor();
     }
     // the store keeps insertion order, so the saved position is the tab
     const restoredIds = Array.from(workspace.tabs.keys());

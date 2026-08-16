@@ -1,21 +1,21 @@
 // The tree's scrollbar, drawn as an ordinary element over the rows. A native
 // one would take its width out of the tree's content box, which is where
 // Chromium clips the content: a row's hover band would stop a bar's width
-// short of the panel edge. Floating the thumb instead leaves the rows the
+// short of the editor edge. Floating the thumb instead leaves the rows the
 // full width, and is what VS Code's explorer does with its own.
 
 // a thumb this short is still something to grab, however long the tree is
 const MIN_THUMB_HEIGHT_PX = 24;
 
-type ProjectTreeScrollbarOptions = {
+type FileTreeScrollbarOptions = {
   treeElement: HTMLElement;
   thumbElement: HTMLElement;
 };
 
-export function mountProjectTreeScrollbar({
+export function mountFileTreeScrollbar({
   treeElement,
   thumbElement,
-}: ProjectTreeScrollbarOptions): void {
+}: FileTreeScrollbarOptions): void {
   function drawThumb(): void {
     const visibleHeight = treeElement.clientHeight;
     const scrollableHeight = treeElement.scrollHeight - visibleHeight;
@@ -66,7 +66,7 @@ export function mountProjectTreeScrollbar({
     }
     // no text selection under the cursor for the length of the drag
     event.preventDefault();
-    // grabbing the bar is not working in the panel: the keyboard stays where
+    // grabbing the bar is not working in the editor: the keyboard stays where
     // it was, the way the resize handle beside it behaves
     event.stopPropagation();
     dragStartY = event.clientY;

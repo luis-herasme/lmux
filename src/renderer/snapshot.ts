@@ -9,13 +9,13 @@ import type { SerializedDockview } from "dockview";
 import type {
   LayoutNode,
   LmuxState,
-  ProjectInfo,
+  EditorInfo,
   TabInfo,
   WorkspaceInfo,
 } from "../api.ts";
 import { activeWorkspace, workspaces } from "./workspaces.ts";
 import type { Workspace } from "./workspaces.ts";
-import type { ProjectPanel } from "./project-panel.ts";
+import type { Editor } from "./editor.ts";
 
 type SerializedGridNode = SerializedDockview["grid"]["root"];
 type SerializedGroup = Exclude<SerializedGridNode["data"], unknown[]>;
@@ -106,19 +106,19 @@ function collectTabs({ node, into }: CollectTabsOptions): void {
   }
 }
 
-function describeProject(panel: ProjectPanel | undefined): ProjectInfo | null {
-  if (panel === undefined) {
+function describeEditor(editor: Editor | undefined): EditorInfo | null {
+  if (editor === undefined) {
     return null;
   }
   let filePath: string | null = null;
-  if (panel.file !== undefined) {
-    filePath = panel.file.filePath;
+  if (editor.file !== undefined) {
+    filePath = editor.file.filePath;
   }
   return {
-    id: panel.id,
-    name: panel.name,
-    workspaceRootPath: panel.workspaceRootPath,
-    visible: panel.visible,
+    id: editor.id,
+    name: editor.name,
+    workspaceRootPath: editor.workspaceRootPath,
+    visible: editor.visible,
     filePath,
   };
 }
@@ -131,7 +131,7 @@ function describeWorkspace(workspace: Workspace): WorkspaceInfo {
       break;
     }
   }
-  const project = describeProject(workspace.project);
+  const editor = describeEditor(workspace.editor);
   if (workspace.dockview.api.panels.length === 0) {
     return {
       id: workspace.id,
@@ -141,7 +141,7 @@ function describeWorkspace(workspace: Workspace): WorkspaceInfo {
       layout: null,
       activeId: workspace.activeId,
       maximizedGroupId,
-      project,
+      editor,
       focus: workspace.focus,
     };
   }
@@ -168,7 +168,7 @@ function describeWorkspace(workspace: Workspace): WorkspaceInfo {
     layout,
     activeId: workspace.activeId,
     maximizedGroupId,
-    project,
+    editor,
     focus: workspace.focus,
   };
 }

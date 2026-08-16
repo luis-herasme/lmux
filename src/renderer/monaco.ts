@@ -1,6 +1,6 @@
 // Monaco, and the three things it needs before it will run here: a worker it
 // can reach, a theme built from ours, and a language guessed from a
-// filename. The project panel that uses all this is project-panel.ts.
+// filename. The editor that uses all this is editor.ts.
 import { currentTheme, getSettings } from "./settings.ts";
 import type * as monacoModule from "monaco-editor";
 // "?worker" is Vite's: it builds that entry point into a file of its own and
@@ -38,7 +38,7 @@ export function loadMonaco(): Promise<Monaco> {
   return loading;
 }
 
-// 4MB of editor and language grammars, fetched when the first project panel
+// 4MB of editor and language grammars, fetched when the first editor
 // opens rather than at boot: a terminal that never shows a file should not
 // pay for one.
 async function importMonaco(): Promise<Monaco> {
@@ -154,7 +154,7 @@ export function createCodeEditor({
     // domReadOnly keeps a paste or an input method getting in around it
     readOnly: true,
     domReadOnly: true,
-    // the panel is resized by a drag handle, which tells it nothing
+    // the editor is resized by a drag handle, which tells it nothing
     automaticLayout: true,
   });
 }

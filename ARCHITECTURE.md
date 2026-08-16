@@ -20,13 +20,12 @@ page around the terminal, which buys three things:
    grid. Anything the web can render, a view in this app can render.
 2. **Integrated browser views.** Embedding a live web page next to the
    terminal is nearly free in Electron; in a TUI it's impossible.
-3. **Integrated project reading.** A project panel combines a lazy file
-   tree and a Monaco editor showing one file, without turning the terminal
-   into an editor. The editor is read-only: lmux shows files, it does not write
-   them.
+3. **Integrated file reading.** The editor combines a lazy file tree and
+   Monaco showing one file, without turning the terminal into an editor.
+   It is read-only: lmux shows files, it does not write them.
 
-These capabilities exist as terminal and Markdown tab kinds, plus the project
-panel a workspace keeps beside its panes. Each owns its renderer-side content
+These capabilities exist as terminal and Markdown tab kinds, plus the editor
+a workspace keeps beside its panes. Each owns its renderer-side content
 while sharing the workspace and the command bus.
 
 ## The one idea
@@ -64,8 +63,8 @@ onRenameRequest((id))        main → renderer   "the user picked Rename in tab 
 showWorkspaceMenu(id)        renderer → main   "right-click on workspace `id`: show its native menu"
 onWorkspaceRenameRequest((id)) main → renderer "the user picked Rename in workspace `id`'s menu"
 closeWorkspace(id)           renderer → main   "the × on workspace `id`'s row: guard the shells it would kill"
-readFile({path, baseTabId})  renderer → main   "read a document or project file" (request/response)
-readProjectTree({...})       renderer → main   "resolve a root and list one directory" (request/response)
+readFile({path, baseTabId})  renderer → main   "read a document or a source file" (request/response)
+readFileTree({...})       renderer → main   "resolve a root and list one directory" (request/response)
 readSession()                renderer → main   "what did the last run leave to rebuild?" (request/response)
 ```
 
@@ -176,10 +175,10 @@ files and directories with their Git status and watches them, and writes the
 window geometry and the last session to disk.
 
 **The renderer owns the screen.** It boots settings into CSS and wires the
-cable, keeps the workspace store (one layout and one project panel each) and the
+cable, keeps the workspace store (one layout and one editor each) and the
 tab store whose one dispatcher hands every Command to its family, draws the
 window's own furniture (title bar, sidebar, modals), the strip's tab rows and
-the terminal and Markdown panes, hosts the project panel with its lazy tree, its
+the terminal and Markdown panes, hosts the editor with its lazy tree, its
 one open file and Monaco, and owns the settings and the drag handles. Everything
 in it that is a view of state is a React component; everything that hosts
 somebody else's DOM, or answers a pointer, is not.
@@ -242,7 +241,7 @@ change it and update this list.
   to write on: Dockview's and xterm's own elements, `::-webkit-scrollbar` and
   `::backdrop`, the Codicon glyphs and Git badges drawn by `::before`, the
   drag handles' hairlines, and markdown-it's generated HTML. Semantic names
-  (`.project-tree-row`, `.tab`) stay on the elements as hooks for those rules
+  (`.file-tree-row`, `.tab`) stay on the elements as hooks for those rules
   and for the test suite. Two things we learned by doing it: **Preflight,
   Tailwind's reset, must not be imported**, because it would reach inside the
   three UIs that ship their own complete styling, so the page imports
@@ -251,11 +250,11 @@ change it and update this list.
   identical fields are one `@utility` instead. Cost we accept: a build plugin
   and two packages, and a stylesheet that no longer tells the whole story of
   how the app looks.
-- **Monaco is loaded when the first project panel opens, not at boot.** It is
+- **Monaco is loaded when the first editor opens, not at boot.** It is
   about 4MB with every language grammar it ships. A dynamic `import()` where
   the editor is set up keeps that cost off the boot path entirely: a session
-  that never opens a project never pays it. Cost we accept: the first project
-  tab of a session is slower than the ones after it.
+  that never opens an editor never pays it. Cost we accept: the first
+  editor of a session is slower than the ones after it.
 - **A Worker is loaded from a file, never from a blob.** Two things we
   established by trying them rather than by reasoning about them, both worth
   writing down because the obvious expectation is wrong in one direction and
@@ -269,40 +268,40 @@ change it and update this list.
   2026-08-15: the file is the one Vite builds from Monaco's worker entry
   point — the `?worker` import in `monaco.ts` — emitted as a classic script,
   which is what `worker: { format: "iife" }` in the config is for.)
-- **Each workspace has one project panel, beside its panes rather than
+- **Each workspace has one editor, beside its panes rather than
   inside them.** (Replaces the composite project *tab*, which replaced the
-  separate code and tree panels of #34 and #35.) The panel is workspace state
+  separate code and tree panels of #34 and #35.) The editor is workspace state
   like the workspace list itself: one per workspace, in a host on the right of
   the window, never dragged, split or reordered, and with no place in the
   layout. Inside it one Monaco editor sits beside a stable workspace-root
   tree, under a header carrying the root folder's name and the × that hides
-  it. (Amended 2026-08-15: the tree was the panel's left
+  it. (Amended 2026-08-15: the tree was the editor's left
   column and is now its right one, hard against the window's edge, so the
   editor stays next to the panes whose files it is showing. Its separator, its
   floated scrollbar and its resize handle all moved sides with it, and the
   handle's arrows swapped: Left widens the tree now, because that is the
-  direction the handle moves.) `open-file` and `open-project` create it on
-  first use and show it; `close-project` hides it, and hiding is not closing:
+  direction the handle moves.) `open-file` and `show-editor` create it on
+  first use and show it; `hide-editor` hides it, and hiding is not closing:
   the open file and the tree watcher stay alive behind it, so nothing is lost.
   Its width is a setting with a drag handle, like the sidebar's. (Amended
-  2026-08-15: the panel shows **one** file. The file-tab strip went, and with
+  2026-08-15: the editor shows **one** file. The file-tab strip went, and with
   it preview/pinned files, `move-file`, `activate-file` and their Events. A
   tree click reads its file over whatever was there, the same path included,
   which is the only way to re-read one.) Files outside the workspace root open
   like any other and leave the tree unchanged. Changing the root is an
   explicit folder-picker action and leaves the open file where it is.
 - **The keyboard belongs to one half of the window at a time.** A workspace
-  records whether it was last worked in through its panes or its panel, in
+  records whether it was last worked in through its panes or its editor, in
   `WorkspaceInfo.focus`, decided by where the last press landed. Restoring
   focus (after a dialog, a resize, a workspace switch) reads that, and ⌘W
-  closes the visible file when the panel has the keyboard and the active tab
+  closes the visible file when the editor has the keyboard and the active tab
   when it does not.
 - **Files are read, never written.** (Replaces the guarded save path: ⌘S, Save
   All, Save As, untitled buffers, dirty state and the close-time Save / Don't
-  Save / Cancel dialogs.) The panel's editors are `readOnly`, the bridge
+  Save / Cancel dialogs.) The editor's Monaco instances are `readOnly`, the bridge
   carries no write, and main registers only `file:read`, so what is on screen
   cannot diverge from the file and closing anything asks about running programs
-  only. Editing is what the terminal beside the panel is for. A session restores
+  only. Editing is what the terminal beside the editor is for. A session restores
   the open file's path, and the file is read from disk again.
 - **The workspace tree loads one directory at a time.** (Replaces the eager
   Pierre Trees implementation.) Main resolves the root from the first file or
@@ -317,7 +316,7 @@ change it and update this list.
   2026-08-15, the first framework in the project; widened the same day from
   "the file tree, and nothing else".) A *view of state* is a piece of the page
   whose whole content follows from data the app already holds: the file tree,
-  the project panel's four faces, the sidebar's list of workspaces, the title
+  the editor's four faces, the sidebar's list of workspaces, the title
   bar, a tab's row in the strip, a document pane's toolbar, and the two
   dialogs. Written by hand, each of those was the same algorithm — work out
   what changed and edit the DOM to match — and each kept an element handle per
@@ -325,7 +324,7 @@ change it and update this list.
   it; the rest needed `classList.toggle` and `textContent =` scattered across
   the module that changed the state. That is the algorithm React is, so each of
   them now declares what it looks like and React works out the DOM. **The state
-  stays plain objects outside React** — the workspace store, the panel record,
+  stays plain objects outside React** — the workspace store, the editor record,
   the tab record, the settings — changed by the same functions as before; each
   ends by drawing its region again, which is cheap because working out the
   difference is React's job. What changed is who writes the DOM, not who owns
@@ -333,7 +332,7 @@ change it and update this list.
   being typed or a font not yet committed, which belongs to nobody else.
 
   Three rules keep it predictable. **A root renders a host's children, never
-  the host**: `#sidebar`, `#title-bar`, the `.project-panel` div, a tab's row
+  the host**: `#sidebar`, `#title-bar`, the `.editor` div, a tab's row
   and a document's pane keep their own class and their own place in the page,
   and React draws inside them. **Every draw is synchronous** (`flushSync`), so
   the code that changes state can go straight on to fill what the render left —
@@ -361,7 +360,7 @@ change it and update this list.
   debounced recursive watcher covers the workspace and, for worktrees, Git
   metadata outside it. Each event makes the renderer reread Git and reconcile
   only loaded parent directories, retaining unchanged `<details>` nodes and
-  their expansion state. Root replacement and project disposal close the
+  their expansion state. Root replacement and editor disposal close the
   watcher, and request generations discard late results. Missing Git leaves an
   undecorated tree. A stopped workspace watcher triggers one full refresh and
   up to three delayed rebind attempts. Incoming remote arrows, an SCM view and
@@ -577,13 +576,13 @@ change it and update this list.
   tab components (the strip scrolls instead). Double-clicking a tab
   issues `toggle-maximize` (2026-08, the tmux-zoom gesture): the tab's
   group fills the window and `LmuxState.maximizedGroupId` records it.
-- **The project tree's resize handle is panel-local layout.** Dragging it, or
+- **The file tree's resize handle is editor-local layout.** Dragging it, or
   using Left and Right Arrow while it is focused, changes only the pixels
-  inside that project panel. Like a Dockview divider size, it issues no Command
+  inside that editor. Like a Dockview divider size, it issues no Command
   or Event because observers do not need layout measurements. The width is
   clamped so the tree and editor both remain usable, and lasts for the life of
-  the panel. Cost we accept: it does not survive a relaunch. The panel's own
-  width is the exception, and is a setting rather than panel-local: it changes
+  the editor. Cost we accept: it does not survive a relaunch. The editor's own
+  width is the exception, and is a setting rather than editor-local: it changes
   how much window the panes get, so it rides in `Settings` beside the
   sidebar's, written by one `update-settings` Command when the drag ends.
 - **The title bar is painted, not native.** (Decided 2026-08.) macOS
@@ -738,7 +737,7 @@ change it and update this list.
   still appears synchronously; only the measuring waits. A failed read
   becomes a document of its own, so the tab and its reload button survive
   a file that isn't there, and reloading again recovers when it returns.
-- **A project file's markdown can show its rendering in place.**
+- **The open file's markdown can show its rendering in place.**
   (Decided 2026-08-12.) The same `renderMarkdown` the markdown tab uses,
   behind the same one-button toolbar, surfacing only while the open file's
   Monaco language is `markdown`. The rendered face is a sibling
@@ -749,11 +748,11 @@ change it and update this list.
   affordance (`set-file-markdown-mode`, idempotent like
   `set-markdown-mode`), and the change announces itself as
   `file-markdown-mode-changed`. The mode is deliberately not part of
-  `ProjectInfo` or the session: a restart brings the file back in the editor,
+  `EditorInfo` or the session: a restart brings the file back in the editor,
   the same way cursor positions don't return. The way back from rendered reads *Source*, because that is
   what the editor face shows now that it cannot be typed into.
   2026-08.) A workspace is a whole lmux of its own inside the window: its
-  own pane layout, its own tabs, its own shells (see the glossary). The
+  own pane area, its own tabs, its own shells (see the glossary). The
   sidebar, which held only the settings gear, becomes their list: one row
   per workspace carrying its whole name and a × at its edge, the active one
   accented, the gear pushed to the bottom. The × arrived later (2026-08-08),
@@ -834,7 +833,7 @@ change it and update this list.
   | `/bin/zsh` fallback, spawned `-l` | shell spawning | `$SHELL` is usually right; Windows needs a different shell entirely |
   | `Menlo` as the default terminal font | the theme defaults | a font that exists there |
   | `role: "appMenu"` | the app menu | macOS puts the app menu first; other platforms do not have one |
-  | `/` used to derive file labels and workspace-relative headers | the project panel's labels | path-aware values supplied by main instead of slicing renderer paths |
+  | `/` used to derive file labels and workspace-relative headers | the editor's labels | path-aware values supplied by main instead of slicing renderer paths |
   | ⌘/⇧⌘/⌃ typed into tooltips and menu labels | Command descriptions, tab and workspace chrome, the page | labels computed per platform (the accelerators themselves already use `CmdOrCtrl`) |
 
   Note the last row's asymmetry: the *behavior* is already portable because
@@ -921,8 +920,8 @@ change it and update this list.
   one new request/response pair on the cable, `readSession`. If there is
   nothing to rebuild, boot opens one empty workspace exactly as before.
   What a session holds is deliberately less than the state: a workspace's
-  tabs in order, a document's path and mode, its project panel's workspace
-  root, the path of the file it was showing and whether the panel was on
+  tabs in order, a document's path and mode, its editor's workspace
+  root, the path of the file it was showing and whether the editor was on
   screen, which tab and workspace you were looking at, and a workspace's name
   only when a rename pinned it. It
   carries no ids, because the renderer assigns
@@ -977,14 +976,14 @@ change it and update this list.
   file.** (Decided 2026-08-15.) The switch had grown to 22 cases and 430
   lines: the "module that stops fitting a one-line description of its job"
   this document warns about. The cases now live in `tab-commands.ts`,
-  `project-commands.ts`, `workspace-commands.ts` and `settings-command.ts`,
+  `editor-commands.ts`, `workspace-commands.ts` and `settings-command.ts`,
   and `executeCommand` groups its cases without handling any, so it reads as
   a table of contents. Nothing about the bus changed — still exactly one
   function every Command arrives at, still the only place state changes — so
-  the one-door rule is untouched. The project panel was split the same way:
-  its markup (`project-panel-view.tsx`), its resize handle
-  (`project-tree-resize.ts`) and its file watcher with the git decorations
-  and retries (`project-tree-watcher.ts`) were three jobs it had
+  the one-door rule is untouched. The editor was split the same way:
+  its markup (`editor-view.tsx`), its resize handle
+  (`file-tree-resize.ts`) and its file watcher with the git decorations
+  and retries (`file-tree-watcher.ts`) were three jobs it had
   accumulated. Two things fell out along the way: opening a tab of either
   kind is now one call that allocates its own id, with `addPanel` building
   the strip row every tab wears, and `focusWorkspace` moved to
@@ -1009,6 +1008,31 @@ change it and update this list.
   `Record` and now validates with `satisfies`, and the settings field
   inferred "is a size" from a `typeof` check and now takes an explicit
   `numeric` prop.
+- **The window's three regions are named, and the names reach the bus.**
+  (Decided 2026-08-16.) The regions had drifted apart: the left was the
+  *sidebar* everywhere, the right was *project panel* in prose but bare
+  *project* in every identifier, and the middle had no name at all beyond
+  `#layout`. They are now **sidebar**, **pane area** and **editor**, defined
+  in the glossary, and the words reach the DOM: `#sidebar`, `#panes`,
+  `#editor`. Three near-misses, each rejected for a collision: *project* for
+  the right, when the prose already called it the workspace's own editor and
+  its tree was the glossary's *file tree*; *workspace area* for the middle,
+  when a workspace owns the middle region and the editor both, so it would
+  have named neither a sidebar row nor a whole workspace; and *editor panel*,
+  when `panel` is Dockview's word for a tab in the pane area and was at the
+  same time the variable for the region on the right. The bus moved with the
+  nouns: `open-project`/`close-project` are `show-editor`/`hide-editor`
+  (hiding the editor was never closing its file, and `open-file` already meant
+  something else), `project-opened`/`project-closed` are
+  `editor-shown`/`editor-hidden`, `projectTabId` is `editorId`, and
+  `WorkspaceInfo.focus` reads `"panes" | "editor"`. One name went the other
+  way and got longer: Monaco's instance was `panel.editor`, which would now
+  sit under `workspace.editor` meaning the region, so it is
+  `editor.codeEditor`. Costs we accept: a saved `projectWidth` no longer
+  matches `editorWidth`, so the editor opens at its default width once, and
+  the session's `project` key is now `editor`, so one restart comes back
+  without its tabs — which is what the session schema already promises for a
+  file an older version wrote.
 
 ## Where future features will live
 

@@ -1,11 +1,11 @@
-// A panel's width is a setting, so a drag ends as one update-settings
+// A region's width is a setting, so a drag ends as one update-settings
 // Command; the pixels moving under the cursor until then are a preview.
 import { executeCommand } from "./tabs/index.ts";
 import { focusWorkspace } from "./workspaces.ts";
 import {
-  MAX_PROJECT_WIDTH_PX,
+  MAX_EDITOR_WIDTH_PX,
   MAX_SIDEBAR_WIDTH_PX,
-  MIN_PROJECT_WIDTH_PX,
+  MIN_EDITOR_WIDTH_PX,
   MIN_SIDEBAR_WIDTH_PX,
 } from "./settings.ts";
 import { requireElement } from "./dom.ts";
@@ -17,7 +17,7 @@ type EdgeResizeOptions = {
   maxWidthPx: number;
   cssVariable: string;
   commitWidth: (width: number) => void;
-  // grabbing a handle inside its own panel must not move the keyboard into it
+  // grabbing a handle inside its own region must not move the keyboard into it
   stopMousedownPropagation: boolean;
 };
 
@@ -82,16 +82,16 @@ installEdgeResize({
 });
 
 installEdgeResize({
-  resizerId: "project-resizer",
-  // the panel runs to the window's right edge
+  resizerId: "editor-resizer",
+  // the editor runs to the window's right edge
   requestedWidth: (event) => window.innerWidth - event.clientX,
-  minWidthPx: MIN_PROJECT_WIDTH_PX,
-  maxWidthPx: MAX_PROJECT_WIDTH_PX,
-  cssVariable: "--project-width",
+  minWidthPx: MIN_EDITOR_WIDTH_PX,
+  maxWidthPx: MAX_EDITOR_WIDTH_PX,
+  cssVariable: "--editor-width",
   commitWidth: (width) =>
     executeCommand({
       type: "update-settings",
-      settings: { projectWidth: width },
+      settings: { editorWidth: width },
     }),
   stopMousedownPropagation: true,
 });

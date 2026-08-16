@@ -171,11 +171,11 @@ background).
 
 ## Resize handle
 
-A narrow draggable separator between two regions. The project panel's inner
+A narrow draggable separator between two regions. The editor's inner
 handle changes how much horizontal space belongs to the file tree; Left and
 Right Arrow provide the same control from the keyboard. This is local layout, so
-that width lasts for the panel rather than becoming public state. The sidebar's
-handle and the panel's own outer handle are different: they decide how much
+that width lasts for the editor rather than becoming public state. The sidebar's
+handle and the editor's own outer handle are different: they decide how much
 window the panes get, so each drag ends as one `update-settings` Command and the
 width survives a relaunch.
 
@@ -209,17 +209,36 @@ editor area feel the way it does. This project uses
 and onto a pane's edge to split; window-edge drops and whole-group drags stay
 disabled until a feature needs them.
 
+## Sidebar / pane area / editor
+
+The window's three regions, side by side under the title bar inside
+`#workbench`. The **sidebar** is the column on the left: the list of
+workspaces, one row each, with the settings gear at the bottom. The **pane
+area** is the middle and the largest: the panes, their tab strips, and every
+terminal and Markdown tab in them. The **editor** is the column on the right,
+showing one file from the workspace's file tree. Each is one element the page
+keeps for the app's whole life (`#sidebar`, `#panes`, `#editor`), and the two
+boundaries between them are drag handles whose width is a setting.
+
+They are siblings, not a hierarchy: a workspace owns the pane area and the
+editor both, which is why neither is named after it. Two words to keep straight
+while reading the code. **Panel** is Dockview's, and means one tab in the pane
+area, never the region on the right. **Editor** is always that region, even
+though VS Code uses *editor area* for the equivalent of our middle one. Why the
+other candidates lost is in ARCHITECTURE.md.
+
 ## Tab / tab kind / pane
 
 A **tab** is one selectable item and its content in a workspace layout. A **tab
 kind** describes that content: terminal or Markdown. A **pane** is the layout
-region displaying one active tab. The project panel is not a tab: it is
-workspace state shown beside the panes (see *Project panel*).
+region displaying one active tab, and the **pane area** is the region holding
+all of them. The editor is not a tab: it is workspace state shown beside
+the pane area (see *Editor*).
 
 ## Workspace
 
 A whole lmux of its own inside the same window: its own pane layout, its own
-tabs, its own shells, its own project panel. The sidebar lists them and
+tabs, its own shells, its own editor. The sidebar lists them and
 switching is one click; only one is on screen at a time, and the ones behind
 keep running, so a build left compiling in one workspace is still compiling when
 you come back to it. The name comes from tiling window managers and VS Code,
@@ -245,7 +264,7 @@ workspace comes forward.
 ## Workspace root / file tree
 
 A **workspace root** is the stable top directory shown by one workspace's file
-tree. The panel derives it, when it is first opened, from a file's Git
+tree. The editor derives it, when it is first opened, from a file's Git
 repository, or from a terminal's Git repository or current directory. Changing
 it is explicit and leaves the open file where it is. Resolving it to its real path and
 refusing to follow symbolic links keeps directory reads inside that boundary.
@@ -274,27 +293,29 @@ necessarily the branch named `main`. A file can carry both a staged change in
 the index and a later unstaged change in the working tree; like VS Code, lmux
 shows the working-tree status when both exist.
 
-## Project panel
+## Editor
 
-A **project panel** is the workspace's one file viewer, and the only place
-files open. It contains one read-only Monaco editor beside the file tree on
-the panel's outer edge, under a header naming the workspace root folder. It is
-not a tab: there is exactly one per workspace, it lives in its own region
-beside the pane layout, and it cannot be dragged, split, reordered or moved to
-another workspace, the same way the workspace list itself cannot. Hiding it
-(its header's ×, ⌘B, or `close-project`) is not closing it: the file stays
-open behind it.
+An **editor** is the workspace's one file viewer, and the only place files
+open. It contains one read-only Monaco editor beside the file tree on its outer
+edge, under a header naming the workspace root folder. It is not a tab: there is
+exactly one per workspace, it lives in its own region beside the pane area, and
+it cannot be dragged, split, reordered or moved to another workspace, the same
+way the workspace list itself cannot. Hiding it (its header's ×, ⌘B, or
+`hide-editor`) is not closing it: the file stays open behind it, which is why
+the Commands say *show* and *hide* where the file's own say *open* and *close*.
 
 It shows **one file at a time**. Opening another reads it over the first, and
 clicking the open file's own tree item re-reads it from disk; files outside
 the workspace root open the same way and leave the tree unchanged.
-`close-file` empties the panel, and a restart re-reads whichever path was
+`close-file` empties it, and a restart re-reads whichever path was
 open, never its cursor or scroll position.
 
-The editor is **read-only**: no Save, no Save As, and no write at all on the
-bridge between the page and the machine, so what is on screen always says what
-the file said when it was read. The terminal beside the panel is where files
-change.
+The editor is **read-only** as it stands: no Save, no Save As, and no write at
+all on the bridge between the page and the machine, so what is on screen always
+says what the file said when it was read. The terminal beside it is where files
+change; the name describes what it holds, not that limit. In the renderer,
+`workspace.editor` is this whole region and `editor.codeEditor` is the Monaco
+instance inside it, which Monaco also calls an editor.
 
 ## Rendered vs. raw (a markdown tab's two modes)
 
@@ -306,7 +327,7 @@ names what it will do rather than what is happening. The second button re-reads
 the file, since nothing watches the disk: edit a document in one tab, click
 Reload in the tab showing it.
 
-A markdown file inside the project panel has the same two faces. There its raw
+A markdown file inside the editor has the same two faces. There its raw
 face is the editor itself, so the way back from rendered reads *Source*, and
 there is no Reload: the rendering draws the file as it was read. The model
 stays on the hidden editor while its rendering shows, which is why view state
@@ -383,7 +404,7 @@ its key, and a directory that gained a file in the middle keeps every other
 row exactly as it was, rather than shuffling their contents up by one.
 
 lmux uses React for everything on screen that is a *view of state*: the file
-tree, the project panel, the sidebar's workspace rows, the title bar, a tab's
+tree, the editor, the sidebar's workspace rows, the title bar, a tab's
 row in the strip, a document's toolbar, and the two dialogs. Each of those is
 data the app already holds, drawn — the case reconciliation is for. A terminal
 is not: xterm owns that DOM and draws it itself, and wrapping it in a component

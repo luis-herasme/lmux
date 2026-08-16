@@ -85,19 +85,19 @@ function cycleWorkspace(step: number): void {
   activateWorkspaceAt((active + step + workspaces.length) % workspaces.length);
 }
 
-// ⌘W means the file you are looking at while the keyboard is in the panel,
+// ⌘W means the file you are looking at while the keyboard is in the editor,
 // and the tab you are looking at otherwise.
 function closeActiveFileOrTab(): void {
   const workspace = workspaceInfo(undefined);
-  const project = workspace?.project;
+  const editor = workspace?.editor;
   if (
-    project?.visible === true &&
-    workspace?.focus === "project" &&
-    project.filePath !== null
+    editor?.visible === true &&
+    workspace?.focus === "editor" &&
+    editor.filePath !== null
   ) {
     dispatch({
       type: "close-file",
-      projectTabId: project.id,
+      editorId: editor.id,
     });
     return;
   }
@@ -107,15 +107,15 @@ function closeActiveFileOrTab(): void {
   });
 }
 
-// One menu item for both directions: the panel is state, so main can read
+// One menu item for both directions: the editor is state, so main can read
 // whether it is on screen and ask for the other one.
-function toggleProjectPanel(): void {
+function toggleEditor(): void {
   const workspace = workspaceInfo(undefined);
-  if (workspace?.project?.visible === true) {
-    dispatch({ type: "close-project" });
+  if (workspace?.editor?.visible === true) {
+    dispatch({ type: "hide-editor" });
     return;
   }
-  dispatch({ type: "open-project" });
+  dispatch({ type: "show-editor" });
 }
 
 async function chooseWorkspaceRoot(): Promise<void> {
@@ -163,9 +163,9 @@ export function installAppMenu(): void {
             click: () => dispatch({ type: "new-tab" }),
           },
           {
-            label: "Project Panel",
+            label: "Editor",
             accelerator: "CmdOrCtrl+B",
-            click: () => toggleProjectPanel(),
+            click: () => toggleEditor(),
           },
           {
             label: "Change Workspace Root…",

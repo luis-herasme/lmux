@@ -1,6 +1,6 @@
 /* Tailwind's utilities carry the look of the elements this app builds; what
    is left here is what a utility class cannot reach, and the semantic class
-   names it selects on (.project-tree-row, .tab) stay on those elements as
+   names it selects on (.file-tree-row, .tab) stay on those elements as
    hooks for these rules and for the test suite. Preflight, Tailwind's reset,
    is deliberately not imported: the window embeds three UIs that ship their
    own complete styling (Dockview, xterm, Monaco) and a global reset would
@@ -79,7 +79,7 @@ select {
    rounded overlay bar, which is the only way to square its corners. It also
    makes the bar a classic one: it takes its width out of the scroll
    container's content box, and Chromium clips content at that edge, so
-   nothing of ours can be drawn under a bar (see project-tree-scrollbar.ts). */
+   nothing of ours can be drawn under a bar (see file-tree-scrollbar.ts). */
 ::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
@@ -97,10 +97,11 @@ select {
   background: var(--scrollbar-thumb-hover);
 }
 
-/* Mid-drag the panes and the panel ignore the pointer, so crossing a
-   terminal or Monaco does not start a selection under the cursor. */
-body.resizing #layout,
-body.resizing #project .project-panel {
+/* Mid-drag the panes and the editor ignore the pointer, so crossing a
+   terminal or Monaco does not start a selection under the cursor. The host
+   keeps its own, since the drag handle sits inside it. */
+body.resizing #panes,
+body.resizing #editor > .editor {
   pointer-events: none;
 }
 
@@ -109,8 +110,8 @@ body.resizing #project .project-panel {
    A drawn hairline is a pseudo-element, which no utility class can be. */
 #sidebar-resizer:hover::after,
 #sidebar-resizer.dragging::after,
-#project-resizer:hover::after,
-#project-resizer.dragging::after {
+#editor-resizer:hover::after,
+#editor-resizer.dragging::after {
   content: "";
   position: absolute;
   top: 0;
@@ -120,9 +121,9 @@ body.resizing #project .project-panel {
   background: var(--accent);
 }
 
-.project-tree-resizer:hover::after,
-.project-tree-resizer:focus-visible::after,
-.project-tree-resizer.dragging::after {
+.file-tree-resizer:hover::after,
+.file-tree-resizer:focus-visible::after,
+.file-tree-resizer.dragging::after {
   content: "";
   position: absolute;
   top: 0;
@@ -278,115 +279,115 @@ dialog::backdrop {
   color: var(--tab-foreground);
 }
 
-/* ---------- Project tree ---------- */
+/* ---------- File tree ---------- */
 
 /* A native bar would take its width out of the tree's content box, where
    Chromium clips the rows: a row's hover band would stop a bar's width short
-   of the panel edge with a strip of background beside it. So the tree hides
+   of the editor's edge with a strip of background beside it. So the tree hides
    the native one and floats its own thumb over the rows instead, the way VS
-   Code's explorer does. project-tree-scrollbar.ts sizes and moves it. */
-.project-tree::-webkit-scrollbar {
+   Code's explorer does. file-tree-scrollbar.ts sizes and moves it. */
+.file-tree::-webkit-scrollbar {
   display: none;
 }
 
-.project-tree-directory > summary::-webkit-details-marker {
+.file-tree-directory > summary::-webkit-details-marker {
   display: none;
 }
 
 /* Monaco bundles VS Code's Codicon font and its stable glyph mapping. A
    glyph is drawn by a pseudo-element, so these stay CSS. */
-.project-tree-disclosure::before,
-.project-tree-folder-icon::before,
-.project-tree-file-icon::before {
+.file-tree-disclosure::before,
+.file-tree-folder-icon::before,
+.file-tree-file-icon::before {
   font: normal normal normal 16px/1 codicon;
   text-align: center;
   -webkit-font-smoothing: antialiased;
 }
 
-.project-tree-disclosure::before {
+.file-tree-disclosure::before {
   content: "\eab6";
 }
 
-.project-tree-directory[open] > summary .project-tree-disclosure::before {
+.file-tree-directory[open] > summary .file-tree-disclosure::before {
   content: "\eab4";
 }
 
-.project-tree-folder-icon::before {
+.file-tree-folder-icon::before {
   content: "\ea83";
 }
 
-.project-tree-directory[open] > summary .project-tree-folder-icon::before {
+.file-tree-directory[open] > summary .file-tree-folder-icon::before {
   content: "\eaf7";
 }
 
-.project-tree-file-icon::before {
+.file-tree-file-icon::before {
   content: "\ea7b";
 }
 
-/* What Git says about a row is an attribute the row wears (project-tree.tsx),
+/* What Git says about a row is an attribute the row wears (file-tree.tsx),
    so its color and its badge are selected on that attribute rather than on a
    class a utility could be. */
-.project-tree-row[data-git-decoration="added"],
-.project-tree-row[data-git-decoration="intent-to-add"] {
-  --project-tree-git-foreground: var(--git-added-foreground);
+.file-tree-row[data-git-decoration="added"],
+.file-tree-row[data-git-decoration="intent-to-add"] {
+  --file-tree-git-foreground: var(--git-added-foreground);
 }
 
-.project-tree-row[data-git-decoration="modified"],
-.project-tree-row[data-git-decoration="type-changed"] {
-  --project-tree-git-foreground: var(--git-modified-foreground);
+.file-tree-row[data-git-decoration="modified"],
+.file-tree-row[data-git-decoration="type-changed"] {
+  --file-tree-git-foreground: var(--git-modified-foreground);
 }
 
-.project-tree-row[data-git-decoration="deleted"] {
-  --project-tree-git-foreground: var(--git-deleted-foreground);
+.file-tree-row[data-git-decoration="deleted"] {
+  --file-tree-git-foreground: var(--git-deleted-foreground);
 }
 
-.project-tree-row[data-git-decoration="copied"],
-.project-tree-row[data-git-decoration="intent-to-rename"],
-.project-tree-row[data-git-decoration="renamed"] {
-  --project-tree-git-foreground: var(--git-renamed-foreground);
+.file-tree-row[data-git-decoration="copied"],
+.file-tree-row[data-git-decoration="intent-to-rename"],
+.file-tree-row[data-git-decoration="renamed"] {
+  --file-tree-git-foreground: var(--git-renamed-foreground);
 }
 
-.project-tree-row[data-git-decoration="untracked"] {
-  --project-tree-git-foreground: var(--git-untracked-foreground);
+.file-tree-row[data-git-decoration="untracked"] {
+  --file-tree-git-foreground: var(--git-untracked-foreground);
 }
 
-.project-tree-row[data-git-decoration="ignored"] {
-  --project-tree-git-foreground: var(--git-ignored-foreground);
+.file-tree-row[data-git-decoration="ignored"] {
+  --file-tree-git-foreground: var(--git-ignored-foreground);
 }
 
-.project-tree-row[data-git-decoration="staged-modified"] {
-  --project-tree-git-foreground: var(--git-stage-modified-foreground);
+.file-tree-row[data-git-decoration="staged-modified"] {
+  --file-tree-git-foreground: var(--git-stage-modified-foreground);
 }
 
-.project-tree-row[data-git-decoration="staged-deleted"] {
-  --project-tree-git-foreground: var(--git-stage-deleted-foreground);
+.file-tree-row[data-git-decoration="staged-deleted"] {
+  --file-tree-git-foreground: var(--git-stage-deleted-foreground);
 }
 
-.project-tree-row[data-git-decoration="conflicting"] {
-  --project-tree-git-foreground: var(--git-conflicting-foreground);
+.file-tree-row[data-git-decoration="conflicting"] {
+  --file-tree-git-foreground: var(--git-conflicting-foreground);
 }
 
-.project-tree-row[data-git-decoration="submodule"] {
-  --project-tree-git-foreground: var(--git-submodule-foreground);
+.file-tree-row[data-git-decoration="submodule"] {
+  --file-tree-git-foreground: var(--git-submodule-foreground);
 }
 
-.project-tree-row[data-git-decoration] .project-tree-name {
-  color: var(--project-tree-git-foreground);
+.file-tree-row[data-git-decoration] .file-tree-name {
+  color: var(--file-tree-git-foreground);
 }
 
-.project-tree-row[data-git-decoration-badge]::after,
-.project-tree-row[data-git-decoration-bubble]::after {
+.file-tree-row[data-git-decoration-badge]::after,
+.file-tree-row[data-git-decoration-bubble]::after {
   flex: none;
   margin-left: auto;
-  color: var(--project-tree-git-foreground);
+  color: var(--file-tree-git-foreground);
 }
 
-.project-tree-row[data-git-decoration-badge]::after {
+.file-tree-row[data-git-decoration-badge]::after {
   content: attr(data-git-decoration-badge);
 }
 
 /* Propagated child decorations use VS Code's generic ancestor bubble. */
-.project-tree-row[data-git-decoration-bubble]::after {
+.file-tree-row[data-git-decoration-bubble]::after {
   margin-right: 6px;
   content: "\ea71";
   font: normal normal normal 14px/1 codicon;

@@ -26,9 +26,9 @@ export type ReadFileResult =
   | { resolvedPath: string; content: string }
   | { error: string };
 
-// A live project can derive its workspace root from a terminal or its first
-// file. A restored project already knows the root and asks for it directly.
-export type ReadProjectTreeRequest = {
+// A live editor can derive its workspace root from a terminal or its first
+// file. A restored editor already knows the root and asks for it directly.
+export type ReadFileTreeRequest = {
   baseTabId?: number;
   workspaceRootPath?: string;
   filePath?: string;
@@ -36,15 +36,15 @@ export type ReadProjectTreeRequest = {
   workspaceRelativeDirectoryPath?: string;
 };
 
-export type ProjectTreeEntry =
+export type FileTreeEntry =
   | { kind: "directory"; path: string }
   | { kind: "file"; path: string; absolutePath: string };
 
-export type ReadProjectTreeResult =
+export type ReadFileTreeResult =
   | {
       workspaceRootPath: string;
       name: string;
-      entries: ProjectTreeEntry[];
+      entries: FileTreeEntry[];
     }
   | { error: string };
 
@@ -66,58 +66,58 @@ const gitDecorationStatusSchema = z.enum([
 ]);
 export type GitDecorationStatus = z.infer<typeof gitDecorationStatusSchema>;
 
-const projectTreeGitDecorationSchema = z.object({
+const fileTreeGitDecorationSchema = z.object({
   path: z.string(),
   status: gitDecorationStatusSchema,
 });
-export type ProjectTreeGitDecoration = z.infer<
-  typeof projectTreeGitDecorationSchema
+export type FileTreeGitDecoration = z.infer<
+  typeof fileTreeGitDecorationSchema
 >;
 
-export const readProjectTreeGitDecorationsRequestSchema = z.object({
+export const readFileTreeGitDecorationsRequestSchema = z.object({
   workspaceRootPath: z.string(),
 });
-export type ReadProjectTreeGitDecorationsRequest = z.infer<
-  typeof readProjectTreeGitDecorationsRequestSchema
+export type ReadFileTreeGitDecorationsRequest = z.infer<
+  typeof readFileTreeGitDecorationsRequestSchema
 >;
 
-export const readProjectTreeGitDecorationsResultSchema = z.object({
+export const readFileTreeGitDecorationsResultSchema = z.object({
   workspaceRootPath: z.string(),
-  decorations: z.array(projectTreeGitDecorationSchema),
+  decorations: z.array(fileTreeGitDecorationSchema),
 });
-export type ReadProjectTreeGitDecorationsResult = z.infer<
-  typeof readProjectTreeGitDecorationsResultSchema
+export type ReadFileTreeGitDecorationsResult = z.infer<
+  typeof readFileTreeGitDecorationsResultSchema
 >;
 
-export const watchProjectTreeRequestSchema = z.object({
+export const watchFileTreeRequestSchema = z.object({
   workspaceRootPath: z.string(),
 });
-export type WatchProjectTreeRequest = z.infer<
-  typeof watchProjectTreeRequestSchema
+export type WatchFileTreeRequest = z.infer<
+  typeof watchFileTreeRequestSchema
 >;
 
-export const watchProjectTreeResultSchema = z.union([
+export const watchFileTreeResultSchema = z.union([
   z.object({ watcherId: z.number().int() }),
   z.object({ error: z.string() }),
 ]);
-export type WatchProjectTreeResult = z.infer<
-  typeof watchProjectTreeResultSchema
+export type WatchFileTreeResult = z.infer<
+  typeof watchFileTreeResultSchema
 >;
 
-export const unwatchProjectTreeRequestSchema = z.object({
+export const unwatchFileTreeRequestSchema = z.object({
   watcherId: z.number().int(),
 });
-export type UnwatchProjectTreeRequest = z.infer<
-  typeof unwatchProjectTreeRequestSchema
+export type UnwatchFileTreeRequest = z.infer<
+  typeof unwatchFileTreeRequestSchema
 >;
 
-export const projectTreeChangeMessageSchema = z.object({
+export const fileTreeChangeMessageSchema = z.object({
   watcherId: z.number().int(),
   paths: z.array(z.string()).nullable(),
   stopped: z.boolean().optional(),
 });
-export type ProjectTreeChangeMessage = z.infer<
-  typeof projectTreeChangeMessageSchema
+export type FileTreeChangeMessage = z.infer<
+  typeof fileTreeChangeMessageSchema
 >;
 
 export type Bridge = {
@@ -138,15 +138,15 @@ export type Bridge = {
   closeWorkspace: (id: number) => void;
   // request/response pairs on the cable (ipcRenderer.invoke)
   readFile: (request: ReadFileRequest) => Promise<ReadFileResult>;
-  readProjectTree: (
-    request: ReadProjectTreeRequest,
-  ) => Promise<ReadProjectTreeResult>;
-  readProjectTreeGitDecorations: (
-    request: ReadProjectTreeGitDecorationsRequest,
+  readFileTree: (
+    request: ReadFileTreeRequest,
+  ) => Promise<ReadFileTreeResult>;
+  readFileTreeGitDecorations: (
+    request: ReadFileTreeGitDecorationsRequest,
   ) => Promise<unknown>;
-  watchProjectTree: (request: WatchProjectTreeRequest) => Promise<unknown>;
-  unwatchProjectTree: (request: UnwatchProjectTreeRequest) => void;
-  onProjectTreeChanged: (callback: (message: unknown) => void) => void;
+  watchFileTree: (request: WatchFileTreeRequest) => Promise<unknown>;
+  unwatchFileTree: (request: UnwatchFileTreeRequest) => void;
+  onFileTreeChanged: (callback: (message: unknown) => void) => void;
   // the session the last run left behind, if there is one to rebuild
   readSession: () => Promise<Session | null>;
 };

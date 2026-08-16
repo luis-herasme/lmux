@@ -137,5 +137,5 @@ export const DEFAULT_SETTINGS = {
   markdownFontFamily: "system-ui",
   markdownFontSize: 14,
   sidebarWidth: 160,
-  projectWidth: 520,
+  editorWidth: 520,
 } satisfies Settings & { theme: ThemeName };

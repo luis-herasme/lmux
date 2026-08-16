@@ -15,7 +15,7 @@ import {
   FIXTURE_PATH,
   SOURCE_FILE_PATH,
   countTabs,
-  findProjectInfo,
+  findEditorInfo,
   findWorkspace,
   openWorkspace,
 } from "./shared.ts";
@@ -57,19 +57,19 @@ async function visibleStripAlignment(): Promise<
     };
     return {
       stripBottom: bottomOf(".dv-tabs-and-actions-container"),
-      headerBottom: bottomOf(".project-header"),
+      headerBottom: bottomOf(".editor-header"),
     };
   })()`);
   return stripAlignmentSchema.parse(probed);
 }
 
-// One panel per workspace lives in the host, and only the active
+// One editor per workspace lives in the host, and only the active
 // workspace's, while it is open, is the one on screen.
-async function visibleProjectPanelCount(): Promise<number> {
+async function visibleEditorCount(): Promise<number> {
   const probed = await lmuxWindow.webContents.executeJavaScript(`(() => {
     let visible = 0;
-    for (const panelElement of document.querySelectorAll(".project-panel")) {
-      if (panelElement.offsetParent !== null) {
+    for (const editorElement of document.querySelectorAll(".editor")) {
+      if (editorElement.offsetParent !== null) {
         visible += 1;
       }
     }
@@ -78,7 +78,7 @@ async function visibleProjectPanelCount(): Promise<number> {
   return z.number().parse(probed);
 }
 
-const projectMarkdownViewSchema = z.object({
+const editorMarkdownViewSchema = z.object({
   toolbarVisible: z.boolean(),
   editorVisible: z.boolean(),
   renderedVisible: z.boolean(),
@@ -86,34 +86,34 @@ const projectMarkdownViewSchema = z.object({
   buttonLabel: z.string().nullable(),
 });
 
-type ProjectMarkdownView = z.infer<typeof projectMarkdownViewSchema>;
+type EditorMarkdownView = z.infer<typeof editorMarkdownViewSchema>;
 
-// The visible project pane's two faces: which one shows, what the toolbar
+// The visible editor pane's two faces: which one shows, what the toolbar
 // button offers, and the rendered document's first heading if it is up.
-async function visibleProjectMarkdownView(): Promise<ProjectMarkdownView> {
+async function visibleEditorMarkdownView(): Promise<EditorMarkdownView> {
   const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
-    for (const paneElement of document.querySelectorAll(".project-pane")) {
+    for (const paneElement of document.querySelectorAll(".editor-body")) {
       if (paneElement.offsetParent === null) {
         continue;
       }
       const toolbarElement = paneElement.querySelector(
-        ".project-markdown-toolbar",
+        ".editor-markdown-toolbar",
       );
       const buttonElement = toolbarElement === null
         ? null
         : toolbarElement.querySelector(".markdown-action");
       const headingElement = paneElement.querySelector(
-        ".project-markdown .markdown-view h1",
+        ".editor-markdown .markdown-view h1",
       );
       return {
         toolbarVisible:
           toolbarElement !== null &&
           !toolbarElement.classList.contains("hidden"),
         editorVisible: !paneElement
-          .querySelector(".project-editor")
+          .querySelector(".editor-source")
           .classList.contains("hidden"),
         renderedVisible: !paneElement
-          .querySelector(".project-markdown")
+          .querySelector(".editor-markdown")
           .classList.contains("hidden"),
         renderedHeading:
           headingElement === null ? null : headingElement.textContent,
@@ -123,12 +123,12 @@ async function visibleProjectMarkdownView(): Promise<ProjectMarkdownView> {
     }
     return null;
   })()`);
-  return projectMarkdownViewSchema.parse(result);
+  return editorMarkdownViewSchema.parse(result);
 }
 
-export const projectPanel = describe("the project panel", () => {
+export const editor = describe("the editor", () => {
   busTest({
-    name: "a code file opens inside the workspace project panel",
+    name: "a code file opens inside the workspace editor",
     body: async () => {
       const tabCount = countTabs(lmuxState);
       sendCommand({
@@ -142,20 +142,20 @@ export const projectPanel = describe("the project panel", () => {
       if (opened.type !== "file-opened") {
         throw new Error(`the file arrived as a ${opened.type}`);
       }
-      const project = findProjectInfo({
+      const editor = findEditorInfo({
         state: opened.state,
         id: opened.id,
       });
-      if (project === undefined) {
-        throw new Error("open-file created no project panel");
+      if (editor === undefined) {
+        throw new Error("open-file created no editor");
       }
-      // the panel is not a tab, so nothing joined the strip
+      // the editor is not a tab, so nothing joined the strip
       assert.equal(countTabs(opened.state), tabCount);
       assert.equal(
-        project.name,
+        editor.name,
         path.basename(realpathSync(path.join(import.meta.dirname, "../.."))),
       );
-      assert.equal(project.filePath, SOURCE_FILE_PATH);
+      assert.equal(editor.filePath, SOURCE_FILE_PATH);
 
       // A language's grammar is imported the first time it is needed, so the
       // first paint carries no colours at all.
@@ -175,7 +175,7 @@ export const projectPanel = describe("the project panel", () => {
   });
 
   busTest({
-    name: "the project panel's header ends where the tab strip does",
+    name: "the editor's header ends where the tab strip does",
     body: async () => {
       const alignment = await visibleStripAlignment();
       assert.ok(alignment.stripBottom > 0, "no tab strip was on screen");
@@ -184,68 +184,68 @@ export const projectPanel = describe("the project panel", () => {
   });
 
   busTest({
-    name: "hiding the project panel keeps its file and hands back the window",
+    name: "hiding the editor keeps its file and hands back the window",
     body: async () => {
-      const panelWorkspace = await openWorkspace();
+      const editorWorkspace = await openWorkspace();
       try {
         sendCommand({
           type: "open-file",
           path: SOURCE_FILE_PATH,
         });
         const opened = await waitForEvent(
-          (event) => event.type === "project-opened",
+          (event) => event.type === "editor-shown",
         );
-        if (opened.type !== "project-opened") {
-          throw new Error(`the panel arrived as a ${opened.type}`);
+        if (opened.type !== "editor-shown") {
+          throw new Error(`the editor arrived as a ${opened.type}`);
         }
-        assert.equal(await visibleProjectPanelCount(), 1);
+        assert.equal(await visibleEditorCount(), 1);
         assert.equal(
           findWorkspace({
             state: opened.state,
-            id: panelWorkspace.id,
+            id: editorWorkspace.id,
           })?.focus,
-          "project",
+          "editor",
         );
 
-        sendCommand({ type: "close-project" });
+        sendCommand({ type: "hide-editor" });
         const closed = await waitForEvent(
-          (event) => event.type === "project-closed",
+          (event) => event.type === "editor-hidden",
         );
-        const hiddenProject = findProjectInfo({
+        const hiddenEditor = findEditorInfo({
           state: closed.state,
           id: opened.id,
         });
-        assert.equal(hiddenProject?.visible, false);
-        assert.equal(hiddenProject?.filePath, SOURCE_FILE_PATH);
+        assert.equal(hiddenEditor?.visible, false);
+        assert.equal(hiddenEditor?.filePath, SOURCE_FILE_PATH);
         assert.equal(
           findWorkspace({
             state: closed.state,
-            id: panelWorkspace.id,
+            id: editorWorkspace.id,
           })?.focus,
-          "layout",
+          "panes",
         );
-        assert.equal(await visibleProjectPanelCount(), 0);
+        assert.equal(await visibleEditorCount(), 0);
 
-        sendCommand({ type: "open-project" });
+        sendCommand({ type: "show-editor" });
         const reopened = await waitForEvent(
-          (event) => event.type === "project-opened",
+          (event) => event.type === "editor-shown",
         );
-        const shownProject = findProjectInfo({
+        const shownEditor = findEditorInfo({
           state: reopened.state,
           id: opened.id,
         });
-        assert.equal(shownProject?.visible, true);
-        assert.equal(shownProject?.filePath, SOURCE_FILE_PATH);
-        assert.equal(await visibleProjectPanelCount(), 1);
+        assert.equal(shownEditor?.visible, true);
+        assert.equal(shownEditor?.filePath, SOURCE_FILE_PATH);
+        assert.equal(await visibleEditorCount(), 1);
       } finally {
         const workspaceClosed = waitForEvent(
           (event) =>
             event.type === "workspace-closed" &&
-            event.id === panelWorkspace.id,
+            event.id === editorWorkspace.id,
         );
         sendCommand({
           type: "close-workspace",
-          id: panelWorkspace.id,
+          id: editorWorkspace.id,
         });
         await workspaceClosed;
       }
@@ -253,9 +253,9 @@ export const projectPanel = describe("the project panel", () => {
   });
 
   busTest({
-    name: "a markdown file in the project panel can swap to its rendering",
+    name: "a markdown file in the editor can swap to its rendering",
     body: async () => {
-      // realpath like SOURCE_FILE_PATH: the panel holds the resolved path,
+      // realpath like SOURCE_FILE_PATH: the editor holds the resolved path,
       // and the Event carries it
       const documentPath = realpathSync(FIXTURE_PATH);
       sendCommand({
@@ -267,13 +267,13 @@ export const projectPanel = describe("the project panel", () => {
           event.type === "file-opened" && event.path === documentPath,
       );
 
-      const source = await visibleProjectMarkdownView();
+      const source = await visibleEditorMarkdownView();
       assert.equal(source.toolbarVisible, true, "the toolbar did not surface");
       assert.equal(source.editorVisible, true);
       assert.equal(source.renderedVisible, false);
       assert.equal(source.buttonLabel, "Rendered");
 
-      // no projectTabId and no path: the workspace's one panel is meant, and
+      // no editorId and no path: the workspace's one editor is meant, and
       // the visible file is the one just opened
       sendCommand({
         type: "set-file-markdown-mode",
@@ -285,7 +285,7 @@ export const projectPanel = describe("the project panel", () => {
           event.path === documentPath,
       );
 
-      const rendered = await visibleProjectMarkdownView();
+      const rendered = await visibleEditorMarkdownView();
       assert.equal(rendered.editorVisible, false, "the editor stayed up");
       assert.equal(rendered.renderedVisible, true);
       assert.equal(
@@ -305,7 +305,7 @@ export const projectPanel = describe("the project panel", () => {
           event.path === documentPath,
       );
 
-      const back = await visibleProjectMarkdownView();
+      const back = await visibleEditorMarkdownView();
       assert.equal(back.editorVisible, true, "the editor did not come back");
       assert.equal(back.renderedVisible, false);
       assert.equal(back.buttonLabel, "Rendered");
@@ -319,7 +319,7 @@ export const projectPanel = describe("the project panel", () => {
         (event) =>
           event.type === "file-opened" && event.path === SOURCE_FILE_PATH,
       );
-      const code = await visibleProjectMarkdownView();
+      const code = await visibleEditorMarkdownView();
       assert.equal(code.toolbarVisible, false, "the toolbar outlived markdown");
     },
   });
