@@ -64,7 +64,7 @@ const MAX_LINE_LENGTH = 4096;
 
 // Which kind of tab a path should open. Decided here, where the extensions
 // are, rather than by the caller reading the path a second time.
-export type LinkedFileKind = "markdown" | "code";
+type LinkedFileKind = "markdown" | "code";
 
 export type TerminalLinkMatch = {
   kind: "url" | "file";

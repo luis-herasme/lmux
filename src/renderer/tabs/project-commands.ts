@@ -24,7 +24,7 @@ import type { Command } from "../../api.ts";
 // A projectTabId names one workspace's panel, wherever that workspace is;
 // without one the active workspace's panel is meant. A panel that has never
 // been opened does not exist yet, and the command bails.
-export function resolveProject(
+function resolveProject(
   projectTabId: number | undefined,
 ): ProjectPanel | undefined {
   if (projectTabId === undefined) {

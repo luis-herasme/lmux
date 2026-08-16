@@ -48,7 +48,7 @@ export type ReadProjectTreeResult =
     }
   | { error: string };
 
-export const gitDecorationStatusSchema = z.enum([
+const gitDecorationStatusSchema = z.enum([
   "added",
   "conflicting",
   "copied",
@@ -66,7 +66,7 @@ export const gitDecorationStatusSchema = z.enum([
 ]);
 export type GitDecorationStatus = z.infer<typeof gitDecorationStatusSchema>;
 
-export const projectTreeGitDecorationSchema = z.object({
+const projectTreeGitDecorationSchema = z.object({
   path: z.string(),
   status: gitDecorationStatusSchema,
 });

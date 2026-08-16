@@ -126,7 +126,7 @@ export const THEMES = {
   },
 } satisfies Record<string, Theme>;
 
-export type ThemeName = keyof typeof THEMES;
+type ThemeName = keyof typeof THEMES;
 
 // defaults only: the current values live in renderer/settings.ts
 export const DEFAULT_SETTINGS = {
