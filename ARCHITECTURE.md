@@ -989,6 +989,9 @@ change it and update this list.
   kind is now one call that allocates its own id, with `addPanel` building
   the strip row every tab wears, and `focusWorkspace` moved to
   `workspaces.ts`, where the `focus` field it reads already lived.
+  (Amended 2026-08-16: a command family now sits beside the module it
+  mutates rather than beside the dispatcher, leaving `tabs/` to the tab
+  store, the tab family and the tab kinds.)
 - **Oxlint runs anti-slop, vendored and trimmed to twelve rules.** (Decided
   2026-08-16.) The repo had no linter; `npm run check` was `tsc --noEmit`
   alone. anti-slop (github.com/dmmulroy/anti-slop) is a set of opinionated

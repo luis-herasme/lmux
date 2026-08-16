@@ -1,8 +1,8 @@
 // Every Command about a workspace itself: opening one, closing one,
 // bringing one forward, naming one.
-import { bridge } from "../bridge.ts";
-import { openTerminalTab } from "./terminal-tab.ts";
-import { snapshot } from "../snapshot.ts";
+import { bridge } from "./bridge.ts";
+import { openTerminalTab } from "./tabs/terminal-tab.ts";
+import { snapshot } from "./snapshot.ts";
 import {
   activateWorkspace,
   activeWorkspace,
@@ -12,8 +12,8 @@ import {
   resolveWorkspace,
   setWorkspaceName,
   workspaces,
-} from "../workspaces.ts";
-import type { Command } from "../../api.ts";
+} from "./workspaces.ts";
+import type { Command } from "../api.ts";
 
 export function executeWorkspaceCommand(command: Command): void {
   switch (command.type) {

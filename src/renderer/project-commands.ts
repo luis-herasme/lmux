@@ -1,6 +1,6 @@
 // Every Command about a workspace's project panel: showing it, hiding it,
 // rooting it somewhere else, and the one file it holds.
-import { bridge } from "../bridge.ts";
+import { bridge } from "./bridge.ts";
 import {
   changeProjectWorkspaceRoot,
   closeProjectFile,
@@ -8,18 +8,18 @@ import {
   focusProjectPanel,
   openProjectFile,
   setProjectFileMarkdownMode,
-} from "../project-panel.ts";
-import type { ProjectPanel } from "../project-panel.ts";
-import { snapshot } from "../snapshot.ts";
+} from "./project-panel.ts";
+import type { ProjectPanel } from "./project-panel.ts";
+import { snapshot } from "./snapshot.ts";
 import {
   activeWorkspace,
   focusWorkspace,
   refreshProjectPanel,
   resolveWorkspace,
   workspaces,
-} from "../workspaces.ts";
-import type { Workspace } from "../workspaces.ts";
-import type { Command } from "../../api.ts";
+} from "./workspaces.ts";
+import type { Workspace } from "./workspaces.ts";
+import type { Command } from "../api.ts";
 
 // A projectTabId names one workspace's panel, wherever that workspace is;
 // without one the active workspace's panel is meant. A panel that has never

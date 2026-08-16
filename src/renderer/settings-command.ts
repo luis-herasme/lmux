@@ -1,15 +1,15 @@
 // The one Command that touches everything at once: new settings have to
 // reach every terminal, every document and every project panel, in every
 // workspace, on screen or not.
-import { bridge } from "../bridge.ts";
-import { getSettings, updateSettings } from "../settings.ts";
-import { refreshCodeTheme } from "../monaco.ts";
-import { showProjectFile } from "../project-panel.ts";
-import { redrawMarkdown } from "./markdown-tab.tsx";
-import { refreshTerminalTabSettings } from "./terminal-tab.ts";
-import { snapshot } from "../snapshot.ts";
-import { activeWorkspace, workspaces } from "../workspaces.ts";
-import type { Settings } from "../../api.ts";
+import { bridge } from "./bridge.ts";
+import { getSettings, updateSettings } from "./settings.ts";
+import { refreshCodeTheme } from "./monaco.ts";
+import { showProjectFile } from "./project-panel.ts";
+import { redrawMarkdown } from "./tabs/markdown-tab.tsx";
+import { refreshTerminalTabSettings } from "./tabs/terminal-tab.ts";
+import { snapshot } from "./snapshot.ts";
+import { activeWorkspace, workspaces } from "./workspaces.ts";
+import type { Settings } from "../api.ts";
 
 export function applySettings(partial: Partial<Settings>): void {
   const previous = getSettings();
