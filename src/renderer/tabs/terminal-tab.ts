@@ -2,11 +2,11 @@ import { currentTheme, getSettings } from "../settings.ts";
 import { bridge } from "../bridge.ts";
 import { executeCommand } from "./index.ts";
 import { registerTerminalLinks } from "./links.ts";
+import { snapshot } from "../snapshot.ts";
 import {
   activeWorkspace,
   addPanel,
   nextTabId,
-  snapshot,
 } from "../workspaces.ts";
 import type { TabRow } from "../tab-strip.tsx";
 import type { Workspace } from "../workspaces.ts";

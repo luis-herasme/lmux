@@ -27,7 +27,8 @@ import {
 import type { ProjectTreeWatcher } from "./project-tree-watcher.ts";
 import { renderMarkdown } from "./tabs/markdown.ts";
 import { executeCommand } from "./tabs/index.ts";
-import { nextTabId, snapshot } from "./workspaces.ts";
+import { snapshot } from "./snapshot.ts";
+import { nextTabId } from "./workspaces.ts";
 import { requireElement } from "./dom.ts";
 import type { MarkdownMode } from "../api.ts";
 import type { editor as monacoEditor } from "monaco-editor";
@@ -417,9 +418,11 @@ export function focusProjectPanel(panel: ProjectPanel): void {
 // Only a closing workspace disposes its panel; hiding one keeps its file
 // open behind it.
 export function disposeProjectPanel(panel: ProjectPanel): void {
+  panel.latestFileRequest += 1;
   panel.latestTreeRequest += 1;
   panel.latestGitRequest += 1;
   stopProjectTreeWatcher(panel);
+  panel.projectTree = undefined;
   panel.file?.model?.dispose();
   panel.editor?.dispose();
   panel.root.unmount();

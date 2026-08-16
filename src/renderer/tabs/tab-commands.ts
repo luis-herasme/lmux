@@ -10,12 +10,12 @@ import {
 } from "./markdown-tab.tsx";
 import { openTerminalTab } from "./terminal-tab.ts";
 import { drawTabRow } from "../tab-strip.tsx";
+import { snapshot } from "../snapshot.ts";
 import {
   activeWorkspace,
   findGroup,
   findTab,
   refreshWorkspaceName,
-  snapshot,
 } from "../workspaces.ts";
 import type { Workspace } from "../workspaces.ts";
 import type { Command } from "../../api.ts";

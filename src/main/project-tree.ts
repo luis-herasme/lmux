@@ -6,6 +6,11 @@ import type { WebContents } from "electron";
 import { opendir, realpath } from "fs/promises";
 import * as path from "path";
 import { resolveFilePath } from "./files.ts";
+import {
+  addSubmoduleDecorations,
+  gitDecorationsFromStatusOutput,
+  normalizedGitPath,
+} from "./git-decorations.ts";
 import { getShellCwd } from "./shells.ts";
 import {
   readProjectTreeGitDecorationsRequestSchema,
@@ -13,7 +18,6 @@ import {
   watchProjectTreeRequestSchema,
 } from "../ipc/bridge.ts";
 import type {
-  GitDecorationStatus,
   ProjectTreeEntry,
   ProjectTreeGitDecoration,
   ProjectTreeChangeMessage,
@@ -28,45 +32,9 @@ const GIT_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
 const PROJECT_TREE_WATCH_DEBOUNCE_MS = 200;
 const PROJECT_TREE_WATCH_PATH_LIMIT = 1_000;
 
-const CONFLICTING_GIT_STATUS_PAIRS = new Set([
-  "DD",
-  "AU",
-  "UD",
-  "UA",
-  "DU",
-  "AA",
-  "UU",
-]);
-
-const STAGED_DECORATIONS = new Map<string, GitDecorationStatus>([
-  ["M", "staged-modified"],
-  ["A", "added"],
-  ["D", "staged-deleted"],
-  ["R", "renamed"],
-  ["C", "copied"],
-]);
-
-const WORKING_TREE_DECORATIONS = new Map<string, GitDecorationStatus>([
-  ["M", "modified"],
-  ["A", "intent-to-add"],
-  ["D", "deleted"],
-  ["R", "intent-to-rename"],
-  ["T", "type-changed"],
-]);
-
 type RunGitOptions = {
   directoryPath: string;
   arguments: string[];
-};
-
-type GitStatusColumns = {
-  indexStatus: string;
-  workingTreeStatus: string;
-};
-
-type AddSubmoduleDecorationsOptions = {
-  output: string;
-  decorations: Map<string, GitDecorationStatus>;
 };
 
 type ActiveProjectTreeWatcher = {
@@ -133,98 +101,6 @@ function pathIsInside({
     return false;
   }
   return !path.isAbsolute(relativePath);
-}
-
-function normalizedGitPath(gitPath: string): string {
-  let normalizedPath = gitPath.split(path.sep).join("/");
-  while (normalizedPath.endsWith("/")) {
-    normalizedPath = normalizedPath.slice(0, -1);
-  }
-  return normalizedPath;
-}
-
-function decorationForGitStatus({
-  indexStatus,
-  workingTreeStatus,
-}: GitStatusColumns): GitDecorationStatus | undefined {
-  if (CONFLICTING_GIT_STATUS_PAIRS.has(`${indexStatus}${workingTreeStatus}`)) {
-    return "conflicting";
-  }
-  if (indexStatus === "?" && workingTreeStatus === "?") {
-    return "untracked";
-  }
-  if (indexStatus === "!" && workingTreeStatus === "!") {
-    return "ignored";
-  }
-  const workingTreeDecoration = WORKING_TREE_DECORATIONS.get(workingTreeStatus);
-  if (workingTreeDecoration !== undefined) {
-    return workingTreeDecoration;
-  }
-  return STAGED_DECORATIONS.get(indexStatus);
-}
-
-function gitDecorationsFromStatusOutput(
-  output: string,
-): Map<string, GitDecorationStatus> {
-  const decorations = new Map<string, GitDecorationStatus>();
-  let position = 0;
-  while (position < output.length) {
-    if (position + 3 > output.length) {
-      break;
-    }
-    const indexStatus = output[position];
-    const workingTreeStatus = output[position + 1];
-    position += 3;
-    const pathEnd = output.indexOf("\0", position);
-    if (pathEnd < 0) {
-      break;
-    }
-    const filePath = normalizedGitPath(output.slice(position, pathEnd));
-    position = pathEnd + 1;
-
-    if (
-      indexStatus === "R" ||
-      indexStatus === "C" ||
-      workingTreeStatus === "R" ||
-      workingTreeStatus === "C"
-    ) {
-      const originalPathEnd = output.indexOf("\0", position);
-      if (originalPathEnd < 0) {
-        break;
-      }
-      position = originalPathEnd + 1;
-    }
-
-    const status = decorationForGitStatus({
-      indexStatus,
-      workingTreeStatus,
-    });
-    if (status === undefined || filePath.length === 0) {
-      continue;
-    }
-    decorations.set(filePath, status);
-  }
-  return decorations;
-}
-
-function addSubmoduleDecorations({
-  output,
-  decorations,
-}: AddSubmoduleDecorationsOptions): void {
-  for (const record of output.split("\0")) {
-    if (!record.startsWith("160000 ")) {
-      continue;
-    }
-    const separatorPosition = record.indexOf("\t");
-    if (separatorPosition < 0) {
-      continue;
-    }
-    const filePath = normalizedGitPath(record.slice(separatorPosition + 1));
-    if (filePath.length === 0) {
-      continue;
-    }
-    decorations.set(filePath, "submodule");
-  }
 }
 
 async function readGitDecorations(

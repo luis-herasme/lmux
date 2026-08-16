@@ -17,6 +17,7 @@ import { projectFiles } from "./project-files.ts";
 import { busRefusals } from "./refusals.ts";
 import { mcpSocket } from "./mcp-socket.ts";
 import { linkMatching } from "./terminal-links.ts";
+import { gitStatusParsing } from "./git-decorations.ts";
 
 await commandBus;
 await markdownDocuments;
@@ -26,4 +27,5 @@ await projectFiles;
 await busRefusals;
 await mcpSocket;
 await linkMatching;
+await gitStatusParsing;
 endRun();

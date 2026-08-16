@@ -15,6 +15,7 @@ import { openMarkdownTab } from "./markdown-tab.tsx";
 import type { MarkdownTab } from "./markdown-tab.tsx";
 import { openTerminalTab, readTerminalScreen } from "./terminal-tab.ts";
 import type { TerminalTab } from "./terminal-tab.ts";
+import { snapshot } from "../snapshot.ts";
 import {
   activateWorkspace,
   createWorkspace,
@@ -22,7 +23,6 @@ import {
   refreshProjectPanel,
   refreshWorkspaceName,
   setWorkspaceName,
-  snapshot,
 } from "../workspaces.ts";
 import type { Workspace } from "../workspaces.ts";
 import type { Command, ScreenRequest, ScreenResult } from "../../api.ts";

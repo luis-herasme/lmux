@@ -7,7 +7,8 @@ import { refreshCodeTheme } from "../code.ts";
 import { showProjectFile } from "../project-panel.ts";
 import { redrawMarkdown } from "./markdown-tab.tsx";
 import { refreshTerminalTabSettings } from "./terminal-tab.ts";
-import { activeWorkspace, snapshot, workspaces } from "../workspaces.ts";
+import { snapshot } from "../snapshot.ts";
+import { activeWorkspace, workspaces } from "../workspaces.ts";
 import type { Settings } from "../../api.ts";
 
 export function applySettings(partial: Partial<Settings>): void {
