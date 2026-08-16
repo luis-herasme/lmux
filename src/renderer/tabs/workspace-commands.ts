@@ -2,6 +2,7 @@
 // bringing one forward, naming one.
 import { bridge } from "../bridge.ts";
 import { openTerminalTab } from "./terminal-tab.ts";
+import { snapshot } from "../snapshot.ts";
 import {
   activateWorkspace,
   activeWorkspace,
@@ -10,7 +11,6 @@ import {
   removeWorkspace,
   resolveWorkspace,
   setWorkspaceName,
-  snapshot,
   workspaces,
 } from "../workspaces.ts";
 import type { Command } from "../../api.ts";

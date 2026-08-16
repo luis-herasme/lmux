@@ -10,12 +10,12 @@ import {
   setProjectFileMarkdownMode,
 } from "../project-panel.ts";
 import type { ProjectPanel } from "../project-panel.ts";
+import { snapshot } from "../snapshot.ts";
 import {
   activeWorkspace,
   focusWorkspace,
   refreshProjectPanel,
   resolveWorkspace,
-  snapshot,
   workspaces,
 } from "../workspaces.ts";
 import type { Workspace } from "../workspaces.ts";

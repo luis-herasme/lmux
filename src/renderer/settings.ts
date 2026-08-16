@@ -28,7 +28,9 @@ export const MAX_FONT_SIZE_PX = 32;
 const themesByName: Record<string, Theme> = THEMES;
 
 // Corrected, not rejected: a field that fails its checks catches to default.
-const settingsSchema = z
+// Bound to the wire Settings type, so a field added to api.ts without a
+// correction here is a compile error rather than a silent drift.
+const settingsSchema: z.ZodType<Settings> = z
   .object({
     theme: z
       .string()
