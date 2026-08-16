@@ -10,8 +10,8 @@ import { createRoot } from "react-dom/client";
 import type { RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { bridge } from "./bridge.ts";
-import { createCodeEditor, languageForPath, loadMonaco } from "./code.ts";
-import type { Monaco } from "./code.ts";
+import { createCodeEditor, languageForPath, loadMonaco } from "./monaco.ts";
+import type { Monaco } from "./monaco.ts";
 import type {
   ReadProjectTreeRequest,
   ReadProjectTreeResult,
@@ -25,7 +25,7 @@ import {
   stopProjectTreeWatcher,
 } from "./project-tree-watcher.ts";
 import type { ProjectTreeWatcher } from "./project-tree-watcher.ts";
-import { renderMarkdown } from "./tabs/markdown.ts";
+import { renderMarkdown } from "./tabs/markdown-renderer.ts";
 import { executeCommand } from "./tabs/index.ts";
 import { snapshot } from "./snapshot.ts";
 import { nextTabId } from "./workspaces.ts";

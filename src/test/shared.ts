@@ -20,7 +20,7 @@ export const FIXTURE_PATH = path.join(
 export const SOURCE_FILE_PATH = realpathSync(
   path.join(
     import.meta.dirname,
-    "../../src/renderer/code.ts",
+    "../../src/renderer/monaco.ts",
   ),
 );
 

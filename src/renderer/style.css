@@ -397,7 +397,7 @@ dialog::backdrop {
 /* ---------- Markdown view ---------- */
 
 /* GitHub's layout, our palette. The view element itself is built by
-   renderer/tabs/markdown.ts and wears utilities; everything below it is
+   renderer/tabs/markdown-renderer.ts and wears utilities; everything below it is
    markdown-it's HTML, which has no classes to hang them on. */
 .markdown-view > :first-child {
   margin-top: 0;

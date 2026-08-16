@@ -1,7 +1,7 @@
 {
   // tsc type-checks the whole tree and emits all of it. The window runs
   // Vite's build of src/renderer instead (vite.config.ts); dist/renderer is
-  // kept because src/test imports one renderer module, tabs/links.ts.
+  // kept because src/test imports one renderer module, tabs/terminal-links.ts.
   "compilerOptions": {
     // Where source lives and where compiled JS goes
     "rootDir": "src",

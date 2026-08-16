@@ -21,6 +21,6 @@ export default defineConfig({
     modulePreload: { polyfill: false },
   },
   // A classic worker in a file of its own: an inlined one arrives as a
-  // blob: URL, which the CSP refuses (see renderer/code.ts).
+  // blob: URL, which the CSP refuses (see renderer/monaco.ts).
   worker: { format: "iife" },
 });

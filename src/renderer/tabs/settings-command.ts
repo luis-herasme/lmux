@@ -3,7 +3,7 @@
 // workspace, on screen or not.
 import { bridge } from "../bridge.ts";
 import { getSettings, updateSettings } from "../settings.ts";
-import { refreshCodeTheme } from "../code.ts";
+import { refreshCodeTheme } from "../monaco.ts";
 import { showProjectFile } from "../project-panel.ts";
 import { redrawMarkdown } from "./markdown-tab.tsx";
 import { refreshTerminalTabSettings } from "./terminal-tab.ts";

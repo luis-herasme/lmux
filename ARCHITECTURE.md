@@ -272,7 +272,7 @@ change it and update this list.
   file URL through `MonacoEnvironment.getWorker`, so the fallback never
   happens and the CSP stays exactly as strict as it was. (Amended
   2026-08-15: the file is the one Vite builds from Monaco's worker entry
-  point — the `?worker` import in `code.ts` — emitted as a classic script,
+  point — the `?worker` import in `monaco.ts` — emitted as a classic script,
   which is what `worker: { format: "iife" }` in the config is for.)
 - **Each workspace has one project panel, beside its panes rather than
   inside them.** (Replaces the composite project *tab*, which replaced the

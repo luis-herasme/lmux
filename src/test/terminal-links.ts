@@ -1,7 +1,7 @@
 import { describe } from "node:test";
 import assert from "node:assert/strict";
 import { busTest } from "./harness.ts";
-import { matchTerminalLinks } from "../renderer/tabs/links.ts";
+import { matchTerminalLinks } from "../renderer/tabs/terminal-links.ts";
 
 // Pure string-in, matches-out: the one part of the terminal link provider
 // that does not need a mouse, so the one part the suite can pin down.

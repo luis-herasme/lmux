@@ -10,7 +10,7 @@ import { createRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import type { Root } from "react-dom/client";
 import { bridge } from "../bridge.ts";
-import { renderMarkdown } from "./markdown.ts";
+import { renderMarkdown } from "./markdown-renderer.ts";
 import { executeCommand } from "./index.ts";
 import { snapshot } from "../snapshot.ts";
 import { addPanel, nextTabId } from "../workspaces.ts";
