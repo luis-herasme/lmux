@@ -3,7 +3,7 @@
 // React draws the pane — the toolbar's two buttons and the box the document
 // scrolls in — from what the tab holds. The document inside that box is not
 // React's: markdown-it and mermaid build it (markdown.ts), and the pane
-// hosts it the way the project panel hosts Monaco.
+// hosts it the way the editor hosts Monaco.
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { createRef } from "react";
@@ -48,7 +48,7 @@ function markdownText({ result, filePath }: MarkdownTextOptions): string {
   return result.content;
 }
 
-// shared with the project panel's copy of this toolbar
+// shared with the editor's copy of this toolbar
 export const MARKDOWN_ACTION_CLASS =
   "markdown-action cursor-pointer rounded border-0 bg-transparent px-[7px] py-[2px] text-[11px] text-tab hover:bg-tab-bar hover:text-tab-active";
 

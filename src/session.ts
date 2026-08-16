@@ -1,6 +1,6 @@
 // What a restart is allowed to bring back. Deliberately not the state: a
 // session is what can honestly be rebuilt, which is a workspace's tabs in
-// order, its project panel, a document's path and mode, and which of them
+// order, its editor, a document's path and mode, and which of them
 // you were looking at.
 // Shells cannot be restored, only respawned, so a terminal tab carries
 // nothing at all; scrollback is gone either way.
@@ -24,7 +24,7 @@ const sessionTabSchema = z.discriminatedUnion("kind", [
 
 // Only the open file's path returns: cursor and scroll positions are
 // transient, and the file is re-read from disk.
-const sessionProjectSchema = z.object({
+const sessionEditorSchema = z.object({
   workspaceRootPath: z.string(),
   filePath: z.string().nullable(),
   visible: z.boolean(),
@@ -36,7 +36,7 @@ const sessionWorkspaceSchema = z.object({
   name: z.string().nullable(),
   tabs: z.array(sessionTabSchema),
   activeIndex: z.number().int(),
-  project: sessionProjectSchema.nullable(),
+  editor: sessionEditorSchema.nullable(),
 });
 
 export const sessionSchema = z.object({
@@ -47,7 +47,7 @@ export const sessionSchema = z.object({
 export type Session = z.infer<typeof sessionSchema>;
 type SessionWorkspace = z.infer<typeof sessionWorkspaceSchema>;
 type SessionTab = z.infer<typeof sessionTabSchema>;
-type SessionProject = z.infer<typeof sessionProjectSchema>;
+type SessionEditor = z.infer<typeof sessionEditorSchema>;
 
 // Positions, not ids: the renderer assigns tab ids as it creates them, so a
 // restored tab is a different tab wearing the same contents.
@@ -78,19 +78,19 @@ export function sessionFromState(state: LmuxState): Session {
     if (workspace.namePinned) {
       name = workspace.name;
     }
-    let project: SessionProject | null = null;
-    if (workspace.project !== null) {
-      project = {
-        workspaceRootPath: workspace.project.workspaceRootPath,
-        filePath: workspace.project.filePath,
-        visible: workspace.project.visible,
+    let editor: SessionEditor | null = null;
+    if (workspace.editor !== null) {
+      editor = {
+        workspaceRootPath: workspace.editor.workspaceRootPath,
+        filePath: workspace.editor.filePath,
+        visible: workspace.editor.visible,
       };
     }
     workspaces.push({
       name,
       tabs,
       activeIndex: activeTabIndex,
-      project,
+      editor,
     });
   }
   return {

@@ -11,18 +11,18 @@
 import { endRun } from "./harness.ts";
 import { commandBus } from "./command-bus.ts";
 import { markdownDocuments } from "./markdown-documents.ts";
-import { projectPanel } from "./project-panel.ts";
-import { projectTree } from "./project-tree.ts";
-import { projectFiles } from "./project-files.ts";
+import { editor } from "./editor.ts";
+import { fileTree } from "./file-tree.ts";
+import { editorFiles } from "./editor-files.ts";
 import { busRefusals } from "./refusals.ts";
 import { linkMatching } from "./terminal-links.ts";
 import { gitStatusParsing } from "./git-decorations.ts";
 
 await commandBus;
 await markdownDocuments;
-await projectPanel;
-await projectTree;
-await projectFiles;
+await editor;
+await fileTree;
+await editorFiles;
 await busRefusals;
 await linkMatching;
 await gitStatusParsing;

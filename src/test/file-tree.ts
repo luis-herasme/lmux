@@ -24,11 +24,11 @@ import {
 import { lmuxState } from "../main/bus.ts";
 import { getShellCwd } from "../main/shells.ts";
 import { sessionFromState } from "../session.ts";
-import { readProjectTreeGitDecorationsResultSchema } from "../inter-process-communication/bridge.ts";
+import { readFileTreeGitDecorationsResultSchema } from "../inter-process-communication/bridge.ts";
 import {
   SOURCE_FILE_PATH,
   countTabs,
-  findProjectInfo,
+  findEditorInfo,
   openWorkspace,
 } from "./shared.ts";
 
@@ -54,20 +54,20 @@ async function clickVisibleTreeFile({
   relativePath,
 }: ClickVisibleTreeFileOptions) {
   const probed = await lmuxWindow.webContents.executeJavaScript(`(() => {
-    for (const treeElement of document.querySelectorAll(".project-tree")) {
+    for (const treeElement of document.querySelectorAll(".file-tree")) {
       if (treeElement.offsetParent === null) {
         continue;
       }
       let target = null;
       let gitVisible = false;
-      for (const item of treeElement.querySelectorAll("[data-project-tree-path]")) {
-        const itemPath = item.getAttribute("data-project-tree-path");
+      for (const item of treeElement.querySelectorAll("[data-file-tree-path]")) {
+        const itemPath = item.getAttribute("data-file-tree-path");
         if (itemPath === ".git") {
           gitVisible = true;
         }
         if (
           itemPath === ${JSON.stringify(relativePath)} &&
-          item.getAttribute("data-project-tree-kind") === "file"
+          item.getAttribute("data-file-tree-kind") === "file"
         ) {
           target = item;
         }
@@ -85,12 +85,12 @@ async function clickVisibleTreeFile({
 
 async function visibleTreeItemExists(relativePath: string): Promise<boolean> {
   const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
-    for (const treeElement of document.querySelectorAll(".project-tree")) {
+    for (const treeElement of document.querySelectorAll(".file-tree")) {
       if (treeElement.offsetParent === null) {
         continue;
       }
-      for (const item of treeElement.querySelectorAll("[data-project-tree-path]")) {
-        if (item.getAttribute("data-project-tree-path") === ${JSON.stringify(relativePath)}) {
+      for (const item of treeElement.querySelectorAll("[data-file-tree-path]")) {
+        if (item.getAttribute("data-file-tree-path") === ${JSON.stringify(relativePath)}) {
           return true;
         }
       }
@@ -102,14 +102,14 @@ async function visibleTreeItemExists(relativePath: string): Promise<boolean> {
 
 async function expandVisibleTreeDirectory(relativePath: string): Promise<boolean> {
   const result = await lmuxWindow.webContents.executeJavaScript(`(() => {
-    for (const treeElement of document.querySelectorAll(".project-tree")) {
+    for (const treeElement of document.querySelectorAll(".file-tree")) {
       if (treeElement.offsetParent === null) {
         continue;
       }
-      for (const item of treeElement.querySelectorAll("[data-project-tree-path]")) {
+      for (const item of treeElement.querySelectorAll("[data-file-tree-path]")) {
         if (
-          item.getAttribute("data-project-tree-path") === ${JSON.stringify(relativePath)} &&
-          item.getAttribute("data-project-tree-kind") === "directory" &&
+          item.getAttribute("data-file-tree-path") === ${JSON.stringify(relativePath)} &&
+          item.getAttribute("data-file-tree-kind") === "directory" &&
           item instanceof HTMLElement
         ) {
           item.click();
@@ -122,7 +122,7 @@ async function expandVisibleTreeDirectory(relativePath: string): Promise<boolean
   return z.boolean().parse(result);
 }
 
-const projectTreeResizeResultSchema = z.object({
+const fileTreeResizeResultSchema = z.object({
   found: z.boolean(),
   initialWidth: z.number(),
   pointerWidth: z.number(),
@@ -131,7 +131,7 @@ const projectTreeResizeResultSchema = z.object({
   orientation: z.string().nullable(),
 });
 
-const projectTreeAppearanceSchema = z.object({
+const fileTreeAppearanceSchema = z.object({
   rootPaddingLeft: z.number(),
   rowEdgeGap: z.number(),
   reservedScrollbarWidth: z.number(),
@@ -143,18 +143,18 @@ const projectTreeAppearanceSchema = z.object({
   labelsMatchNames: z.boolean(),
 });
 
-type ProjectTreeAppearance = z.infer<typeof projectTreeAppearanceSchema>;
+type FileTreeAppearance = z.infer<typeof fileTreeAppearanceSchema>;
 
-async function visibleProjectTreeAppearance(): Promise<ProjectTreeAppearance> {
+async function visibleFileTreeAppearance(): Promise<FileTreeAppearance> {
   const result = await lmuxWindow.webContents.executeJavaScript(`(async () => {
     await document.fonts.load("16px codicon");
-    for (const treeElement of document.querySelectorAll(".project-tree")) {
+    for (const treeElement of document.querySelectorAll(".file-tree")) {
       if (treeElement.offsetParent === null) {
         continue;
       }
-      const rootElement = treeElement.querySelector(".project-tree-root");
+      const rootElement = treeElement.querySelector(".file-tree-root");
       const directoryElement = treeElement.querySelector(
-        ".project-tree-directory > summary",
+        ".file-tree-directory > summary",
       );
       if (
         !(rootElement instanceof HTMLElement) ||
@@ -163,21 +163,21 @@ async function visibleProjectTreeAppearance(): Promise<ProjectTreeAppearance> {
         continue;
       }
       const disclosureElement = directoryElement.querySelector(
-        ".project-tree-disclosure",
+        ".file-tree-disclosure",
       );
       const folderIconElement = directoryElement.querySelector(
-        ".project-tree-folder-icon",
+        ".file-tree-folder-icon",
       );
       const directoryNameElement = directoryElement.querySelector(
-        ".project-tree-name",
+        ".file-tree-name",
       );
       const fileElement = rootElement.querySelector(
-        ":scope > .project-tree-item > .project-tree-file",
+        ":scope > .file-tree-item > .file-tree-file",
       );
       const fileIconElement = fileElement?.querySelector(
-        ".project-tree-file-icon",
+        ".file-tree-file-icon",
       );
-      const fileNameElement = fileElement?.querySelector(".project-tree-name");
+      const fileNameElement = fileElement?.querySelector(".file-tree-name");
       if (
         !(disclosureElement instanceof HTMLElement) ||
         !(folderIconElement instanceof HTMLElement) ||
@@ -243,7 +243,7 @@ async function visibleProjectTreeAppearance(): Promise<ProjectTreeAppearance> {
       labelsMatchNames: false,
     };
   })()`);
-  return projectTreeAppearanceSchema.parse(result);
+  return fileTreeAppearanceSchema.parse(result);
 }
 
 const gitDecorationAppearanceSchema = z.object({
@@ -288,20 +288,20 @@ async function visibleGitDecoration({
       "type-changed": "--git-modified-foreground",
       untracked: "--git-untracked-foreground",
     };
-    for (const treeElement of document.querySelectorAll(".project-tree")) {
+    for (const treeElement of document.querySelectorAll(".file-tree")) {
       if (treeElement.offsetParent === null) {
         continue;
       }
       for (const rowElement of treeElement.querySelectorAll(
-        "[data-project-tree-path]",
+        "[data-file-tree-path]",
       )) {
         if (
           !(rowElement instanceof HTMLElement) ||
-          rowElement.dataset.projectTreePath !== ${JSON.stringify(relativePath)}
+          rowElement.dataset.fileTreePath !== ${JSON.stringify(relativePath)}
         ) {
           continue;
         }
-        const nameElement = rowElement.querySelector(".project-tree-name");
+        const nameElement = rowElement.querySelector(".file-tree-name");
         if (!(nameElement instanceof HTMLElement)) {
           continue;
         }
@@ -357,13 +357,13 @@ async function visibleGitDecoration({
   return gitDecorationAppearanceSchema.parse(result);
 }
 
-async function projectTreeGitDecorationStatuses(
+async function fileTreeGitDecorationStatuses(
   workspaceRootPath: string,
 ): Promise<Map<string, string>> {
-  const result = readProjectTreeGitDecorationsResultSchema.parse(
+  const result = readFileTreeGitDecorationsResultSchema.parse(
     await lmuxWindow.webContents.executeJavaScript(`Reflect
       .get(window, "bridge")
-      .readProjectTreeGitDecorations({
+      .readFileTreeGitDecorations({
         workspaceRootPath: ${JSON.stringify(workspaceRootPath)},
       })`),
   );
@@ -374,14 +374,14 @@ async function projectTreeGitDecorationStatuses(
   return statuses;
 }
 
-export const projectTree = describe("the project tree", () => {
+export const fileTree = describe("the file tree", () => {
   busTest({
-    name: "the project file tree can be resized",
+    name: "the file tree can be resized",
     body: async () => {
-      const projectWorkspace = await openWorkspace();
-      const terminalTab = projectWorkspace.tabs.at(0);
+      const editorWorkspace = await openWorkspace();
+      const terminalTab = editorWorkspace.tabs.at(0);
       if (terminalTab === undefined || terminalTab.kind !== "terminal") {
-        throw new Error("the project workspace has no terminal");
+        throw new Error("the workspace has no terminal");
       }
       sendCommand({
         type: "open-file",
@@ -393,15 +393,15 @@ export const projectTree = describe("the project tree", () => {
           event.type === "file-opened" && event.path === SOURCE_FILE_PATH,
       );
 
-      const resizeResult = projectTreeResizeResultSchema.parse(
+      const resizeResult = fileTreeResizeResultSchema.parse(
         await lmuxWindow.webContents.executeJavaScript(`(() => {
-          for (const paneElement of document.querySelectorAll(".project-pane")) {
+          for (const paneElement of document.querySelectorAll(".editor-body")) {
             if (paneElement.offsetParent === null) {
               continue;
             }
-            const treeElement = paneElement.querySelector(".project-tree");
+            const treeElement = paneElement.querySelector(".file-tree");
             const resizeHandleElement = paneElement.querySelector(
-              ".project-tree-resizer",
+              ".file-tree-resizer",
             );
             if (
               !(treeElement instanceof HTMLElement) ||
@@ -464,17 +464,17 @@ export const projectTree = describe("the project tree", () => {
   });
 
   busTest({
-    name: "one project panel opens files from its workspace tree",
+    name: "one editor opens files from its workspace tree",
     body: async () => {
       const rootPath = mkdtempSync(path.join(os.tmpdir(), "lmux-tree-"));
       const nestedPath = path.join(rootPath, "nested");
       const nestedFilePath = path.join(nestedPath, "nested.ts");
-      const filePath = path.join(rootPath, "project.ts");
+      const filePath = path.join(rootPath, "example.ts");
       const otherFilePath = path.join(rootPath, "other.ts");
       mkdirSync(nestedPath);
       writeFileSync(nestedFilePath, "export const nested = true;\n");
       writeFileSync(path.join(nestedPath, "nested.ignored"), "ignored\n");
-      writeFileSync(filePath, "export const project = true;\n");
+      writeFileSync(filePath, "export const example = true;\n");
       writeFileSync(otherFilePath, "export const other = true;\n");
       writeFileSync(path.join(rootPath, ".gitignore"), "*.ignored\n");
       writeFileSync(path.join(rootPath, "example.ignored"), "ignored\n");
@@ -531,14 +531,14 @@ export const projectTree = describe("the project tree", () => {
         "Initial tree",
       ]);
       const canonicalRootPath = realpathSync(rootPath);
-      const canonicalFilePath = path.join(canonicalRootPath, "project.ts");
+      const canonicalFilePath = path.join(canonicalRootPath, "example.ts");
       const canonicalOtherFilePath = path.join(canonicalRootPath, "other.ts");
-      const projectWorkspace = await openWorkspace();
+      const editorWorkspace = await openWorkspace();
 
       try {
-        const terminalTab = projectWorkspace.tabs.at(0);
+        const terminalTab = editorWorkspace.tabs.at(0);
         if (terminalTab === undefined || terminalTab.kind !== "terminal") {
-          throw new Error("the project workspace has no terminal");
+          throw new Error("the workspace has no terminal");
         }
         const terminalId = terminalTab.id;
         const quotedNestedPath =
@@ -557,23 +557,23 @@ export const projectTree = describe("the project tree", () => {
 
         const tabCount = countTabs(lmuxState);
         sendCommand({
-          type: "open-project",
+          type: "show-editor",
           baseTabId: terminalId,
         });
         const opened = await waitForEvent(
-          (event) => event.type === "project-opened",
+          (event) => event.type === "editor-shown",
         );
-        if (opened.type !== "project-opened") {
-          throw new Error(`the panel arrived as a ${opened.type}`);
+        if (opened.type !== "editor-shown") {
+          throw new Error(`the editor arrived as a ${opened.type}`);
         }
-        // the panel is workspace state, so the strip is as it was
+        // the editor is workspace state, so the strip is as it was
         assert.equal(countTabs(opened.state), tabCount);
 
-        const openedProject = findProjectInfo({
+        const openedEditor = findEditorInfo({
           state: opened.state,
           id: opened.id,
         });
-        assert.deepEqual(openedProject, {
+        assert.deepEqual(openedEditor, {
           id: opened.id,
           name: path.basename(canonicalRootPath),
           workspaceRootPath: canonicalRootPath,
@@ -587,7 +587,7 @@ export const projectTree = describe("the project tree", () => {
           check: () => visibleTreeItemExists("nested/nested.ts"),
           description: "the expanded directory to load its immediate children",
         });
-        const treeStyle = await visibleProjectTreeAppearance();
+        const treeStyle = await visibleFileTreeAppearance();
         assert.equal(
           treeStyle.rootPaddingLeft,
           0,
@@ -625,7 +625,7 @@ export const projectTree = describe("the project tree", () => {
             event.path === canonicalFilePath,
         );
         const firstClick = await clickVisibleTreeFile({
-          relativePath: "project.ts",
+          relativePath: "example.ts",
         });
         assert.equal(firstClick.clicked, true);
         assert.equal(firstClick.gitVisible, false, ".git appeared in the tree");
@@ -642,28 +642,28 @@ export const projectTree = describe("the project tree", () => {
         });
         assert.equal(secondClick.clicked, true);
         const secondOpened = await secondOpening;
-        const secondProject = findProjectInfo({
+        const secondEditor = findEditorInfo({
           state: secondOpened.state,
           id: opened.id,
         });
-        if (secondProject === undefined) {
-          throw new Error("the project panel disappeared");
+        if (secondEditor === undefined) {
+          throw new Error("the editor disappeared");
         }
-        // the panel shows one file, so the second click replaced the first
-        assert.equal(secondProject.filePath, canonicalOtherFilePath);
+        // the editor shows one file, so the second click replaced the first
+        assert.equal(secondEditor.filePath, canonicalOtherFilePath);
         const openContents = z.array(z.string()).parse(
           await lmuxWindow.webContents.executeJavaScript(OPEN_MODEL_CONTENTS),
         );
         assert.equal(
-          openContents.includes("export const project = true;\n"),
+          openContents.includes("export const example = true;\n"),
           false,
           "the replaced file kept its model",
         );
 
-        const savedProject = sessionFromState(secondOpened.state)
+        const savedEditor = sessionFromState(secondOpened.state)
           .workspaces.at(-1)
-          ?.project;
-        assert.deepEqual(savedProject, {
+          ?.editor;
+        assert.deepEqual(savedEditor, {
           workspaceRootPath: canonicalRootPath,
           filePath: canonicalOtherFilePath,
           visible: true,
@@ -782,7 +782,7 @@ export const projectTree = describe("the project tree", () => {
         const canonicalNestedPath = realpathSync(nestedPath);
         sendCommand({
           type: "change-workspace-root",
-          workspaceId: projectWorkspace.id,
+          workspaceId: editorWorkspace.id,
           path: canonicalNestedPath,
         });
         const rootChanged = await waitForEvent(
@@ -790,16 +790,16 @@ export const projectTree = describe("the project tree", () => {
             event.type === "workspace-root-changed" &&
             event.path === canonicalNestedPath,
         );
-        const changedProject = findProjectInfo({
+        const changedEditor = findEditorInfo({
           state: rootChanged.state,
           id: opened.id,
         });
-        if (changedProject === undefined) {
-          throw new Error("changing the root lost the project panel");
+        if (changedEditor === undefined) {
+          throw new Error("changing the root lost the editor");
         }
-        assert.equal(changedProject.workspaceRootPath, canonicalNestedPath);
+        assert.equal(changedEditor.workspaceRootPath, canonicalNestedPath);
         // a new root leaves the open file where it is
-        assert.equal(changedProject.filePath, canonicalOtherFilePath);
+        assert.equal(changedEditor.filePath, canonicalOtherFilePath);
 
         const nestedIgnoredDecoration = await visibleGitDecoration({
           relativePath: "nested.ignored",
@@ -823,27 +823,27 @@ export const projectTree = describe("the project tree", () => {
         );
         sendCommand({
           type: "close-file",
-          projectTabId: opened.id,
+          editorId: opened.id,
         });
         await closing;
-        const emptiedProject = findProjectInfo({
+        const emptiedEditor = findEditorInfo({
           state: lmuxState,
           id: opened.id,
         });
-        if (emptiedProject === undefined) {
-          throw new Error("closing the file closed the project panel");
+        if (emptiedEditor === undefined) {
+          throw new Error("closing the file closed the editor");
         }
-        assert.equal(emptiedProject.filePath, null);
+        assert.equal(emptiedEditor.filePath, null);
         assert.equal(countTabs(lmuxState), tabCount);
       } finally {
         const workspaceClosed = waitForEvent(
           (event) =>
             event.type === "workspace-closed" &&
-            event.id === projectWorkspace.id,
+            event.id === editorWorkspace.id,
         );
         sendCommand({
           type: "close-workspace",
-          id: projectWorkspace.id,
+          id: editorWorkspace.id,
         });
         try {
           await workspaceClosed;
@@ -1157,7 +1157,7 @@ export const projectTree = describe("the project tree", () => {
         ]);
         writeFileSync(path.join(rootPath, "cache.ignored"), "ignored\n");
 
-        const statuses = await projectTreeGitDecorationStatuses(rootPath);
+        const statuses = await fileTreeGitDecorationStatuses(rootPath);
         assert.equal(statuses.get("modified.ts"), "modified");
         assert.equal(
           statuses.get("staged-modified.ts"),

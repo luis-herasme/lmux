@@ -45,9 +45,9 @@ async function typeIntoOpenEditor({
   return editorContentSchema.parse(result);
 }
 
-export const projectFiles = describe("project files", () => {
+export const editorFiles = describe("editor files", () => {
   busTest({
-    name: "the project editor refuses an edit and leaves the file alone",
+    name: "the editor refuses an edit and leaves the file alone",
     body: async () => {
       const filePath = path.join(
         os.tmpdir(),

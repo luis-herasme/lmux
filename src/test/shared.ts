@@ -3,7 +3,7 @@ import * as path from "path";
 import { realpathSync } from "fs";
 import { sendCommand, waitForEvent } from "./harness.ts";
 import { lmuxState } from "../main/bus.ts";
-import type { LmuxState, ProjectInfo, WorkspaceInfo } from "../api.ts";
+import type { LmuxState, EditorInfo, WorkspaceInfo } from "../api.ts";
 
 // tsc emits no .md, so the fixture is read from source, the way main reads
 // index.html.
@@ -54,15 +54,15 @@ export function findWorkspace({
   return undefined;
 }
 
-// The panel is workspace state, so its id is looked for beside the tabs
+// The editor is workspace state, so its id is looked for beside the tabs
 // rather than among them.
-export function findProjectInfo({
+export function findEditorInfo({
   state,
   id,
-}: StateLookupOptions): ProjectInfo | undefined {
+}: StateLookupOptions): EditorInfo | undefined {
   for (const workspace of state.workspaces) {
-    if (workspace.project?.id === id) {
-      return workspace.project;
+    if (workspace.editor?.id === id) {
+      return workspace.editor;
     }
   }
   return undefined;

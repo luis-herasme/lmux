@@ -26,16 +26,16 @@ const bridge: Bridge = {
     ipcRenderer.on("workspace:rename-request", (_event, id) => callback(id)),
   closeWorkspace: (id) => ipcRenderer.send("workspace:close", id),
   readFile: (request) => ipcRenderer.invoke("file:read", request),
-  readProjectTree: (request) =>
-    ipcRenderer.invoke("project-tree:read", request),
-  readProjectTreeGitDecorations: (request) =>
-    ipcRenderer.invoke("project-tree:read-git-decorations", request),
-  watchProjectTree: (request) =>
-    ipcRenderer.invoke("project-tree:watch", request),
-  unwatchProjectTree: (request) =>
-    ipcRenderer.send("project-tree:unwatch", request),
-  onProjectTreeChanged: (callback) =>
-    ipcRenderer.on("project-tree:changed", (_event, message: unknown) =>
+  readFileTree: (request) =>
+    ipcRenderer.invoke("file-tree:read", request),
+  readFileTreeGitDecorations: (request) =>
+    ipcRenderer.invoke("file-tree:read-git-decorations", request),
+  watchFileTree: (request) =>
+    ipcRenderer.invoke("file-tree:watch", request),
+  unwatchFileTree: (request) =>
+    ipcRenderer.send("file-tree:unwatch", request),
+  onFileTreeChanged: (callback) =>
+    ipcRenderer.on("file-tree:changed", (_event, message: unknown) =>
       callback(message),
     ),
   readSession: () => ipcRenderer.invoke("session:read"),

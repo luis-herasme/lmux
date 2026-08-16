@@ -1,11 +1,11 @@
 // One workspace = one Dockview instance = one pane layout with its own
-// tabs, plus the one project panel beside it. Only the active one is
+// tabs, plus the one editor beside it. Only the active one is
 // displayed; the others keep their terminals and their shells alive off
 // screen.
 import { executeCommand } from "./tabs/index.ts";
 import type { Tab } from "./tabs/index.ts";
-import { disposeProjectPanel, focusProjectPanel } from "./project-panel.ts";
-import type { ProjectPanel } from "./project-panel.ts";
+import { disposeEditor, focusEditor } from "./editor.ts";
+import type { Editor } from "./editor.ts";
 import { DockviewComponent, themeDark } from "dockview";
 import type {
   AddPanelPositionOptions,
@@ -28,8 +28,8 @@ export type Workspace = {
   tabs: Map<number, Tab>;
   activeId: number;
   namePinned: boolean;
-  project: ProjectPanel | undefined; // built the first time it is opened
-  focus: "layout" | "project"; // which half the keyboard is in
+  editor: Editor | undefined; // built the first time it is opened
+  focus: "panes" | "editor"; // which half the keyboard is in
 };
 
 export const workspaces = new Map<number, Workspace>();
@@ -39,7 +39,7 @@ export let activeWorkspace: Workspace | undefined;
 
 let nextWorkspaceId = 1;
 
-// Tabs and project panels share one counter, so a panel can be named by a
+// Tabs and editors share one counter, so an editor can be named by a
 // command the same way a tab is.
 let nextId = 0;
 
@@ -47,8 +47,8 @@ export function nextTabId(): number {
   return nextId++;
 }
 
-const layoutElement = requireElement("layout");
-const projectHostElement = requireElement("project");
+const panesElement = requireElement("panes");
+const editorHostElement = requireElement("editor");
 
 // The element a panel shows is built by the caller of addPanel; Dockview's
 // factories only ever hand it over.
@@ -109,7 +109,7 @@ export function createWorkspace(): Workspace {
   const element = document.createElement("div");
   element.className = "min-w-0 flex-1";
   element.style.display = "none";
-  layoutElement.append(element);
+  panesElement.append(element);
 
   const workspace: Workspace = {
     id,
@@ -119,8 +119,8 @@ export function createWorkspace(): Workspace {
     tabs: new Map(),
     activeId: -1,
     namePinned: false,
-    project: undefined,
-    focus: "layout",
+    editor: undefined,
+    focus: "panes",
   };
   workspaces.set(id, workspace);
   refreshWorkspaceName(workspace);
@@ -214,19 +214,19 @@ export function resolveWorkspace(
   return workspaces.get(id);
 }
 
-// Where the keyboard belongs in the active workspace: its project panel
+// Where the keyboard belongs in the active workspace: its editor
 // while that is the half being worked in, its active tab otherwise.
 export function focusWorkspace(): void {
   if (!activeWorkspace) {
     return;
   }
-  const panel = activeWorkspace.project;
+  const editor = activeWorkspace.editor;
   if (
-    activeWorkspace.focus === "project" &&
-    panel !== undefined &&
-    panel.visible
+    activeWorkspace.focus === "editor" &&
+    editor !== undefined &&
+    editor.visible
   ) {
-    focusProjectPanel(panel);
+    focusEditor(editor);
     return;
   }
   const tab = activeWorkspace.tabs.get(activeWorkspace.activeId);
@@ -238,24 +238,24 @@ export function focusWorkspace(): void {
   }
 }
 
-// The host holds one panel per workspace and collapses when the active
+// The host holds one editor per workspace and collapses when the active
 // workspace has none open, so the pane layout gets the whole window back.
-export function refreshProjectPanel(): void {
+export function refreshEditor(): void {
   for (const workspace of workspaces.values()) {
-    if (workspace.project === undefined) {
+    if (workspace.editor === undefined) {
       continue;
     }
     let display = "none";
-    if (workspace === activeWorkspace && workspace.project.visible) {
+    if (workspace === activeWorkspace && workspace.editor.visible) {
       display = "";
     }
-    workspace.project.element.style.display = display;
+    workspace.editor.element.style.display = display;
   }
   let hostDisplay = "none";
-  if (activeWorkspace?.project?.visible === true) {
+  if (activeWorkspace?.editor?.visible === true) {
     hostDisplay = "";
   }
-  projectHostElement.style.display = hostDisplay;
+  editorHostElement.style.display = hostDisplay;
 }
 
 export function activateWorkspace(workspace: Workspace): void {
@@ -264,7 +264,7 @@ export function activateWorkspace(workspace: Workspace): void {
   }
   activeWorkspace = workspace;
   workspace.element.style.display = "";
-  refreshProjectPanel();
+  refreshEditor();
   // which row is marked and what the title bar says both follow from the
   // line above, so drawing the chrome is all it takes to show them
   drawChrome();
@@ -297,8 +297,8 @@ export function removeWorkspace(workspace: Workspace): void {
     tab.observer.disconnect();
     tab.terminal.dispose();
   }
-  if (workspace.project !== undefined) {
-    disposeProjectPanel(workspace.project);
+  if (workspace.editor !== undefined) {
+    disposeEditor(workspace.editor);
   }
   workspaces.delete(workspace.id);
   workspace.dockview.dispose();
@@ -432,7 +432,7 @@ export function addPanel({
   };
 }
 
-layoutElement.addEventListener("dblclick", (event) => {
+panesElement.addEventListener("dblclick", (event) => {
   const target = event.target;
   if (!(target instanceof Element)) {
     return;
@@ -460,17 +460,17 @@ layoutElement.addEventListener("dblclick", (event) => {
 });
 
 // Which half of the window the keyboard belongs to, decided by where the
-// last press landed: the panes take it back, the panel keeps it.
-layoutElement.addEventListener("mousedown", () => {
+// last press landed: the panes take it back, the editor keeps it.
+panesElement.addEventListener("mousedown", () => {
   if (activeWorkspace) {
-    activeWorkspace.focus = "layout";
+    activeWorkspace.focus = "panes";
   }
   setTimeout(focusWorkspace, 0);
 });
 
-projectHostElement.addEventListener("mousedown", () => {
+editorHostElement.addEventListener("mousedown", () => {
   if (activeWorkspace) {
-    activeWorkspace.focus = "project";
+    activeWorkspace.focus = "editor";
   }
 });
 

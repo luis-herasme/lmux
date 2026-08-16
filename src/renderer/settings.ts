@@ -16,8 +16,8 @@ export const MAX_SIDEBAR_WIDTH_PX = 400;
 
 // wide enough for the tree beside a readable editor; the window's own width
 // is the ceiling the drag actually runs into
-export const MIN_PROJECT_WIDTH_PX = 320;
-export const MAX_PROJECT_WIDTH_PX = 1600;
+export const MIN_EDITOR_WIDTH_PX = 320;
+export const MAX_EDITOR_WIDTH_PX = 1600;
 
 // every font size in the app, terminal and document alike; the dialog's
 // number fields carry the same two as their own limits
@@ -68,15 +68,15 @@ const settingsSchema: z.ZodType<Settings> = z
         ),
       )
       .catch(DEFAULT_SETTINGS.sidebarWidth),
-    projectWidth: z
+    editorWidth: z
       .number()
       .transform((width) =>
         Math.min(
-          MAX_PROJECT_WIDTH_PX,
-          Math.max(MIN_PROJECT_WIDTH_PX, Math.round(width)),
+          MAX_EDITOR_WIDTH_PX,
+          Math.max(MIN_EDITOR_WIDTH_PX, Math.round(width)),
         ),
       )
-      .catch(DEFAULT_SETTINGS.projectWidth),
+      .catch(DEFAULT_SETTINGS.editorWidth),
   })
   .catch({ ...DEFAULT_SETTINGS });
 
@@ -131,8 +131,8 @@ export function applyCssVariables(): void {
     `${settings.sidebarWidth}px`,
   );
   document.documentElement.style.setProperty(
-    "--project-width",
-    `${settings.projectWidth}px`,
+    "--editor-width",
+    `${settings.editorWidth}px`,
   );
   document.documentElement.style.setProperty(
     "--markdown-font-size",

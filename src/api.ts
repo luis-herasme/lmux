@@ -25,15 +25,15 @@ const settingsSchema = z.object({
   markdownFontFamily: z.string(),
   markdownFontSize: z.number(),
   sidebarWidth: z.number(), // pixels; the sidebar's drag handle is its UI
-  projectWidth: z.number(), // the project panel's, the same way
+  editorWidth: z.number(), // the editor's, the same way
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
 
 // `id` defaults to the active tab where optional. Tab ids are unique across
 // workspaces; group ids are resolved inside the tab's own workspace.
-// `projectTabId` names a workspace's project panel (the field name predates
-// the panel) and defaults to the active workspace's.
+// `editorId` names a workspace's editor and defaults to the active
+// workspace's.
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("new-tab"), groupId: z.string().optional() }),
   z.object({ type: z.literal("close-tab"), id: z.number().optional() }),
@@ -77,7 +77,7 @@ export const commandSchema = z.discriminatedUnion("type", [
     baseTabId: z.number().optional(),
     groupId: z.string().optional(),
   }),
-  // Opens source in the workspace's project panel, for reading. The panel
+  // Opens source in the workspace's editor, for reading. The editor
   // shows one file, so this replaces whatever it was showing.
   z.object({
     type: z.literal("open-file"),
@@ -86,24 +86,24 @@ export const commandSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("close-file"),
-    projectTabId: z.number().optional(),
+    editorId: z.number().optional(),
   }),
   // Shows the open file rendered, or back in its editor; one that isn't
   // markdown is ignored.
   z.object({
     type: z.literal("set-file-markdown-mode"),
-    projectTabId: z.number().optional(),
+    editorId: z.number().optional(),
     mode: markdownModeSchema,
   }),
-  // Shows the workspace's project panel, rooting it from a terminal the
+  // Shows the workspace's editor, rooting it from a terminal the
   // first time. Hiding it keeps its file, so nothing is asked or lost.
   z.object({
-    type: z.literal("open-project"),
+    type: z.literal("show-editor"),
     workspaceId: z.number().optional(),
     baseTabId: z.number().optional(),
   }),
   z.object({
-    type: z.literal("close-project"),
+    type: z.literal("hide-editor"),
     workspaceId: z.number().optional(),
   }),
   z.object({
@@ -150,10 +150,10 @@ export type LmuxEvent =
   | { type: "workspace-activated"; id: number; state: LmuxState }
   | { type: "workspace-renamed"; id: number; state: LmuxState }
   | { type: "markdown-mode-changed"; id: number; state: LmuxState }
-  // the project panel came on screen or left it; `id` is the panel's
-  | { type: "project-opened"; id: number; state: LmuxState }
-  | { type: "project-closed"; id: number; state: LmuxState }
-  // the project file swapped between its editor and its rendering
+  // the editor came on screen or left it; `id` is the editor's
+  | { type: "editor-shown"; id: number; state: LmuxState }
+  | { type: "editor-hidden"; id: number; state: LmuxState }
+  // the open file swapped between its source and its rendering
   | {
       type: "file-markdown-mode-changed";
       id: number;
@@ -178,9 +178,9 @@ export type TabInfo =
 
 // The workspace's own editor: its file tree and the one file it shows. Not a
 // tab, so it has no place in the layout and no title of its own; `name` is
-// the root folder's, which the panel's header wears. `id` is what a command's
-// projectTabId names.
-export type ProjectInfo = {
+// the root folder's, which the editor's header wears. `id` is what a command's
+// editorId names.
+export type EditorInfo = {
   id: number;
   name: string;
   workspaceRootPath: string;
@@ -200,8 +200,8 @@ export type LayoutNode =
   | { type: "group"; group: GroupInfo }
   | { type: "split"; direction: "row" | "column"; children: LayoutNode[] };
 
-// A workspace is a whole lmux of its own: its own pane layout, its own
-// tabs, its own shells, its own project panel. Only one is on screen at a
+// A workspace is a whole lmux of its own: its own pane area, its own
+// tabs, its own shells, its own editor. Only one is on screen at a
 // time; the rest keep running.
 export type WorkspaceInfo = {
   id: number;
@@ -212,9 +212,9 @@ export type WorkspaceInfo = {
   layout: LayoutNode | null; // null only while the workspace has no tabs
   activeId: number; // this workspace's own active tab
   maximizedGroupId: string | null; // the group filling the window, if any
-  project: ProjectInfo | null; // null until the panel is opened once
-  // which side of the window the keyboard is in: the panes, or the panel
-  focus: "layout" | "project";
+  editor: EditorInfo | null; // null until the editor is opened once
+  // which side of the window the keyboard is in: the panes, or the editor
+  focus: "panes" | "editor";
 };
 
 export type LmuxState = {

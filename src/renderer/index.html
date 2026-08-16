@@ -45,22 +45,22 @@
       <!-- one Dockview root per workspace, only the active one displayed
            (workspaces.ts) -->
       <div
-        id="layout"
+        id="panes"
         role="tabpanel"
         aria-label="Workspace"
         class="flex min-w-0 flex-1"
       ></div>
-      <!-- the workspace's editor: one project panel per workspace, only the
+      <!-- one editor per workspace, only the
            active one displayed, and the host collapsed while it is hidden
-           (project-panel.ts) -->
+           (editor.ts) -->
       <div
-        id="project"
+        id="editor"
         style="display: none"
-        class="relative w-(--project-width) min-w-0 flex-none border-l border-separator bg-background"
+        class="relative w-(--editor-width) min-w-0 flex-none border-l border-separator bg-background"
       >
-        <!-- drag handle over the panel's inner edge (edge-resize.ts) -->
+        <!-- drag handle over the editor's inner edge (edge-resize.ts) -->
         <div
-          id="project-resizer"
+          id="editor-resizer"
           class="absolute inset-y-0 left-[-3px] z-2 w-[5px] cursor-col-resize"
         ></div>
       </div>
