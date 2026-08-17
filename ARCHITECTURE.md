@@ -332,17 +332,17 @@ change it and update this list.
   being typed or a font not yet committed, which belongs to nobody else.
 
   Three rules keep it predictable. **A root renders a host's children, never
-  the host**: `#sidebar`, `#title-bar`, the `.editor` div, a tab's row
-  and a document's pane keep their own class and their own place in the page,
-  and React draws inside them. **Every draw is synchronous** (`flushSync`), so
+  the host**: `#sidebar`, `#title-bar`, `#panes` and the `.editor` div keep
+  their own class and their own place in the page, and React draws inside them.
+  **Every draw is synchronous** (`flushSync`), so
   the code that changes state can go straight on to fill what the render left —
   Monaco's container, a document's box — and the page a Command's Event
   describes is the page that is on screen. **A ref is for DOM that is not
   React's**: Monaco, markdown-it's output, and the elements focus is asked for
-  by name. Deliberately not React: xterm, Monaco and Dockview own their DOM and
+  by name. Deliberately not React: xterm and Monaco own their DOM and
   would only be wrapped; the drag handles and the tree's scrollbar, which track
   a pointer and write geometry rather than showing state; the CSS custom
-  properties settings become; the `display` that hides a background workspace;
+  properties settings become;
   and the strip's `+`, a control whose content never changes and so has nothing
   to redraw. Every affordance still issues Commands. Cost we accept: a
   framework and its two packages in the page's bundle, and a second dialect
@@ -545,8 +545,8 @@ change it and update this list.
   rename affordance.)
 - **The layout engine: Dockview, kept behind the bus.** (Decided 2026-08
   when tab reordering arrived.) The tab strip and panes are rendered by
-  [Dockview](https://dockview.dev) (`dockview`, the vanilla package), a
-  zero-dependency docking layout manager. It was chosen over hand-rolling
+  [Dockview](https://dockview.dev), a docking layout manager,
+  through its React binding (`dockview-react`). It was chosen over hand-rolling
   because the same drag machinery later gives splits, divider resizing, and
   drag-a-tab-between-splits, the genuinely hard 20% of that feature. The
   condition of entry was keeping the command bus as the single write path,
@@ -558,12 +558,28 @@ change it and update this list.
   Dockview is confined to the workspace store, which owns the instances, and the
   few layout calls left in the tab store; the public interface, the bridge and
   main know nothing about it, which is what keeps the provider swappable.
+
+  **Everything we hand Dockview is a React component** (2026-08, when
+  `dockview-react` replaced the engine package used alone): a pane, the row a
+  tab wears, and the strip's + button are declared in the pane area's view
+  (`panes.tsx`) and rendered into Dockview's own elements through React
+  portals. Before that, each of those was an element built with
+  `document.createElement`, handed to Dockview through a pair of module-level
+  variables that its factories read back, and a tab row was a React root of its
+  own that had to be unmounted by hand. Two consequences follow from the
+  binding, and the code is shaped around them. **A workspace's Dockview arrives
+  with its view**, in `onReady`, one draw after the record exists, so
+  `createWorkspace` is asynchronous and `dockviewOf` is the one place that says
+  so. And **a pane is drawn from the tab store**, so the record goes in before
+  the draw: adding a panel only asks React for a pane, and the caller draws
+  once the tab is there to draw from.
+
   Two costs we accept: clicking a tab is activation (focus, not layout) and
   is applied by Dockview first, announced on the bus afterwards, because
   blocking that click would also block the drag that starts on the same
-  mousedown; and the library arrives as a classic-script global like
-  xterm.js, plus its stylesheet, retinted from the theme module by overriding its
-  CSS custom properties. Splits shipped through the same door (2026-08):
+  mousedown; and the library brings its own stylesheet, retinted from the theme
+  module by overriding its CSS custom properties. Splits shipped through the
+  same door (2026-08):
   `LmuxState.layout` models the pane tree as groups (leaves) and splits
   (branches), built by walking Dockview's own layout serialization, so
   observers see arrangement, not pixels. Dropping a tab on a pane's edge
@@ -785,7 +801,8 @@ change it and update this list.
   a layout and rebuilding it on every switch (which would recreate every
   xterm.js instance and lose scrollback, cursor and running program), each
   workspace gets its own Dockview instance in its own div, and switching is
-  `display: none` on one and the theme's background on the other. The
+  `display: none` on one and the theme's background on the other, which the
+  pane area's view draws from which workspace is the active one. The
   workspaces behind stay live: a build left compiling keeps compiling. Tab
   ids stay unique across workspaces, so main's `Map<id, pty>`, `readFile`
   and the OSC title path needed no change at all; this shipped as a pure bus

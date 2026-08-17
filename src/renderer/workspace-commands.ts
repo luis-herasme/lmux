@@ -1,7 +1,7 @@
 // Every Command about a workspace itself: opening one, closing one,
 // bringing one forward, naming one.
 import { bridge } from "./bridge.ts";
-import { openTerminalTab } from "./tabs/terminal-tab.ts";
+import { openTerminalTab } from "./tabs/terminal-tab.tsx";
 import { snapshot } from "./snapshot.ts";
 import {
   activateWorkspace,

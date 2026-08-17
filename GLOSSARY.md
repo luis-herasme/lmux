@@ -207,7 +207,10 @@ editor area feel the way it does. This project uses
 [Dockview](https://dockview.dev): our tab bar and terminal panes are Dockview
 "panels". Tabs drag along a strip to reorder, between strips to change group,
 and onto a pane's edge to split; window-edge drops and whole-group drags stay
-disabled until a feature needs them.
+disabled until a feature needs them. It arrives as two packages: `dockview` is
+the engine, and `dockview-react` is the binding that lets every piece we supply
+it, a pane, the row a tab wears, the strip's + button, be a React component
+rendered into Dockview's own element through a portal.
 
 ## Sidebar / pane area / editor
 

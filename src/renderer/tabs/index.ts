@@ -12,12 +12,14 @@ import { applySettings } from "../settings-command.ts";
 import { openEditorFile } from "../editor.ts";
 import { openMarkdownTab } from "./markdown-tab.tsx";
 import type { MarkdownTab } from "./markdown-tab.tsx";
-import { openTerminalTab } from "./terminal-tab.ts";
-import type { TerminalTab } from "./terminal-tab.ts";
+import { openTerminalTab } from "./terminal-tab.tsx";
+import type { TerminalTab } from "./terminal-tab.tsx";
+import { drawPanes } from "../panes.tsx";
 import { snapshot } from "../snapshot.ts";
 import {
   activateWorkspace,
   createWorkspace,
+  dockviewOf,
   findTab,
   refreshEditor,
   refreshWorkspaceName,
@@ -155,17 +157,16 @@ export function removeTab(id: number): void {
   }
   const { workspace, tab } = found;
   workspace.tabs.delete(id);
-  tab.row.root.unmount();
   if (tab.kind === "terminal") {
     tab.observer.disconnect();
     tab.terminal.dispose();
-  } else {
-    tab.root.unmount();
   }
   if (id === workspace.activeId) {
     workspace.activeId = -1;
   }
-  workspace.dockview.api.removePanel(tab.panel);
+  // the pane, and everything React drew in it, goes with the panel
+  dockviewOf(workspace).removePanel(tab.panel);
+  drawPanes();
   // removing the last tab activates no other panel, so nothing else would
   // take the name off the tab that just left
   refreshWorkspaceName(workspace);

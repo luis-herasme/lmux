@@ -2,29 +2,31 @@
 // tabs, plus the one editor beside it. Only the active one is
 // displayed; the others keep their terminals and their shells alive off
 // screen.
+//
+// What a workspace looks like is panes.tsx; this is what it holds and what
+// changes it. Every change ends in drawPanes(), which draws the pane area
+// again and leaves the difference to React.
 import { executeCommand } from "./tabs/index.ts";
 import type { Tab } from "./tabs/index.ts";
 import { disposeEditor, focusEditor } from "./editor.ts";
 import type { Editor } from "./editor.ts";
-import { DockviewComponent, themeDark } from "dockview";
 import type {
   AddPanelPositionOptions,
+  DockviewApi,
   DockviewGroupPanel,
   IDockviewPanel,
+  Parameters,
 } from "dockview";
-import "dockview/dist/styles/dockview.css";
 import { bridge } from "./bridge.ts";
 import { snapshot } from "./snapshot.ts";
 import { drawChrome } from "./chrome.tsx";
-import { mountTabRow } from "./tab-strip.tsx";
-import type { TabRow } from "./tab-strip.tsx";
+import { drawPanes } from "./panes.tsx";
 import { requireElement } from "./dom.ts";
 
 export type Workspace = {
   id: number;
   name: string;
-  element: HTMLElement; // its Dockview root, hidden unless active
-  dockview: DockviewComponent;
+  dockview: DockviewApi | undefined; // read it through dockviewOf
   tabs: Map<number, Tab>;
   activeId: number;
   namePinned: boolean;
@@ -47,75 +49,25 @@ export function nextTabId(): number {
   return nextId++;
 }
 
-const panesElement = requireElement("panes");
 const editorHostElement = requireElement("editor");
 
-// The element a panel shows is built by the caller of addPanel; Dockview's
-// factories only ever hand it over.
-let handOffPaneElement: HTMLElement | undefined;
-let handOffTabElement: HTMLElement | undefined;
-
-// One options object for every instance: a workspace's identity lives in
-// its own store entry, never in the layout engine's configuration.
-const DOCKVIEW_OPTIONS = {
-  theme: themeDark,
-  disableFloatingGroups: true,
-  disableTabsOverflowList: true,
-  createComponent: () => {
-    const element = handOffPaneElement;
-    handOffPaneElement = undefined;
-    if (!element) {
-      throw new Error("Panels are only added by addPanel");
-    }
-    return {
-      element,
-      init: () => {},
-    };
-  },
-  createTabComponent: () => {
-    const element = handOffTabElement;
-    handOffTabElement = undefined;
-    if (!element) {
-      throw new Error("Tabs are only added by addPanel");
-    }
-    return {
-      element,
-      init: () => {},
-    };
-  },
-  createRightHeaderActionComponent: (group: DockviewGroupPanel) => {
-    const button = document.createElement("button");
-    button.className =
-      "cursor-pointer border-0 bg-transparent px-3 py-1 font-ui text-[15px] text-tab";
-    button.title = "New Tab (⌘T)";
-    button.textContent = "+";
-    button.addEventListener("click", () => {
-      executeCommand({
-        type: "new-tab",
-        groupId: group.id,
-      });
-    });
-    return {
-      element: button,
-      init: () => {},
-      dispose: () => {},
-    };
-  },
-};
+// A workspace's layout engine, which its view hands over as it mounts.
+// createWorkspace draws before it returns, so a caller holding a workspace
+// holds this too.
+export function dockviewOf(workspace: Workspace): DockviewApi {
+  const dockview = workspace.dockview;
+  if (dockview === undefined) {
+    throw new Error(`workspace ${workspace.id} is not on screen yet`);
+  }
+  return dockview;
+}
 
 export function createWorkspace(): Workspace {
   const id = nextWorkspaceId++;
-
-  const element = document.createElement("div");
-  element.className = "min-w-0 flex-1";
-  element.style.display = "none";
-  panesElement.append(element);
-
   const workspace: Workspace = {
     id,
     name: "", // refreshWorkspaceName fills it in, below
-    element,
-    dockview: new DockviewComponent(element, DOCKVIEW_OPTIONS),
+    dockview: undefined,
     tabs: new Map(),
     activeId: -1,
     namePinned: false,
@@ -124,10 +76,31 @@ export function createWorkspace(): Workspace {
   };
   workspaces.set(id, workspace);
   refreshWorkspaceName(workspace);
+  // The draw is part of creating one: it mounts the view, and the view builds
+  // the Dockview and hands it back through onReady. That lands before this
+  // returns because drawPanes is a flushSync, which runs effects as well as
+  // committing the DOM; if that ever stops holding, dockviewOf says so.
+  drawPanes();
+  return workspace;
+}
+
+type WorkspaceReadyOptions = {
+  workspace: Workspace;
+  dockview: DockviewApi;
+};
+
+// Called by the workspace's view once Dockview is built against it. Every
+// listener a workspace keeps on its layout engine is registered here, because
+// this is the one moment there is an engine to register them on.
+export function workspaceReady({
+  workspace,
+  dockview,
+}: WorkspaceReadyOptions): void {
+  workspace.dockview = dockview;
 
   // Drag-and-drop interception: cancel the drop, re-issue it as a Command,
   // and let the consumer perform the identical move.
-  workspace.dockview.api.onWillDrop((event) => {
+  dockview.onWillDrop((event) => {
     event.preventDefault();
     const data = event.getData();
     if (!data || data.panelId === null) {
@@ -171,19 +144,19 @@ export function createWorkspace(): Workspace {
     });
   });
 
-  workspace.dockview.api.onWillShowOverlay((event) => {
+  dockview.onWillShowOverlay((event) => {
     if (event.kind === "edge") {
       event.preventDefault();
     }
   });
 
-  workspace.dockview.api.onWillDragGroup((event) => {
+  dockview.onWillDragGroup((event) => {
     event.nativeEvent.preventDefault();
   });
 
   // Activation is applied by Dockview first, announced afterwards: blocking
   // the click would also block the drag that starts on the same mousedown.
-  workspace.dockview.api.onDidActivePanelChange((event) => {
+  dockview.onDidActivePanelChange((event) => {
     if (!event.panel) {
       return;
     }
@@ -200,8 +173,6 @@ export function createWorkspace(): Workspace {
       state: snapshot(),
     });
   });
-
-  return workspace;
 }
 
 // The workspace a Command names, or the active one when it names none.
@@ -234,7 +205,7 @@ export function focusWorkspace(): void {
     tab.terminal.focus();
   }
   if (tab?.kind === "markdown") {
-    tab.contentElement.current?.focus();
+    tab.contentElement?.focus();
   }
 }
 
@@ -259,38 +230,20 @@ export function refreshEditor(): void {
 }
 
 export function activateWorkspace(workspace: Workspace): void {
-  if (activeWorkspace) {
-    activeWorkspace.element.style.display = "none";
-  }
   activeWorkspace = workspace;
-  workspace.element.style.display = "";
   refreshEditor();
-  // which row is marked and what the title bar says both follow from the
-  // line above, so drawing the chrome is all it takes to show them
+  // which layout is on screen, which row is marked and what the title bar
+  // says all follow from the line above, so drawing the two regions is all it
+  // takes to show them. Handing Dockview and the terminals the size they got
+  // back is the pane area's own business (panes.tsx).
+  drawPanes();
   drawChrome();
-  // Dockview measured its container while it was hidden, so it holds a zero
-  // size; hand it the real one back.
-  workspace.dockview.layout(
-    workspace.element.clientWidth,
-    workspace.element.clientHeight,
-  );
-  // Terminals skip fitting while their workspace is hidden (a zero box would
-  // resize the shell to nothing), so re-fit them against the boxes they just
-  // got back.
-  for (const tab of workspace.tabs.values()) {
-    if (tab.kind !== "terminal") {
-      continue;
-    }
-    tab.fitAddon.fit();
-  }
   focusWorkspace();
 }
 
 export function removeWorkspace(workspace: Workspace): void {
   for (const [tabId, tab] of workspace.tabs) {
-    tab.row.root.unmount();
     if (tab.kind === "markdown") {
-      tab.root.unmount();
       continue;
     }
     bridge.killShell(tabId);
@@ -301,8 +254,8 @@ export function removeWorkspace(workspace: Workspace): void {
     disposeEditor(workspace.editor);
   }
   workspaces.delete(workspace.id);
-  workspace.dockview.dispose();
-  workspace.element.remove();
+  // unmounting the workspace's view disposes the Dockview built against it
+  drawPanes();
   drawChrome();
   if (activeWorkspace !== workspace) {
     return;
@@ -375,7 +328,7 @@ export function findGroup({
   workspace,
   groupId,
 }: FindGroupOptions): DockviewGroupPanel | undefined {
-  for (const group of workspace.dockview.api.groups) {
+  for (const group of dockviewOf(workspace).groups) {
     if (group.id === groupId) {
       return group;
     }
@@ -388,104 +341,41 @@ type AddPanelOptions = {
   id: number;
   component: "terminal" | "markdown";
   title: string;
-  paneElement: HTMLElement;
+  parameters?: Parameters; // what a pane that has any draws itself from
   group: DockviewGroupPanel | undefined;
 };
 
-type AddedPanel = {
-  panel: IDockviewPanel;
-  row: TabRow; // the tab's row in the strip, for retitling and disposal
-};
-
+// The one door a panel is added through, so Dockview stays confined to the
+// workspace store. The pane itself is a React component (panes.tsx) named by
+// `component`; the caller never builds one.
+//
+// The pane is not drawn here. Adding the panel only asks React for one, and
+// a pane reads the tab it belongs to out of the store, so the caller puts
+// the record in and calls drawPanes when it is there.
 export function addPanel({
   workspace,
   id,
   component,
   title,
-  paneElement,
+  parameters,
   group,
-}: AddPanelOptions): AddedPanel {
-  // The row in the strip is built here rather than by the caller: every kind
-  // of tab wears the same one, and only the pane below it differs.
-  const row = mountTabRow({
-    id,
-    title,
-  });
-
-  handOffPaneElement = paneElement;
-  handOffTabElement = row.element;
+}: AddPanelOptions): IDockviewPanel {
   let position: AddPanelPositionOptions | undefined;
   if (group !== undefined) {
     position = { referenceGroup: group };
   }
-  const panel = workspace.dockview.api.addPanel({
+  return dockviewOf(workspace).addPanel({
     id: String(id),
     component,
-    tabComponent: `${component}-tab`,
     title,
+    params: parameters,
     inactive: true,
     position,
   });
-  return {
-    panel,
-    row,
-  };
 }
-
-panesElement.addEventListener("dblclick", (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) {
-    return;
-  }
-  const tabElement = target.closest(".tab");
-  if (tabElement instanceof HTMLElement && tabElement.dataset.tabId) {
-    executeCommand({
-      type: "toggle-maximize",
-      id: Number(tabElement.dataset.tabId),
-    });
-    return;
-  }
-  if (!target.closest(".dv-void-container") || !activeWorkspace) {
-    return;
-  }
-  for (const group of activeWorkspace.dockview.api.groups) {
-    if (group.element.contains(target)) {
-      executeCommand({
-        type: "new-tab",
-        groupId: group.id,
-      });
-      return;
-    }
-  }
-});
-
-// Which half of the window the keyboard belongs to, decided by where the
-// last press landed: the panes take it back, the editor keeps it.
-panesElement.addEventListener("mousedown", () => {
-  if (activeWorkspace) {
-    activeWorkspace.focus = "panes";
-  }
-  setTimeout(focusWorkspace, 0);
-});
 
 editorHostElement.addEventListener("mousedown", () => {
   if (activeWorkspace) {
     activeWorkspace.focus = "editor";
   }
 });
-
-// The empty strip under the list belongs to the sidebar itself, so a click
-// whose target is the sidebar and not one of its buttons landed there, and
-// reads as the same request the + button makes. A double click, like the one
-// the empty space between panes answers to: a single click on a stretch of
-// background is how you put focus somewhere, and opening a workspace out of
-// that is more than a click that meant nothing should do.
-const sidebarElement = requireElement("sidebar");
-sidebarElement.addEventListener("dblclick", (event) => {
-  if (event.target !== sidebarElement) {
-    return;
-  }
-  executeCommand({ type: "new-workspace" });
-});
-
-
