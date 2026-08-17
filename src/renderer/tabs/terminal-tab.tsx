@@ -1,25 +1,23 @@
+import { useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import { currentTheme, getSettings } from "../settings.ts";
 import { bridge } from "../bridge.ts";
 import { executeCommand } from "./index.ts";
 import { registerTerminalLinks } from "./terminal-links.ts";
 import { snapshot } from "../snapshot.ts";
-import {
-  activeWorkspace,
-  addPanel,
-  nextTabId,
-} from "../workspaces.ts";
-import type { TabRow } from "../tab-strip.tsx";
+import { activeWorkspace, addPanel, findTab, nextTabId } from "../workspaces.ts";
+import { drawPanes } from "../panes.tsx";
 import type { Workspace } from "../workspaces.ts";
 import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { DockviewGroupPanel, IDockviewPanel } from "dockview";
+import type { IDockviewPanelProps } from "dockview-react";
 
 export type TerminalTab = {
   kind: "terminal";
   panel: IDockviewPanel;
-  row: TabRow; // its row in the strip
   title: string;
   titlePinned: boolean;
   terminal: Terminal;
@@ -67,6 +65,28 @@ function xtermTheme(): ITheme {
   };
 }
 
+// The pane a terminal tab shows. xterm owns everything inside it, so React
+// renders the box and hands it over: this is the first moment there is one,
+// and xterm can only measure a container that is on screen. Fitting resizes
+// the terminal, which tells the shell its real size.
+export function TerminalPane({ api }: IDockviewPanelProps): ReactNode {
+  const hostElement = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const host = hostElement.current;
+    const found = findTab(Number(api.id));
+    if (host === null || found === undefined || found.tab.kind !== "terminal") {
+      return;
+    }
+    const { terminal, observer, fitAddon } = found.tab;
+    observer.observe(host);
+    terminal.open(host);
+    fitAddon.fit();
+    terminal.focus();
+  }, [api]);
+
+  return <div className="terminal-pane h-full" ref={hostElement} />;
+}
+
 // Everything a terminal tab needs, from its id to the shell behind it;
 // openMarkdownTab has the same shape.
 export function openTerminalTab({
@@ -74,19 +94,7 @@ export function openTerminalTab({
   group,
 }: OpenTerminalTabOptions): void {
   const tabId = nextTabId();
-  const paneElement = document.createElement("div");
-  paneElement.className = "terminal-pane h-full";
-
   const title = "Untitled";
-  const { panel, row } = addPanel({
-    workspace,
-    id: tabId,
-    component: "terminal",
-    title,
-    paneElement,
-    group,
-  });
-
   const settings = getSettings();
   const terminal = new Terminal({
     fontFamily: settings.fontFamily,
@@ -97,40 +105,14 @@ export function openTerminalTab({
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
 
-  const observer = new ResizeObserver(() => {
-    if (paneElement.clientWidth === 0 || paneElement.clientHeight === 0) {
+  // a hidden workspace's pane measures zero, and fitting to that would resize
+  // the shell to nothing
+  const observer = new ResizeObserver((entries) => {
+    const box = entries[0].contentRect;
+    if (box.width === 0 || box.height === 0) {
       return;
     }
     fitAddon.fit();
-  });
-  observer.observe(paneElement);
-
-  workspace.tabs.set(tabId, {
-    kind: "terminal",
-    panel,
-    row,
-    terminal,
-    title,
-    titlePinned: false,
-    observer,
-    fitAddon,
-  });
-  bridge.emitEvent({
-    type: "tab-opened",
-    id: tabId,
-    state: snapshot(),
-  });
-
-  // xterm can only measure a visible container.
-  panel.api.setActive();
-  terminal.open(paneElement);
-  fitAddon.fit();
-  terminal.focus();
-
-  bridge.spawnShell({
-    id: tabId,
-    cols: terminal.cols,
-    rows: terminal.rows,
   });
 
   terminal.onData((data) => {
@@ -174,6 +156,40 @@ export function openTerminalTab({
         baseTabId: tabId,
       });
     },
+  });
+
+  const panel = addPanel({
+    workspace,
+    id: tabId,
+    component: "terminal",
+    title,
+    group,
+  });
+  workspace.tabs.set(tabId, {
+    kind: "terminal",
+    panel,
+    terminal,
+    title,
+    titlePinned: false,
+    observer,
+    fitAddon,
+  });
+
+  // the draw attaches the terminal, and comes before the Event so the page it
+  // describes is the page that is there
+  drawPanes();
+  bridge.emitEvent({
+    type: "tab-opened",
+    id: tabId,
+    state: snapshot(),
+  });
+  panel.api.setActive();
+  // Last, because spawning a login shell blocks main while it forks: anything
+  // sent after it waits behind it.
+  bridge.spawnShell({
+    id: tabId,
+    cols: terminal.cols,
+    rows: terminal.rows,
   });
 }
 

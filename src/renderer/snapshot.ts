@@ -13,7 +13,7 @@ import type {
   TabInfo,
   WorkspaceInfo,
 } from "../api.ts";
-import { activeWorkspace, workspaces } from "./workspaces.ts";
+import { activeWorkspace, dockviewOf, workspaces } from "./workspaces.ts";
 import type { Workspace } from "./workspaces.ts";
 import type { Editor } from "./editor.ts";
 
@@ -124,15 +124,16 @@ function describeEditor(editor: Editor | undefined): EditorInfo | null {
 }
 
 function describeWorkspace(workspace: Workspace): WorkspaceInfo {
+  const dockview = dockviewOf(workspace);
   let maximizedGroupId: string | null = null;
-  for (const group of workspace.dockview.api.groups) {
+  for (const group of dockview.groups) {
     if (group.api.isMaximized()) {
       maximizedGroupId = group.id;
       break;
     }
   }
   const editor = describeEditor(workspace.editor);
-  if (workspace.dockview.api.panels.length === 0) {
+  if (dockview.panels.length === 0) {
     return {
       id: workspace.id,
       name: workspace.name,
@@ -145,7 +146,7 @@ function describeWorkspace(workspace: Workspace): WorkspaceInfo {
       focus: workspace.focus,
     };
   }
-  const serialized = workspace.dockview.api.toJSON();
+  const serialized = dockview.toJSON();
   let rootDirection: "row" | "column" = "column";
   if (serialized.grid.orientation === Orientation.HORIZONTAL) {
     rootDirection = "row";

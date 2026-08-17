@@ -6,7 +6,7 @@ import { getSettings, updateSettings } from "./settings.ts";
 import { refreshCodeTheme } from "./monaco.ts";
 import { showEditorFile } from "./editor.ts";
 import { redrawMarkdown } from "./tabs/markdown-tab.tsx";
-import { refreshTerminalTabSettings } from "./tabs/terminal-tab.ts";
+import { refreshTerminalTabSettings } from "./tabs/terminal-tab.tsx";
 import { snapshot } from "./snapshot.ts";
 import { activeWorkspace, workspaces } from "./workspaces.ts";
 import type { Settings } from "../api.ts";

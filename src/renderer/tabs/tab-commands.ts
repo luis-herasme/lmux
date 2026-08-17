@@ -8,11 +8,11 @@ import {
   reloadMarkdownTab,
   setMarkdownMode,
 } from "./markdown-tab.tsx";
-import { openTerminalTab } from "./terminal-tab.ts";
-import { drawTabRow } from "../tab-strip.tsx";
+import { openTerminalTab } from "./terminal-tab.tsx";
 import { snapshot } from "../snapshot.ts";
 import {
   activeWorkspace,
+  dockviewOf,
   findGroup,
   findTab,
   refreshWorkspaceName,
@@ -228,11 +228,7 @@ export function executeTabCommand(command: Command): void {
         title = "Untitled";
       }
       tab.title = title;
-      drawTabRow({
-        row: tab.row,
-        title,
-      });
-      tab.panel.setTitle(title);
+      tab.panel.setTitle(title); // which is what redraws its row in the strip
       refreshWorkspaceName(resolved.workspace);
       bridge.emitEvent({
         type: "tab-retitled",
@@ -250,7 +246,7 @@ export function executeTabCommand(command: Command): void {
       if (group.api.isMaximized()) {
         group.api.exitMaximized();
       } else {
-        resolved.workspace.dockview.api.maximizeGroup(resolved.tab.panel);
+        dockviewOf(resolved.workspace).maximizeGroup(resolved.tab.panel);
       }
       bridge.emitEvent({
         type: "maximize-changed",
