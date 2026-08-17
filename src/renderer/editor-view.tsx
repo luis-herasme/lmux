@@ -10,7 +10,12 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type { ReactNode } from "react";
 import { DirectoryContents, TreeError, TreeMessage } from "./file-tree.tsx";
-import { mountFileTreeResizeHandle } from "./file-tree-resize.ts";
+import {
+  DEFAULT_FILE_TREE_WIDTH_PX,
+  MAX_FILE_TREE_WIDTH_PX,
+  MIN_FILE_TREE_WIDTH_PX,
+  mountFileTreeResizeHandle,
+} from "./file-tree-resize.ts";
 import { mountFileTreeScrollbar } from "./file-tree-scrollbar.ts";
 import { loadFileTreeRoot, editorFileView } from "./editor.ts";
 import type { Editor } from "./editor.ts";
@@ -54,29 +59,33 @@ type EditorViewProps = {
 function EditorView({ editor, visible }: EditorViewProps): ReactNode {
   const view = editorFileView(editor);
   // Two widgets that answer the pointer rather than the state, mounted once
-  // against the elements below: the drag handle between the file and the
-  // tree, and the tree's floating scrollbar. Both write classes and geometry
-  // on their own elements afterwards, which survives every later draw
-  // because React only touches an attribute whose rendered value changed.
+  // against the elements below: the drag handle between the file and the tree,
+  // and the tree's floating scrollbar. What they write afterwards is geometry,
+  // never markup, and it survives every later draw because React only touches
+  // an attribute whose rendered value changed.
   const paneElement = useRef<HTMLDivElement>(null);
+  const contentElement = useRef<HTMLUListElement>(null);
   const scrollbarElement = useRef<HTMLDivElement>(null);
   const resizeHandleElement = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const pane = paneElement.current;
     const tree = editor.treeElement.current;
+    const content = contentElement.current;
     const scrollbar = scrollbarElement.current;
     const resizeHandle = resizeHandleElement.current;
-    if (pane && tree && scrollbar && resizeHandle) {
-      mountFileTreeResizeHandle({
-        paneElement: pane,
-        treeElement: tree,
-        resizeHandleElement: resizeHandle,
-      });
-      mountFileTreeScrollbar({
-        treeElement: tree,
-        thumbElement: scrollbar,
-      });
+    if (!pane || !tree || !content || !scrollbar || !resizeHandle) {
+      return;
     }
+    mountFileTreeResizeHandle({
+      paneElement: pane,
+      treeElement: tree,
+      resizeHandleElement: resizeHandle,
+    });
+    return mountFileTreeScrollbar({
+      treeElement: tree,
+      contentElement: content,
+      thumbElement: scrollbar,
+    });
   }, [editor]);
 
   return (
@@ -180,7 +189,7 @@ function EditorView({ editor, visible }: EditorViewProps): ReactNode {
           tabIndex={-1}
           ref={editor.treeElement}
         >
-          <ul className="file-tree-root m-0 list-none pl-0">
+          <ul className="file-tree-root m-0 list-none pl-0" ref={contentElement}>
             <FileTreeRegion editor={editor} />
           </ul>
         </div>
@@ -193,10 +202,17 @@ function EditorView({ editor, visible }: EditorViewProps): ReactNode {
           ref={scrollbarElement}
         />
         {/* 5px of hit area over the tree's inner edge; its hairline is in
-            style.css, and its width, limits and aria come from
-            file-tree-resize.ts */}
+            style.css, and the width it drags, along with the two aria values
+            that follow it, come from file-tree-resize.ts */}
         <div
           className="file-tree-resizer absolute inset-y-0 right-[calc(var(--file-tree-width)-3px)] z-2 w-[5px] cursor-col-resize outline-none"
+          role="separator"
+          aria-label="Resize file tree"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_FILE_TREE_WIDTH_PX}
+          aria-valuenow={DEFAULT_FILE_TREE_WIDTH_PX}
+          aria-valuemax={MAX_FILE_TREE_WIDTH_PX}
+          tabIndex={0}
           ref={resizeHandleElement}
         />
       </div>
