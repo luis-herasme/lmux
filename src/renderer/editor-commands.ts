@@ -62,16 +62,14 @@ export async function ensureEditor(
     pendingEditor = createEditor(options);
     pendingEditors.set(workspace, pendingEditor);
   }
-  let editor: Editor;
   try {
-    editor = await pendingEditor;
+    // createEditor puts it on the workspace, because its view draws from there
+    return await pendingEditor;
   } finally {
     if (pendingEditors.get(workspace) === pendingEditor) {
       pendingEditors.delete(workspace);
     }
   }
-  workspace.editor = editor;
-  return editor;
 }
 
 type ShowEditorOptions = {

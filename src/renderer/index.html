@@ -63,6 +63,9 @@
           id="editor-resizer"
           class="absolute inset-y-0 left-[-3px] z-2 w-[5px] cursor-col-resize"
         ></div>
+        <!-- the root the editors are drawn into (editor-view.tsx); the
+             handle above is not React's, which is why it is not this element -->
+        <div id="editors" class="h-full"></div>
       </div>
     </div>
     <!-- the page's one entry; Vite follows its imports from here -->

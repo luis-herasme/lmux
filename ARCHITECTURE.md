@@ -332,8 +332,10 @@ change it and update this list.
   being typed or a font not yet committed, which belongs to nobody else.
 
   Three rules keep it predictable. **A root renders a host's children, never
-  the host**: `#sidebar`, `#title-bar`, `#panes` and the `.editor` div keep
-  their own class and their own place in the page, and React draws inside them.
+  the host**: `#sidebar`, `#title-bar`, `#panes` and `#editors` keep their own
+  class and their own place in the page, and React draws inside them. Each of
+  the four is a region's list drawn from a store, so a workspace opening or
+  coming forward is one call per region and no element handles at all.
   **Every draw is synchronous** (`flushSync`), so
   the code that changes state can go straight on to fill what the render left —
   Monaco's container, a document's box — and the page a Command's Event

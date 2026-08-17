@@ -6,6 +6,7 @@
 // than a root of its own, so a directory arriving and a file opening are the
 // same kind of event: change the state, draw the editor again.
 import { useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type { ReactNode } from "react";
 import { DirectoryContents, TreeError, TreeMessage } from "./file-tree.tsx";
@@ -15,21 +16,42 @@ import { loadFileTreeRoot, editorFileView } from "./editor.ts";
 import type { Editor } from "./editor.ts";
 import { MARKDOWN_ACTION_CLASS } from "./tabs/markdown-tab.tsx";
 import { executeCommand } from "./tabs/index.ts";
+import { requireElement } from "./dom.ts";
+import { activeWorkspace, workspaces } from "./workspaces.ts";
 
-// Drawn synchronously, because the caller goes straight on to fill the
-// elements this render leaves behind — Monaco's container, the document's
-// box — and to move the keyboard into one of them.
-export function drawEditor(editor: Editor): void {
+const editorsRoot = createRoot(requireElement("editors"));
+
+// One editor per workspace, only the active workspace's shown, the way the
+// pane area holds one layout each (panes.tsx). Drawn synchronously, because
+// the caller goes straight on to fill the elements this render leaves behind,
+// Monaco's container and the document's box, and to move the keyboard into
+// one of them.
+export function drawEditors(): void {
   flushSync(() => {
-    editor.root.render(<EditorView editor={editor} />);
+    editorsRoot.render(
+      Array.from(workspaces.values(), (workspace) => {
+        const editor = workspace.editor;
+        if (editor === undefined) {
+          return null;
+        }
+        return (
+          <EditorView
+            key={workspace.id}
+            editor={editor}
+            visible={workspace === activeWorkspace && editor.visible}
+          />
+        );
+      }),
+    );
   });
 }
 
 type EditorViewProps = {
   editor: Editor;
+  visible: boolean; // a background workspace keeps its editor off screen
 };
 
-function EditorView({ editor }: EditorViewProps): ReactNode {
+function EditorView({ editor, visible }: EditorViewProps): ReactNode {
   const view = editorFileView(editor);
   // Two widgets that answer the pointer rather than the state, mounted once
   // against the elements below: the drag handle between the file and the
@@ -58,7 +80,11 @@ function EditorView({ editor }: EditorViewProps): ReactNode {
   }, [editor]);
 
   return (
-    <>
+    <div
+      className={`editor flex h-full flex-col bg-background${
+        visible ? "" : " hidden"
+      }`}
+    >
       {/* The header says which project this is and takes it off screen: what
           the Dockview tab used to do, for a editor that no longer has one.
           35px is the tab strip's height, so the two line up across the
@@ -174,7 +200,7 @@ function EditorView({ editor }: EditorViewProps): ReactNode {
           ref={resizeHandleElement}
         />
       </div>
-    </>
+    </div>
   );
 }
 
