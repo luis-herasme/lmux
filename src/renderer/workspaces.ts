@@ -20,6 +20,7 @@ import type {
 import { bridge } from "./bridge.ts";
 import { snapshot } from "./snapshot.ts";
 import { drawChrome } from "./chrome.tsx";
+import { drawEditors } from "./editor-view.tsx";
 import { drawPanes } from "./panes.tsx";
 import { requireElement } from "./dom.ts";
 
@@ -209,19 +210,11 @@ export function focusWorkspace(): void {
   }
 }
 
-// The host holds one editor per workspace and collapses when the active
-// workspace has none open, so the pane layout gets the whole window back.
+// Which editor is on screen is the region's own business; the host around it
+// collapses when the active workspace has none open, so the pane layout gets
+// the whole window back.
 export function refreshEditor(): void {
-  for (const workspace of workspaces.values()) {
-    if (workspace.editor === undefined) {
-      continue;
-    }
-    let display = "none";
-    if (workspace === activeWorkspace && workspace.editor.visible) {
-      display = "";
-    }
-    workspace.editor.element.style.display = display;
-  }
+  drawEditors();
   let hostDisplay = "none";
   if (activeWorkspace?.editor?.visible === true) {
     hostDisplay = "";
@@ -256,6 +249,7 @@ export function removeWorkspace(workspace: Workspace): void {
   workspaces.delete(workspace.id);
   // unmounting the workspace's view disposes the Dockview built against it
   drawPanes();
+  refreshEditor();
   drawChrome();
   if (activeWorkspace !== workspace) {
     return;

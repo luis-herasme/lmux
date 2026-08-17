@@ -3,12 +3,10 @@
 // editor beside the pane layout, and it shows one file at a time.
 //
 // What the editor looks like is editor-view.tsx; this is what it holds
-// and what changes it. Every change ends in drawEditor, which renders
-// the whole editor again and leaves the difference to React.
+// and what changes it. Every change ends in drawEditors, which draws the
+// region again and leaves the difference to React.
 import { createRef } from "react";
-import { createRoot } from "react-dom/client";
 import type { RefObject } from "react";
-import type { Root } from "react-dom/client";
 import { bridge } from "./bridge.ts";
 import { createCodeEditor, languageForPath, loadMonaco } from "./monaco.ts";
 import type { Monaco } from "./monaco.ts";
@@ -18,7 +16,7 @@ import type {
 } from "../inter-process-communication/bridge.ts";
 import { createFileTree, focusFileTree } from "./file-tree.tsx";
 import type { FileTree } from "./file-tree.tsx";
-import { drawEditor } from "./editor-view.tsx";
+import { drawEditors } from "./editor-view.tsx";
 import {
   handleFileTreeChange,
   startFileTreeWatcher,
@@ -29,7 +27,7 @@ import { renderMarkdown } from "./tabs/markdown-renderer.ts";
 import { executeCommand } from "./tabs/index.ts";
 import { snapshot } from "./snapshot.ts";
 import { nextTabId } from "./workspaces.ts";
-import { requireElement } from "./dom.ts";
+import type { Workspace } from "./workspaces.ts";
 import type { MarkdownMode } from "../api.ts";
 import type { editor as monacoEditor } from "monaco-editor";
 
@@ -44,8 +42,6 @@ type EditorFile = {
 
 export type Editor = {
   id: number; // what a command's editorId names
-  element: HTMLElement; // the .editor host, hidden from workspaces.ts
-  root: Root;
   // The four elements the rest of the editor writes into: Monaco's container,
   // the tree's scroll box, the rendered document, and the message the
   // keyboard is sent to. Each hosts DOM that is not React's, or is a focus
@@ -72,10 +68,6 @@ export type Editor = {
   latestGitRequest: number;
   fileTreeWatcher: FileTreeWatcher; // file-tree-watcher.ts owns it
 };
-
-// Holds one editor per workspace, the way #panes holds one Dockview root
-// each; workspaces.ts decides which is on screen.
-const editorHostElement = requireElement("editor");
 
 type EditorFileView = {
   model: monacoEditor.ITextModel | undefined;
@@ -106,7 +98,7 @@ export function editorFileView(editor: Editor): EditorFileView {
 // model, the rendered document — and where the keyboard goes.
 export function showEditorFile(editor: Editor): void {
   const { model, rendered, error } = editorFileView(editor);
-  drawEditor(editor);
+  drawEditors();
   const markdownElement = editor.markdownElement.current;
   editor.codeEditor?.setModel(model ?? null);
 
@@ -247,7 +239,7 @@ export async function loadFileTreeRoot({
   editor.fileTree = undefined;
   editor.treeError = undefined;
   editor.treeRequest = request;
-  drawEditor(editor);
+  drawEditors();
 
   let result: ReadFileTreeResult;
   try {
@@ -260,7 +252,7 @@ export async function loadFileTreeRoot({
   }
   if ("error" in result) {
     editor.treeError = result.error;
-    drawEditor(editor);
+    drawEditors();
     return;
   }
 
@@ -275,11 +267,11 @@ export async function loadFileTreeRoot({
       });
     },
     redraw: () => {
-      drawEditor(editor);
+      drawEditors();
     },
   });
   editor.name = result.name;
-  drawEditor(editor);
+  drawEditors();
   await startFileTreeWatcher({
     editor,
     treeRequest,
@@ -306,6 +298,7 @@ export async function loadFileTreeRoot({
 }
 
 type CreateEditorOptions = {
+  workspace: Workspace;
   baseTabId?: number;
   workspaceRootPath?: string;
   initialFilePath?: string;
@@ -314,17 +307,11 @@ type CreateEditorOptions = {
 // The editor is planted hidden: whoever asked for it decides when the
 // workspace shows it, the way a workspace's own layout is planted hidden.
 export async function createEditor({
+  workspace,
   baseTabId,
   workspaceRootPath,
   initialFilePath,
 }: CreateEditorOptions): Promise<Editor> {
-  // The host carries the editor's identity and its display, because
-  // workspaces.ts hides it there; React draws everything inside it.
-  const element = document.createElement("div");
-  element.className = "editor flex h-full flex-col bg-background";
-  element.style.display = "none";
-  editorHostElement.append(element);
-
   const request: ReadFileTreeRequest = {
     baseTabId,
     workspaceRootPath,
@@ -333,8 +320,6 @@ export async function createEditor({
   const monaco = await loadMonaco();
   const editor: Editor = {
     id: nextTabId(),
-    element,
-    root: createRoot(element),
     treeElement: createRef(),
     codeEditorElement: createRef(),
     markdownElement: createRef(),
@@ -358,8 +343,10 @@ export async function createEditor({
     },
   };
 
-  // the first render leaves the element Monaco is built against
-  drawEditor(editor);
+  // The view draws from the store, so the editor goes in before the draw, and
+  // that first render leaves the element Monaco is built against.
+  workspace.editor = editor;
+  drawEditors();
   const codeEditorElement = editor.codeEditorElement.current;
   if (codeEditorElement === null) {
     throw new Error("the editor drew no code editor element");
@@ -425,6 +412,4 @@ export function disposeEditor(editor: Editor): void {
   editor.fileTree = undefined;
   editor.file?.model?.dispose();
   editor.codeEditor?.dispose();
-  editor.root.unmount();
-  editor.element.remove();
 }
