@@ -177,7 +177,7 @@ window geometry and the last session to disk.
 **The renderer owns the screen.** It boots settings into CSS and wires the
 cable, keeps the workspace store (one layout and one editor each) and the
 tab store whose one dispatcher hands every Command to its family, draws the
-window's own furniture (title bar, sidebar, modals), the strip's tab rows and
+window's own furniture (the sidebar and the modals), the strip's tab rows and
 the terminal and Markdown panes, hosts the editor with its lazy tree, its
 one open file and Monaco, and owns the settings and the drag handles. Everything
 in it that is a view of state is a React component; everything that hosts
@@ -332,9 +332,9 @@ change it and update this list.
   being typed or a font not yet committed, which belongs to nobody else.
 
   Three rules keep it predictable. **A root renders a host's children, never
-  the host**: `#sidebar`, `#title-bar`, `#panes` and `#editors` keep their own
+  the host**: `#sidebar`, `#panes` and `#editors` keep their own
   class and their own place in the page, and React draws inside them. Each of
-  the four is a region's list drawn from a store, so a workspace opening or
+  the three is a region's list drawn from a store, so a workspace opening or
   coming forward is one call per region and no element handles at all.
   **Every draw is synchronous** (`flushSync`), so
   the code that changes state can go straight on to fill what the render left —
@@ -603,19 +603,24 @@ change it and update this list.
   width is the exception, and is a setting rather than editor-local: it changes
   how much window the panes get, so it rides in `Settings` beside the
   sidebar's, written by one `update-settings` Command when the drag ends.
-- **The title bar is painted, not native.** (Decided 2026-08.) macOS
-  offers no way to recolor the standard title bar, so the window is
-  created with `titleBarStyle: "hiddenInset"`: the traffic lights stay
-  native, drawn inset over the page, and the page's own `#title-bar`
-  strip takes over the rest (the theme's color, the centered title, which
-  names the active workspace, and
-  `-webkit-app-region: drag`, which keeps the native behaviors: dragging
-  moves the window, double-click zooms it; see "Drag region" in the
-  glossary). The tab strip stays below the title bar rather than merging
-  into it: a merged strip would need its empty space as the drag handle,
-  and a drag region's pixels are deaf to the page, which would have
-  killed double-click-to-open-a-tab. Cost we accept: one strip of
-  vertical space a merged design would save.
+- **There is no title bar; the three regions run the window's full
+  height.** (Decided 2026-08.) The window is created with
+  `titleBarStyle: "hiddenInset"`, so the traffic lights stay native, drawn
+  inset over a page that reaches the top edge. Nothing is painted behind
+  them but the sidebar, whose first 36px are an empty strip carrying
+  `-webkit-app-region: drag` — the room the buttons need, and what keeps
+  the native behaviors (dragging moves the window, double-click zooms it;
+  see "Drag region" in the glossary). What this buys is the line between
+  two regions: sidebar, panes and editor are divided by borders that run
+  from the window's top edge to its bottom, with no strip laid across
+  them. The empty stretch beside a tab strip's tabs is a drag region too,
+  so the window can be taken hold of along the top the way a title bar
+  was taken hold of before. Cost we accept: the active workspace's name is
+  no longer written anywhere but its own row in the sidebar, and a drag
+  region's pixels are deaf to the page, so a press on that stretch no
+  longer makes its group the active one and a double click there zooms the
+  window rather than opening a tab (the strip's + and ⌘T still do). Whole-
+  group drags, which start on the same stretch, were already off.
 - **Settings: themes and fonts, runtime-changeable, behind the bus.**
   (Extends the theme decision: the single `THEME` const became `THEMES`,
   a set of named palettes, plus `Settings`: which palette is active, the
@@ -848,7 +853,7 @@ change it and update this list.
   | --- | --- | --- |
   | `lsof` to read a shell's cwd | shell spawning | `/proc/<pid>/cwd` on Linux; no direct equivalent on Windows |
   | `git` on `PATH` for repository roots and decorations | main's tree reads | install or bundle Git; failure already leaves an undecorated tree |
-  | `titleBarStyle: "hiddenInset"`, and a 36px strip sized for the traffic lights | window creation, the page's styles | a non-inset title bar, or the native one |
+  | `titleBarStyle: "hiddenInset"`, and the sidebar's 36px strip sized for the traffic lights | window creation, the sidebar's chrome | a non-inset title bar, or the native one |
   | `/bin/zsh` fallback, spawned `-l` | shell spawning | `$SHELL` is usually right; Windows needs a different shell entirely |
   | `Menlo` as the default terminal font | the theme defaults | a font that exists there |
   | `role: "appMenu"` | the app menu | macOS puts the app menu first; other platforms do not have one |

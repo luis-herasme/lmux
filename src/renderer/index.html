@@ -19,22 +19,16 @@
   <body>
     <!-- The two modals, drawn only while one is open (chrome.tsx) -->
     <div id="dialogs"></div>
-    <!-- The painted title bar; the native one is hidden (titleBarStyle:
-         hiddenInset in main/index.ts). app-region: drag keeps the native
-         behaviors: dragging moves the window, double-click zooms it, and the
-         36px height vertically centers the inset traffic lights. What it
-         says is the active workspace's name (chrome.tsx). -->
-    <div
-      id="title-bar"
-      class="flex h-9 flex-none items-center justify-center bg-title-bar text-[13px] font-semibold text-tab-active [-webkit-app-region:drag]"
-    ></div>
+    <!-- The window has no title bar of its own: the three regions run the
+         full height, so the lines between them are the window's own
+         divisions, top to bottom. -->
     <div id="workbench" class="relative flex min-h-0 flex-1">
       <!-- the named workspace list at the top, settings gear at the bottom;
            both are drawn by chrome.tsx, and the empty strip below them
            belongs to this element (workspaces.ts) -->
       <div
         id="sidebar"
-        class="flex w-(--sidebar-width) flex-none flex-col border-r border-separator bg-tab-bar py-2"
+        class="flex w-(--sidebar-width) flex-none flex-col border-r border-separator bg-tab-bar pb-2"
       ></div>
       <!-- Rides over the sidebar's edge instead of taking a column of its
            own, so widening it costs the layout nothing (edge-resize.ts) -->

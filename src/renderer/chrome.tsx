@@ -1,8 +1,8 @@
 // The window's own furniture, drawn by React from the stores behind it: the
-// title bar's name, the sidebar's list of workspaces, and the two modal
-// dialogs. None of it holds state of its own — the workspaces are in
-// workspaces.ts and the settings in settings.ts — so every change out there
-// ends in drawChrome(), which draws all three again.
+// sidebar's list of workspaces and the two modal dialogs. None of it holds
+// state of its own — the workspaces are in workspaces.ts and the settings in
+// settings.ts — so every change out there ends in drawChrome(), which draws
+// both again.
 //
 // The exceptions are which dialog is open, below, and what a dialog is
 // mid-edit — a name being typed, a font not yet committed — which is the one
@@ -20,10 +20,9 @@ import type { Workspace } from "./workspaces.ts";
 import { THEMES } from "../theme.ts";
 import type { Settings } from "../api.ts";
 
-// Three roots, because the three regions are three places in the page. Each
-// host keeps its own identity and its own look; React draws what is inside
-// it, which is what the rest of this file describes.
-const titleBarRoot = createRoot(requireElement("title-bar"));
+// Two roots, because the two are two places in the page. Each host keeps its
+// own identity and its own look; React draws what is inside it, which is
+// what the rest of this file describes.
 const sidebarElement = requireElement("sidebar");
 const sidebarRoot = createRoot(sidebarElement);
 const dialogRoot = createRoot(requireElement("dialogs"));
@@ -55,7 +54,6 @@ let settingsOpen = false;
 // A dialog is only drawn while it is open, so mounting one is opening it.
 export function drawChrome(): void {
   flushSync(() => {
-    titleBarRoot.render(activeWorkspace?.name ?? "lmux");
     sidebarRoot.render(<Sidebar />);
     dialogRoot.render(
       <>
@@ -69,6 +67,13 @@ export function drawChrome(): void {
 function Sidebar(): ReactNode {
   return (
     <>
+      {/* The window has no title bar, so the traffic lights (titleBarStyle:
+          hiddenInset in main/index.ts) are drawn inset over this corner:
+          the strip is the room they need, 36px being the height that
+          centers them. app-region: drag gives back the title-bar behaviors
+          they came with — dragging moves the window, double-click zooms
+          it. */}
+      <div className="h-9 flex-none [-webkit-app-region:drag]" />
       {/* one row per workspace. A tablist: picking one swaps which set of
           panes is on screen. */}
       <div

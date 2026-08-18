@@ -145,7 +145,9 @@ top edge, free to paint its own strip any color. The CSS property
 events go to the window manager instead of the page, which restores the native
 title-bar behaviors (dragging moves the window, double-click zooms it). The
 trade is that a drag region's pixels are deaf to the page, so nothing inside one
-can react to clicks. Our painted `#title-bar` is exactly this pattern.
+can react to clicks. The window paints no title bar of its own, so its two drag
+regions are the strip above the workspace list, which is the room the inset
+traffic lights need, and the empty stretch beside a tab strip's tabs.
 
 ## Character cell / grid
 
@@ -214,8 +216,9 @@ rendered into Dockview's own element through a portal.
 
 ## Sidebar / pane area / editor
 
-The window's three regions, side by side under the title bar inside
-`#workbench`. The **sidebar** is the column on the left: the list of
+The window's three regions, side by side inside `#workbench`, which is the
+whole window: the border between two of them runs from the top edge to the
+bottom. The **sidebar** is the column on the left: the list of
 workspaces, one row each, with the settings gear at the bottom. The **pane
 area** is the middle and the largest: the panes, their tab strips, and every
 terminal and Markdown tab in them. The **editor** is the column on the right,
@@ -407,7 +410,7 @@ its key, and a directory that gained a file in the middle keeps every other
 row exactly as it was, rather than shuffling their contents up by one.
 
 lmux uses React for everything on screen that is a *view of state*: the file
-tree, the editor, the sidebar's workspace rows, the title bar, a tab's
+tree, the editor, the sidebar's workspace rows, a tab's
 row in the strip, a document's toolbar, and the two dialogs. Each of those is
 data the app already holds, drawn — the case reconciliation is for. A terminal
 is not: xterm owns that DOM and draws it itself, and wrapping it in a component

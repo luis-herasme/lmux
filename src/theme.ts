@@ -18,7 +18,6 @@ export type Theme = {
   // darker than the terminal, so the active tab (which shares the
   // terminal's background) reads as connected to it
   tabBarBackground: string;
-  titleBarBackground: string;
   tabForeground: string;
   tabActiveForeground: string;
   // always opaque: a translucent line renders differently on every surface
@@ -50,7 +49,6 @@ export const THEMES = {
     scrollbarThumb: "rgba(255, 255, 255, 0.25)",
     scrollbarThumbHover: "rgba(255, 255, 255, 0.45)",
     tabBarBackground: "#161616",
-    titleBarBackground: "#161616",
     tabForeground: "#8a8a8a",
     tabActiveForeground: "#e6e6e6",
     separator: "#323232",
@@ -77,7 +75,6 @@ export const THEMES = {
     scrollbarThumb: "rgba(0, 0, 0, 0.25)",
     scrollbarThumbHover: "rgba(0, 0, 0, 0.45)",
     tabBarBackground: "#ececec",
-    titleBarBackground: "#ececec",
     tabForeground: "#767676",
     tabActiveForeground: "#1a1a1a",
     separator: "#d0d0d0",
@@ -105,7 +102,6 @@ export const THEMES = {
     scrollbarThumb: "rgba(147, 161, 161, 0.25)",
     scrollbarThumbHover: "rgba(147, 161, 161, 0.45)",
     tabBarBackground: "#00212b",
-    titleBarBackground: "#00212b",
     tabForeground: "#657b83",
     tabActiveForeground: "#93a1a1",
     separator: "#073642", // solarized base02, its own highlight tone

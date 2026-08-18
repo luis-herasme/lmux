@@ -16,7 +16,6 @@
    at use time, so switching a theme repaints without rebuilding the CSS. */
 @theme inline {
   --color-background: var(--background);
-  --color-title-bar: var(--title-bar-background);
   --color-tab-bar: var(--tab-bar-background);
   --color-tab: var(--tab-foreground);
   --color-tab-active: var(--tab-active-foreground);
@@ -204,6 +203,16 @@ body.resizing #editor > .editor {
 
 .dv-tabs-and-actions-container {
   border-bottom: 1px solid var(--separator);
+}
+
+/* The empty stretch beside a strip's tabs is where the window is grabbed:
+   with no title bar there is nowhere else along the top edge to take hold
+   of. A drag region's pixels go to the window manager, so what the stretch
+   used to answer to is gone with them — a press no longer makes its group
+   the active one, and a double click zooms the window rather than opening a
+   tab (the strip's + and ⌘T still do). */
+.dv-void-container {
+  -webkit-app-region: drag;
 }
 
 /* the active tab shares its pane's background; cover the strip's underline

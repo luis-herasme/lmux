@@ -1,8 +1,8 @@
 // The pane area: one Dockview per workspace, only the active one displayed.
-// Like the sidebar and the title bar (chrome.tsx), it is a view of the
-// workspace store, so every change out there ends in drawPanes(). Every piece
-// Dockview lets us supply, a pane, the row a tab wears, the strip's + button,
-// is a React component it renders into an element of its own.
+// Like the sidebar (chrome.tsx), it is a view of the workspace store, so every
+// change out there ends in drawPanes(). Every piece Dockview lets us supply, a
+// pane, the row a tab wears, the strip's + button, is a React component it
+// renders into an element of its own.
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
@@ -83,17 +83,6 @@ function WorkspacePanes({ workspace }: WorkspacePanesProps): ReactNode {
       onMouseDown={() => {
         workspace.focus = "panes";
         setTimeout(focusWorkspace, 0);
-      }}
-      // The empty stretch of a strip beside its tabs is Dockview's own
-      // element, and it publishes no event for it. A press there has already
-      // made its group the active one, so the tab needs no target named.
-      onDoubleClick={(event) => {
-        if (
-          event.target instanceof Element &&
-          event.target.closest(".dv-void-container")
-        ) {
-          executeCommand({ type: "new-tab" });
-        }
       }}
     >
       <DockviewReact
