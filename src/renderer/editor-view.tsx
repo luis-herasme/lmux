@@ -85,12 +85,7 @@ function EditorView({ editor, visible }: EditorViewProps): ReactNode {
         visible ? "" : " hidden"
       }`}
     >
-      {/* The header says which project this is and takes it off screen: what
-          the Dockview tab used to do, for a editor that no longer has one.
-          35px is the tab strip's height, so the two line up across the
-          window; Dockview counts its own underline inside that, so this has
-          to as well. */}
-      <div className="editor-header box-border flex h-[35px] flex-none items-center gap-1.5 border-b border-separator bg-tab-bar px-2 text-[12px] text-tab-active">
+      <div className="editor-header box-border flex h-8 flex-none items-center gap-1.5 border-b border-separator bg-tab-bar px-2 text-[12px] text-tab-active">
         <span
           className="min-w-0 flex-1 truncate"
           title={editor.workspaceRootPath}

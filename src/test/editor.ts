@@ -40,7 +40,7 @@ const stripAlignmentSchema = z.object({
   headerBottom: z.number(),
 });
 
-// Both are 35px tall, but only one of them counts its own underline inside
+// Both are 32px tall, but only one of them counts its own underline inside
 // that: the strip is border-box and the header had to be told to be.
 async function visibleStripAlignment(): Promise<
   z.infer<typeof stripAlignmentSchema>
