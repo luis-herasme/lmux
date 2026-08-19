@@ -8,14 +8,17 @@
 const MIN_THUMB_HEIGHT_PX = 24;
 
 type FileTreeScrollbarOptions = {
-  treeElement: HTMLElement;
+  treeElement: HTMLElement; // the box that scrolls
+  contentElement: HTMLElement; // the rows inside it, however many there are
   thumbElement: HTMLElement;
 };
 
+// Returns the way to take it all down again, for the caller's effect.
 export function mountFileTreeScrollbar({
   treeElement,
+  contentElement,
   thumbElement,
-}: FileTreeScrollbarOptions): void {
+}: FileTreeScrollbarOptions): () => void {
   function drawThumb(): void {
     const visibleHeight = treeElement.clientHeight;
     const scrollableHeight = treeElement.scrollHeight - visibleHeight;
@@ -60,7 +63,7 @@ export function mountFileTreeScrollbar({
     thumbElement.classList.remove("dragging");
   }
 
-  thumbElement.addEventListener("mousedown", (event) => {
+  function startDrag(event: MouseEvent): void {
     if (event.button !== 0) {
       return;
     }
@@ -76,16 +79,22 @@ export function mountFileTreeScrollbar({
     // the rows and Monaco, both of which handle mouse events themselves
     document.addEventListener("mousemove", dragThumb, true);
     document.addEventListener("mouseup", endDrag, true);
-  });
+  }
 
+  thumbElement.addEventListener("mousedown", startDrag);
   treeElement.addEventListener("scroll", drawThumb);
-  // the height the tree can show changes with the window and the resize
-  // handle; the height it has to show changes with every expand, collapse
-  // and reload, which arrive as rows appearing and disappearing
-  new ResizeObserver(drawThumb).observe(treeElement);
-  new MutationObserver(drawThumb).observe(treeElement, {
-    childList: true,
-    subtree: true,
-  });
+  // Both heights the thumb is a ratio of: what the tree can show, which the
+  // window and the resize handle change, and what it has to show, which every
+  // expand, collapse and reload changes. Watching the rows' box rather than
+  // the writes that produce it keeps this out of React's way.
+  const observer = new ResizeObserver(drawThumb);
+  observer.observe(treeElement);
+  observer.observe(contentElement);
   drawThumb();
+
+  return () => {
+    observer.disconnect();
+    treeElement.removeEventListener("scroll", drawThumb);
+    thumbElement.removeEventListener("mousedown", startDrag);
+  };
 }

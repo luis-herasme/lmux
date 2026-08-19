@@ -343,7 +343,9 @@ change it and update this list.
   React's**: Monaco, markdown-it's output, and the elements focus is asked for
   by name. Deliberately not React: xterm and Monaco own their DOM and
   would only be wrapped; the drag handles and the tree's scrollbar, which track
-  a pointer and write geometry rather than showing state; the CSS custom
+  a pointer and write geometry rather than showing state, though their markup
+  is React's and only the numbers that move are written by hand (a value React
+  never re-renders is one React never touches); the CSS custom
   properties settings become;
   and the strip's `+`, a control whose content never changes and so has nothing
   to redraw. Every affordance still issues Commands. Cost we accept: a

@@ -1,9 +1,10 @@
 // The handle between the editor's file view and its file tree. The tree
 // is the side on the right, so dragging the handle left widens it. The width
-// is one CSS variable on the pane, written only from here.
-const DEFAULT_FILE_TREE_WIDTH_PX = 260;
-const MIN_FILE_TREE_WIDTH_PX = 120;
-const MAX_FILE_TREE_WIDTH_PX = 600;
+// is one CSS variable on the pane, written only from here; the handle's own
+// markup, including the limits below, is in editor-view.tsx.
+export const DEFAULT_FILE_TREE_WIDTH_PX = 260;
+export const MIN_FILE_TREE_WIDTH_PX = 120;
+export const MAX_FILE_TREE_WIDTH_PX = 600;
 const MIN_CODE_EDITOR_WIDTH_PX = 160;
 const FILE_TREE_KEYBOARD_RESIZE_STEP_PX = 20;
 
@@ -24,22 +25,6 @@ export function mountFileTreeResizeHandle({
     "--file-tree-width",
     `${DEFAULT_FILE_TREE_WIDTH_PX}px`,
   );
-  resizeHandleElement.setAttribute("role", "separator");
-  resizeHandleElement.setAttribute("aria-label", "Resize file tree");
-  resizeHandleElement.setAttribute("aria-orientation", "vertical");
-  resizeHandleElement.setAttribute(
-    "aria-valuemin",
-    String(MIN_FILE_TREE_WIDTH_PX),
-  );
-  resizeHandleElement.setAttribute(
-    "aria-valuenow",
-    String(DEFAULT_FILE_TREE_WIDTH_PX),
-  );
-  resizeHandleElement.setAttribute(
-    "aria-valuemax",
-    String(MAX_FILE_TREE_WIDTH_PX),
-  );
-  resizeHandleElement.tabIndex = 0;
 
   function applyFileTreeWidth(requestedWidth: number): void {
     const paneWidth = Math.round(paneElement.getBoundingClientRect().width);
