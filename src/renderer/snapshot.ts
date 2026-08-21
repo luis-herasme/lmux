@@ -179,8 +179,12 @@ export function snapshot(): LmuxState {
   for (const workspace of workspaces.values()) {
     workspaceList.push(describeWorkspace(workspace));
   }
+  let activeWorkspaceId: number | null = null;
+  if (activeWorkspace) {
+    activeWorkspaceId = activeWorkspace.id;
+  }
   return {
     workspaces: workspaceList,
-    activeWorkspaceId: activeWorkspace ? activeWorkspace.id : null,
+    activeWorkspaceId,
   };
 }

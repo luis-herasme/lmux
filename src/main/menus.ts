@@ -15,9 +15,9 @@ type CloseWorkspaceOptions = {
 function workspaceInfo(
   workspaceId: number | undefined,
 ): WorkspaceInfo | undefined {
-  const resolvedWorkspaceId = workspaceId ?? lmuxState.activeWorkspaceId;
-  if (resolvedWorkspaceId === null) {
-    return undefined;
+  let resolvedWorkspaceId: number | null | undefined = workspaceId;
+  if (resolvedWorkspaceId === undefined) {
+    resolvedWorkspaceId = lmuxState.activeWorkspaceId;
   }
   for (const workspace of lmuxState.workspaces) {
     if (workspace.id === resolvedWorkspaceId) {
