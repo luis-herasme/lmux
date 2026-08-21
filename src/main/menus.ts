@@ -9,18 +9,14 @@ type CloseWorkspaceOptions = {
   // the question below needs a window to be asked in, and a click in the page
   // knows which one better than OS focus does.
   window: BrowserWindow | null;
-  workspaceId?: number;
+  workspaceId: number | null;
 };
 
 function workspaceInfo(
-  workspaceId: number | undefined,
+  workspaceId: number | null,
 ): WorkspaceInfo | undefined {
-  let resolvedWorkspaceId = lmuxState.activeWorkspaceId;
-  if (workspaceId !== undefined) {
-    resolvedWorkspaceId = workspaceId;
-  }
   for (const workspace of lmuxState.workspaces) {
-    if (workspace.id === resolvedWorkspaceId) {
+    if (workspace.id === workspaceId) {
       return workspace;
     }
   }
@@ -88,7 +84,7 @@ function cycleWorkspace(step: number): void {
 // ⌘W means the file you are looking at while the keyboard is in the editor,
 // and the tab you are looking at otherwise.
 function closeActiveFileOrTab(): void {
-  const workspace = workspaceInfo(undefined);
+  const workspace = workspaceInfo(lmuxState.activeWorkspaceId);
   const editor = workspace?.editor;
   if (
     editor?.visible === true &&
@@ -110,7 +106,7 @@ function closeActiveFileOrTab(): void {
 // One menu item for both directions: the editor is state, so main can read
 // whether it is on screen and ask for the other one.
 function toggleEditor(): void {
-  const workspace = workspaceInfo(undefined);
+  const workspace = workspaceInfo(lmuxState.activeWorkspaceId);
   if (workspace?.editor?.visible === true) {
     dispatch({ type: "hide-editor" });
     return;
@@ -194,6 +190,7 @@ export function installAppMenu(): void {
             click: () => {
               closeWorkspace({
                 window: BrowserWindow.getFocusedWindow(),
+                workspaceId: lmuxState.activeWorkspaceId,
               });
             },
           },
