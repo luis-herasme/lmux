@@ -1,6 +1,6 @@
 /* Tailwind's utilities carry the look of the elements this app builds; what
    is left here is what a utility class cannot reach, and the semantic class
-   names it selects on (.file-tree-row, .tab) stay on those elements as
+   names it selects on (.file-tree-row, .workspace-row) stay on those elements as
    hooks for these rules and for the test suite. Preflight, Tailwind's reset,
    is deliberately not imported: the window embeds three UIs that ship their
    own complete styling (Dockview, xterm, Monaco) and a global reset would
@@ -100,7 +100,7 @@ select {
    terminal or Monaco does not start a selection under the cursor. The host
    keeps its own, since the drag handle sits inside it. */
 body.resizing #panes,
-body.resizing #editor > .editor {
+body.resizing #editors {
   pointer-events: none;
 }
 

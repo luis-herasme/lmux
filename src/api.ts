@@ -190,7 +190,7 @@ export type EditorInfo = {
 
 // One tab strip and the pane below it. Group ids are opaque handles
 // assigned by the layout engine, unique within their workspace only.
-export type GroupInfo = {
+type GroupInfo = {
   id: string;
   tabs: TabInfo[];
 };

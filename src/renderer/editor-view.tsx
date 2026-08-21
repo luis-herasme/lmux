@@ -100,7 +100,7 @@ function EditorView({ editor, visible }: EditorViewProps): ReactNode {
         <button
           className="flex-none cursor-pointer border-0 bg-transparent p-0 text-[length:inherit] leading-none text-tab hover:text-tab-active [-webkit-app-region:no-drag]"
           type="button"
-          title="Hide Editor Editor (⌘B)"
+          title="Hide editor (⌘B)"
           aria-label="Hide editor"
           onClick={() => {
             executeCommand({ type: "hide-editor" });

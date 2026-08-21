@@ -133,7 +133,7 @@ export function languageForPath({ monaco, filePath }: LanguageForPathOptions): s
   return "plaintext";
 }
 
-export type CodeEditorOptions = {
+type CodeEditorOptions = {
   monaco: Monaco;
   container: HTMLElement;
 };

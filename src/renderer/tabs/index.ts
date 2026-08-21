@@ -73,6 +73,25 @@ export function getTabTitle(id: number): string | undefined {
   return findTab(id)?.tab.title;
 }
 
+type InstallTabOptions = {
+  workspace: Workspace;
+  id: number;
+  tab: Tab;
+};
+
+// The end of every open: the record enters the store, then the draw, which
+// comes before the Event so the page it describes is the page that is there.
+export function installTab({ workspace, id, tab }: InstallTabOptions): void {
+  workspace.tabs.set(id, tab);
+  drawPanes();
+  bridge.emitEvent({
+    type: "tab-opened",
+    id,
+    state: snapshot(),
+  });
+  tab.panel.api.setActive();
+}
+
 // Rebuilding what the last run left behind. Not a Command: it is the boot
 // path deciding what to open instead of one empty workspace, and it needs
 // the tab records as it makes them, which no snapshot hands back.

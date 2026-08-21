@@ -468,8 +468,9 @@ async function readWorkspaceDirectory({
       }
 
       const entryPath = path.join(directoryPath, directoryEntry.name);
-      let relativePath = path.relative(workspaceRootPath, entryPath);
-      relativePath = relativePath.split(path.sep).join("/");
+      const relativePath = normalizedGitPath(
+        path.relative(workspaceRootPath, entryPath),
+      );
       if (directoryEntry.isDirectory()) {
         entries.push({
           kind: "directory",
@@ -598,7 +599,7 @@ ipcMain.handle(
       try {
         watchedTreePath = await realpath(discoveredGitRootPath);
       } catch {
-        watchedTreePath = workspaceRootPath;
+        // realpath failing leaves the workspace root as the watched tree
       }
     }
     const [gitCommonDirectoryPath, gitDirectoryPath] = await Promise.all([

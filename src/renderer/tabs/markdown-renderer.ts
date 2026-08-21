@@ -17,7 +17,7 @@ const parser = new markdownit({
   },
 });
 
-export type MarkdownRender = {
+type MarkdownRender = {
   view: HTMLElement;
   // Diagrams arrive after the text, and a drawn one is taller than the
   // fence it replaces: anything that measures the document (restoring a

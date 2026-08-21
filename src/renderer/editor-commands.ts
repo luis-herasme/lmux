@@ -38,7 +38,7 @@ function resolveEditor(
   return undefined;
 }
 
-export type OpenEditorOptions = {
+type OpenEditorOptions = {
   workspace: Workspace;
   baseTabId?: number; // the tab a relative path is resolved against
   workspaceRootPath?: string; // where to root a editor being built
