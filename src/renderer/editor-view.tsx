@@ -85,7 +85,12 @@ function EditorView({ editor, visible }: EditorViewProps): ReactNode {
         visible ? "" : " hidden"
       }`}
     >
-      <div className="editor-header box-border flex h-8 flex-none items-center gap-1.5 border-b border-separator bg-tab-bar px-2 text-[12px] text-tab-active">
+      {/* The header sits along the window's top edge where a title bar
+          would be, so it is a drag region too, like the empty stretch beside
+          a tab strip (.dv-void-container in style.css). A drag region's
+          pixels go to the window manager, which is why the button below has
+          to opt back out to stay clickable. */}
+      <div className="editor-header box-border flex h-8 flex-none items-center gap-1.5 border-b border-separator bg-tab-bar px-2 text-[12px] text-tab-active [-webkit-app-region:drag]">
         <span
           className="min-w-0 flex-1 truncate"
           title={editor.workspaceRootPath}
@@ -93,7 +98,7 @@ function EditorView({ editor, visible }: EditorViewProps): ReactNode {
           {editor.name}
         </span>
         <button
-          className="flex-none cursor-pointer border-0 bg-transparent p-0 text-[length:inherit] leading-none text-tab hover:text-tab-active"
+          className="flex-none cursor-pointer border-0 bg-transparent p-0 text-[length:inherit] leading-none text-tab hover:text-tab-active [-webkit-app-region:no-drag]"
           type="button"
           title="Hide Editor Editor (⌘B)"
           aria-label="Hide editor"

@@ -211,8 +211,9 @@ body.resizing #editor > .editor {
    of. A drag region's pixels go to the window manager, so what the stretch
    used to answer to is gone with them — a press no longer makes its group
    the active one, and a double click zooms the window rather than opening a
-   tab (the strip's + and ⌘T still do). */
-.dv-void-container {
+   tab (the strip's + and ⌘T still do). Only the strips along the window's
+   top edge, though: the class is measured onto them by window-drag.ts. */
+.dv-void-container.at-window-top {
   -webkit-app-region: drag;
 }
 

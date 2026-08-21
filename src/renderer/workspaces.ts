@@ -23,6 +23,7 @@ import { drawChrome } from "./chrome.tsx";
 import { drawEditors } from "./editor-view.tsx";
 import { drawPanes } from "./panes.tsx";
 import { requireElement } from "./dom.ts";
+import { markWindowTopStrips } from "./window-drag.ts";
 
 export type Workspace = {
   id: number;
@@ -144,6 +145,12 @@ export function workspaceReady({
       side: event.position,
     });
   });
+
+  // Every layout Dockview settles on decides afresh which strips are along
+  // the window's top edge, and so where the window can be dragged by one.
+  // The event is buffered onto a microtask, so it arrives once the groups
+  // have moved.
+  dockview.onDidLayoutChange(markWindowTopStrips);
 
   dockview.onWillShowOverlay((event) => {
     if (event.kind === "edge") {

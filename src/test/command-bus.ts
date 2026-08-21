@@ -90,8 +90,9 @@ const terminalSurroundSchema = z.object({
 });
 
 async function visibleTerminalRows(): Promise<number> {
-  const probed =
-    await lmuxWindow.webContents.executeJavaScript(VISIBLE_TERMINAL_ROWS);
+  const probed = await lmuxWindow.webContents.executeJavaScript(
+    VISIBLE_TERMINAL_ROWS,
+  );
   const counts = rowCountsSchema.parse(probed);
   const rows = counts.at(0);
   if (rows === undefined) {
@@ -117,6 +118,36 @@ function tabIds(workspace: WorkspaceInfo): number[] {
     ids.push(tab.id);
   }
   return ids;
+}
+
+// Where the window can be dragged by a tab strip. Dockview's own strip
+// element is measured, and the stretch beside its tabs is what carries the
+// region, so the probe reads one from each.
+const VISIBLE_STRIP_DRAG_REGIONS = `(() => {
+  const strips = [];
+  for (const strip of document.querySelectorAll(".dv-tabs-and-actions-container")) {
+    if (strip.offsetParent === null) {
+      continue;
+    }
+    strips.push({
+      top: strip.getBoundingClientRect().top,
+      region: getComputedStyle(strip.querySelector(".dv-void-container"))
+        .webkitAppRegion,
+    });
+  }
+  return strips;
+})()`;
+
+const stripDragRegionsSchema = z.array(
+  z.object({ top: z.number(), region: z.string() }),
+);
+
+async function stripDragRegions(): Promise<
+  z.infer<typeof stripDragRegionsSchema>
+> {
+  return stripDragRegionsSchema.parse(
+    await lmuxWindow.webContents.executeJavaScript(VISIBLE_STRIP_DRAG_REGIONS),
+  );
 }
 
 export const commandBus = describe("the command bus", () => {
@@ -270,7 +301,8 @@ export const commandBus = describe("the command bus", () => {
       // pinned: the tab may retitle itself all it likes
       sendCommand({ type: "set-tab-title", id: tab.id, title: "linker" });
       const retitled = await waitForEvent(
-        (event) => findTabTitle({ state: event.state, id: tab.id }) === "linker",
+        (event) =>
+          findTabTitle({ state: event.state, id: tab.id }) === "linker",
       );
       assert.equal(
         findWorkspace({ state: retitled.state, id: workspace.id })?.name,
@@ -292,12 +324,64 @@ export const commandBus = describe("the command bus", () => {
   });
 
   busTest({
+    name: "only a tab strip along the window's top edge drags the window",
+    body: async () => {
+      const workspace = await openWorkspace();
+      try {
+        sendCommand({ type: "new-tab" });
+        const opened = await waitForEvent(
+          (event) => event.type === "tab-opened",
+        );
+        if (opened.type !== "tab-opened") {
+          throw new Error(`the tab arrived as a ${opened.type}`);
+        }
+
+        sendCommand({ type: "split-tab", id: opened.id, side: "bottom" });
+        let strips = await stripDragRegions();
+        await pollUntil({
+          check: async () => {
+            strips = await stripDragRegions();
+            return strips.length === 2;
+          },
+          description: "the split to leave two strips on screen",
+        });
+
+        const [top, lower] = strips;
+        assert.equal(top?.top, 0);
+        assert.equal(
+          top?.region,
+          "drag",
+          "the strip along the top edge stopped standing in for a title bar",
+        );
+        assert.ok(
+          lower !== undefined && lower.top > 0,
+          "the split left no strip below the top edge",
+        );
+        assert.equal(
+          lower.region,
+          "none",
+          "a strip in the middle of the window dragged the window",
+        );
+      } finally {
+        const closed = waitForEvent(
+          (event) =>
+            event.type === "workspace-closed" && event.id === workspace.id,
+        );
+        sendCommand({ type: "close-workspace", id: workspace.id });
+        await closed;
+      }
+    },
+  });
+
+  busTest({
     name: "the × on a sidebar row closes that workspace",
     body: async () => {
       const workspace = await openWorkspace();
       // The waiter goes up before the click: the × travels to main and back
       // as a Command, so its Event can arrive before the script answers.
-      const closing = waitForEvent((event) => event.type === "workspace-closed");
+      const closing = waitForEvent(
+        (event) => event.type === "workspace-closed",
+      );
       await lmuxWindow.webContents.executeJavaScript(
         CLICK_LAST_WORKSPACE_CLOSE,
       );
