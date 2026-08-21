@@ -179,7 +179,7 @@ export function snapshot(): LmuxState {
   for (const workspace of workspaces.values()) {
     workspaceList.push(describeWorkspace(workspace));
   }
-  let activeWorkspaceId = -1;
+  let activeWorkspaceId: number | null = null;
   if (activeWorkspace) {
     activeWorkspaceId = activeWorkspace.id;
   }

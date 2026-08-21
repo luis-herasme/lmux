@@ -9,7 +9,7 @@ export function dispatch(command: Command): void {
 // A live binding, so importers always read the current value.
 export let lmuxState: LmuxState = {
   workspaces: [],
-  activeWorkspaceId: -1,
+  activeWorkspaceId: null,
 };
 
 ipcMain.on("event", (event, lmuxEvent: LmuxEvent) => {
