@@ -219,5 +219,5 @@ export type WorkspaceInfo = {
 
 export type LmuxState = {
   workspaces: WorkspaceInfo[]; // in sidebar order
-  activeWorkspaceId: number; // -1 only before the first workspace exists
+  activeWorkspaceId: number | null; // null only before the first workspace exists
 };
