@@ -119,7 +119,7 @@ function TabRow({ api }: IDockviewPanelHeaderProps): ReactNode {
   const id = Number(api.id);
   return (
     <div
-      className="tab flex h-full items-center gap-1.5 font-ui"
+      className="flex h-full items-center gap-1.5 font-ui"
       onDoubleClick={() => {
         executeCommand({
           type: "toggle-maximize",

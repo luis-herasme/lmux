@@ -1,6 +1,8 @@
 // The handle between the editor's file view and its file tree. The tree
 // is the side on the right, so dragging the handle left widens it. The width
 // is one CSS variable on the pane, written only from here.
+import { installDragSession } from "./dom.ts";
+
 const DEFAULT_FILE_TREE_WIDTH_PX = 260;
 const MIN_FILE_TREE_WIDTH_PX = 120;
 const MAX_FILE_TREE_WIDTH_PX = 600;
@@ -63,22 +65,11 @@ export function mountFileTreeResizeHandle({
     applyFileTreeWidth(paneBounds.right - event.clientX);
   }
 
-  function endFileTreeResize(): void {
-    document.removeEventListener("mousemove", resizeFileTree, true);
-    document.removeEventListener("mouseup", endFileTreeResize, true);
-    document.body.classList.remove("resizing");
-    resizeHandleElement.classList.remove("dragging");
-  }
-
-  resizeHandleElement.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-    event.preventDefault();
-    resizeHandleElement.classList.add("dragging");
-    document.body.classList.add("resizing");
-    document.addEventListener("mousemove", resizeFileTree, true);
-    document.addEventListener("mouseup", endFileTreeResize, true);
+  installDragSession({
+    handleElement: resizeHandleElement,
+    stopMousedownPropagation: false,
+    markBodyResizing: true,
+    onDragMove: resizeFileTree,
   });
 
   resizeHandleElement.addEventListener("keydown", (event) => {

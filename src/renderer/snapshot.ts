@@ -1,6 +1,6 @@
 // The public read model: in-memory Workspace records plus the layout
-// engine's serialization, turned into the LmuxState every Event carries, the
-// session writer consumes, and the MCP `state` tool answers from.
+// engine's serialization, turned into the LmuxState every Event carries and
+// the session writer consumes.
 //
 // Dockview's serialized format is read here and nowhere else, so a change to
 // how the engine serializes a layout is a change to this one module.

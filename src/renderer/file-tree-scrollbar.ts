@@ -3,6 +3,7 @@
 // Chromium clips the content: a row's hover band would stop a bar's width
 // short of the editor edge. Floating the thumb instead leaves the rows the
 // full width, and is what VS Code's explorer does with its own.
+import { installDragSession } from "./dom.ts";
 
 // a thumb this short is still something to grab, however long the tree is
 const MIN_THUMB_HEIGHT_PX = 24;
@@ -54,28 +55,17 @@ export function mountFileTreeScrollbar({
         (treeElement.scrollHeight - visibleHeight);
   }
 
-  function endDrag(): void {
-    document.removeEventListener("mousemove", dragThumb, true);
-    document.removeEventListener("mouseup", endDrag, true);
-    thumbElement.classList.remove("dragging");
-  }
-
-  thumbElement.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-    // no text selection under the cursor for the length of the drag
-    event.preventDefault();
+  installDragSession({
+    handleElement: thumbElement,
     // grabbing the bar is not working in the editor: the keyboard stays where
     // it was, the way the resize handle beside it behaves
-    event.stopPropagation();
-    dragStartY = event.clientY;
-    dragStartScrollTop = treeElement.scrollTop;
-    thumbElement.classList.add("dragging");
-    // on the document, in the capture phase: the pointer spends the drag over
-    // the rows and Monaco, both of which handle mouse events themselves
-    document.addEventListener("mousemove", dragThumb, true);
-    document.addEventListener("mouseup", endDrag, true);
+    stopMousedownPropagation: true,
+    markBodyResizing: false,
+    onDragStart: (event) => {
+      dragStartY = event.clientY;
+      dragStartScrollTop = treeElement.scrollTop;
+    },
+    onDragMove: dragThumb,
   });
 
   treeElement.addEventListener("scroll", drawThumb);

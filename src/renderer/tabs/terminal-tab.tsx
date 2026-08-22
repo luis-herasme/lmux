@@ -2,11 +2,9 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { currentTheme, getSettings } from "../settings.ts";
 import { bridge } from "../bridge.ts";
-import { executeCommand } from "./index.ts";
+import { executeCommand, installTab } from "./index.ts";
 import { registerTerminalLinks } from "./terminal-links.ts";
-import { snapshot } from "../snapshot.ts";
 import { activeWorkspace, addPanel, findTab, nextTabId } from "../workspaces.ts";
-import { drawPanes } from "../panes.tsx";
 import type { Workspace } from "../workspaces.ts";
 import { Terminal } from "@xterm/xterm";
 import type { ITheme } from "@xterm/xterm";
@@ -165,25 +163,19 @@ export function openTerminalTab({
     title,
     group,
   });
-  workspace.tabs.set(tabId, {
-    kind: "terminal",
-    panel,
-    terminal,
-    title,
-    titlePinned: false,
-    observer,
-    fitAddon,
-  });
-
-  // the draw attaches the terminal, and comes before the Event so the page it
-  // describes is the page that is there
-  drawPanes();
-  bridge.emitEvent({
-    type: "tab-opened",
+  installTab({
+    workspace,
     id: tabId,
-    state: snapshot(),
+    tab: {
+      kind: "terminal",
+      panel,
+      terminal,
+      title,
+      titlePinned: false,
+      observer,
+      fitAddon,
+    },
   });
-  panel.api.setActive();
   // Last, because spawning a login shell blocks main while it forks: anything
   // sent after it waits behind it.
   bridge.spawnShell({

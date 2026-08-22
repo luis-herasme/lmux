@@ -9,10 +9,9 @@ import { flushSync } from "react-dom";
 import type { ReactNode } from "react";
 import { bridge } from "../bridge.ts";
 import { renderMarkdown } from "./markdown-renderer.ts";
-import { executeCommand } from "./index.ts";
+import { executeCommand, installTab } from "./index.ts";
 import { snapshot } from "../snapshot.ts";
 import { addPanel, findTab, nextTabId } from "../workspaces.ts";
-import { drawPanes } from "../panes.tsx";
 import type { Workspace } from "../workspaces.ts";
 import type { MarkdownMode } from "../../api.ts";
 import type { ReadFileResult } from "../../inter-process-communication/bridge.ts";
@@ -239,29 +238,24 @@ export async function openMarkdownTab({
     group,
   });
 
-  workspace.tabs.set(id, {
-    kind: "markdown",
-    panel,
-    title,
-    titlePinned: true,
-    contentElement: undefined,
-    filePath: resolvedPath,
-    baseTabId,
-    mode,
-    markdown: markdownText({
-      result,
-      filePath,
-    }),
-  });
-  // the draw reads the document into the pane, and comes before the Event so
-  // the page it describes is the page that is there
-  drawPanes();
-  bridge.emitEvent({
-    type: "tab-opened",
+  installTab({
+    workspace,
     id,
-    state: snapshot(),
+    tab: {
+      kind: "markdown",
+      panel,
+      title,
+      titlePinned: true,
+      contentElement: undefined,
+      filePath: resolvedPath,
+      baseTabId,
+      mode,
+      markdown: markdownText({
+        result,
+        filePath,
+      }),
+    },
   });
-  panel.api.setActive();
 }
 
 type SetMarkdownModeOptions = {

@@ -32,6 +32,29 @@ import {
   openWorkspace,
 } from "./shared.ts";
 
+// Every fixture repository is hermetic: a fixed identity for commits, and no
+// signing, hooks, or user-level ignore/attribute files reaching in from the
+// machine running the suite.
+function initGitRepository(rootPath: string): void {
+  execFileSync("git", ["init", "--quiet", rootPath]);
+  const configs = [
+    ["user.name", "lmux test"],
+    ["user.email", "lmux@example.test"],
+    ["commit.gpgSign", "false"],
+    ["core.hooksPath", os.devNull],
+    ["core.excludesFile", os.devNull],
+    ["core.attributesFile", os.devNull],
+  ];
+  for (const [key, value] of configs) {
+    execFileSync("git", ["-C", rootPath, "config", key, value]);
+  }
+}
+
+function commitAll(rootPath: string, message: string): void {
+  execFileSync("git", ["-C", rootPath, "add", "."]);
+  execFileSync("git", ["-C", rootPath, "commit", "--quiet", "-m", message]);
+}
+
 // every model the page still holds, to catch a replaced file leaking its own
 const OPEN_MODEL_CONTENTS = `(() => {
   const contents = [];
@@ -247,7 +270,6 @@ async function visibleFileTreeAppearance(): Promise<FileTreeAppearance> {
 }
 
 const gitDecorationAppearanceSchema = z.object({
-  exists: z.boolean(),
   decoration: z.string().nullable(),
   badge: z.string().nullable(),
   nameColor: z.string(),
@@ -324,7 +346,6 @@ async function visibleGitDecoration({
           badge = null;
         }
         const appearance = {
-          exists: true,
           decoration: decorationValue,
           badge,
           nameColor: getComputedStyle(nameElement).color,
@@ -341,7 +362,6 @@ async function visibleGitDecoration({
       }
     }
     return {
-      exists: false,
       decoration: null,
       badge: null,
       nameColor: "",
@@ -478,58 +498,8 @@ export const fileTree = describe("the file tree", () => {
       writeFileSync(otherFilePath, "export const other = true;\n");
       writeFileSync(path.join(rootPath, ".gitignore"), "*.ignored\n");
       writeFileSync(path.join(rootPath, "example.ignored"), "ignored\n");
-      execFileSync("git", ["init", "--quiet", rootPath]);
-      execFileSync("git", [
-        "-C",
-        rootPath,
-        "config",
-        "user.name",
-        "lmux test",
-      ]);
-      execFileSync("git", [
-        "-C",
-        rootPath,
-        "config",
-        "user.email",
-        "lmux@example.test",
-      ]);
-      execFileSync("git", [
-        "-C",
-        rootPath,
-        "config",
-        "commit.gpgSign",
-        "false",
-      ]);
-      execFileSync("git", [
-        "-C",
-        rootPath,
-        "config",
-        "core.hooksPath",
-        os.devNull,
-      ]);
-      execFileSync("git", [
-        "-C",
-        rootPath,
-        "config",
-        "core.excludesFile",
-        os.devNull,
-      ]);
-      execFileSync("git", [
-        "-C",
-        rootPath,
-        "config",
-        "core.attributesFile",
-        os.devNull,
-      ]);
-      execFileSync("git", ["-C", rootPath, "add", "."]);
-      execFileSync("git", [
-        "-C",
-        rootPath,
-        "commit",
-        "--quiet",
-        "-m",
-        "Initial tree",
-      ]);
+      initGitRepository(rootPath);
+      commitAll(rootPath, "Initial tree");
       const canonicalRootPath = realpathSync(rootPath);
       const canonicalFilePath = path.join(canonicalRootPath, "example.ts");
       const canonicalOtherFilePath = path.join(canonicalRootPath, "other.ts");
@@ -865,106 +835,14 @@ export const fileTree = describe("the file tree", () => {
         path.join(os.tmpdir(), "lmux-git-submodule-"),
       );
       try {
-        execFileSync("git", ["init", "--quiet", submoduleSourcePath]);
-        execFileSync("git", [
-          "-C",
-          submoduleSourcePath,
-          "config",
-          "user.name",
-          "lmux test",
-        ]);
-        execFileSync("git", [
-          "-C",
-          submoduleSourcePath,
-          "config",
-          "user.email",
-          "lmux@example.test",
-        ]);
-        execFileSync("git", [
-          "-C",
-          submoduleSourcePath,
-          "config",
-          "commit.gpgSign",
-          "false",
-        ]);
-        execFileSync("git", [
-          "-C",
-          submoduleSourcePath,
-          "config",
-          "core.hooksPath",
-          os.devNull,
-        ]);
-        execFileSync("git", [
-          "-C",
-          submoduleSourcePath,
-          "config",
-          "core.excludesFile",
-          os.devNull,
-        ]);
-        execFileSync("git", [
-          "-C",
-          submoduleSourcePath,
-          "config",
-          "core.attributesFile",
-          os.devNull,
-        ]);
+        initGitRepository(submoduleSourcePath);
         writeFileSync(
           path.join(submoduleSourcePath, "module.ts"),
           "export const module = true;\n",
         );
-        execFileSync("git", ["-C", submoduleSourcePath, "add", "."]);
-        execFileSync("git", [
-          "-C",
-          submoduleSourcePath,
-          "commit",
-          "--quiet",
-          "-m",
-          "Initial submodule",
-        ]);
+        commitAll(submoduleSourcePath, "Initial submodule");
 
-        execFileSync("git", ["init", "--quiet", rootPath]);
-        execFileSync("git", [
-          "-C",
-          rootPath,
-          "config",
-          "user.name",
-          "lmux test",
-        ]);
-        execFileSync("git", [
-          "-C",
-          rootPath,
-          "config",
-          "user.email",
-          "lmux@example.test",
-        ]);
-        execFileSync("git", [
-          "-C",
-          rootPath,
-          "config",
-          "commit.gpgSign",
-          "false",
-        ]);
-        execFileSync("git", [
-          "-C",
-          rootPath,
-          "config",
-          "core.hooksPath",
-          os.devNull,
-        ]);
-        execFileSync("git", [
-          "-C",
-          rootPath,
-          "config",
-          "core.excludesFile",
-          os.devNull,
-        ]);
-        execFileSync("git", [
-          "-C",
-          rootPath,
-          "config",
-          "core.attributesFile",
-          os.devNull,
-        ]);
+        initGitRepository(rootPath);
         execFileSync("git", [
           "-C",
           rootPath,
@@ -1002,15 +880,7 @@ export const fileTree = describe("the file tree", () => {
           submoduleSourcePath,
           "submodule",
         ]);
-        execFileSync("git", ["-C", rootPath, "add", "."]);
-        execFileSync("git", [
-          "-C",
-          rootPath,
-          "commit",
-          "--quiet",
-          "-m",
-          "Initial repository",
-        ]);
+        commitAll(rootPath, "Initial repository");
 
         const initialBranch = execFileSync(
           "git",

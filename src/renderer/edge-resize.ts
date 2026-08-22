@@ -8,7 +8,7 @@ import {
   MIN_EDITOR_WIDTH_PX,
   MIN_SIDEBAR_WIDTH_PX,
 } from "./settings.ts";
-import { requireElement } from "./dom.ts";
+import { installDragSession, requireElement } from "./dom.ts";
 
 type EdgeResizeOptions = {
   resizerId: string;
@@ -17,26 +17,22 @@ type EdgeResizeOptions = {
   maxWidthPx: number;
   cssVariable: string;
   commitWidth: (width: number) => void;
-  // grabbing a handle inside its own region must not move the keyboard into it
   stopMousedownPropagation: boolean;
 };
 
 function installEdgeResize(options: EdgeResizeOptions): void {
-  const resizer = requireElement(options.resizerId);
+  // stays undefined until the pointer moves, so a click that resizes
+  // nothing issues no Command
+  let draggedWidth: number | undefined;
 
-  resizer.addEventListener("mousedown", (mousedownEvent) => {
-    mousedownEvent.preventDefault();
-    if (options.stopMousedownPropagation) {
-      mousedownEvent.stopPropagation();
-    }
-    resizer.classList.add("dragging");
-    document.body.classList.add("resizing");
-
-    // stays undefined until the pointer moves, so a click that resizes
-    // nothing issues no Command
-    let draggedWidth: number | undefined;
-
-    function resize(event: MouseEvent): void {
+  installDragSession({
+    handleElement: requireElement(options.resizerId),
+    stopMousedownPropagation: options.stopMousedownPropagation,
+    markBodyResizing: true,
+    onDragStart: () => {
+      draggedWidth = undefined;
+    },
+    onDragMove: (event) => {
       draggedWidth = Math.min(
         options.maxWidthPx,
         Math.max(options.minWidthPx, Math.round(options.requestedWidth(event))),
@@ -45,24 +41,14 @@ function installEdgeResize(options: EdgeResizeOptions): void {
         options.cssVariable,
         `${draggedWidth}px`,
       );
-    }
-
-    function endResize(): void {
-      document.removeEventListener("mousemove", resize, true);
-      document.removeEventListener("mouseup", endResize, true);
-      resizer.classList.remove("dragging");
-      document.body.classList.remove("resizing");
+    },
+    onDragEnd: () => {
       if (draggedWidth === undefined) {
         return;
       }
       options.commitWidth(draggedWidth);
       focusWorkspace();
-    }
-
-    // on the document, in the capture phase: the pointer spends the drag
-    // over the terminal or Monaco, which handle mouse events on the way down
-    document.addEventListener("mousemove", resize, true);
-    document.addEventListener("mouseup", endResize, true);
+    },
   });
 }
 

@@ -115,7 +115,6 @@ export function applyCssVariables(): void {
   const values = {
     ...currentTheme(),
     fontFamily: settings.fontFamily,
-    fontSize: settings.fontSize,
     uiFontFamily: settings.uiFontFamily,
     markdownFontFamily: settings.markdownFontFamily,
   };
